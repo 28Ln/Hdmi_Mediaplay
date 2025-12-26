@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.btf.rk3568_hdmi_mediaplay.ui.components.ToastMessage
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.OverwriteDialog
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.PlayerMenuDialog
 
@@ -26,6 +27,7 @@ fun MainScreen(
     val usbState by viewModel.usbState.collectAsState()
     val copyProgress by viewModel.copyProgress.collectAsState()
     val showOverwriteDialog by viewModel.showOverwriteDialog.collectAsState()
+    val toastMessage by viewModel.toastMessage.collectAsState()
     
     // 选中的播放器索引（用于显示菜单）
     var selectedPlayerIndex by remember { mutableStateOf<Int?>(null) }
@@ -50,12 +52,29 @@ fun MainScreen(
             }
         )
         
-        // U盘状态指示器
-        UsbStatusIndicator(
-            usbState = usbState,
+        // 顶部状态栏
+        Row(
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp)
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
+        ) {
+            // 帮助提示
+            HelpTip()
+            
+            // U盘状态指示器
+            UsbStatusIndicator(usbState = usbState)
+        }
+        
+        // Toast 消息
+        ToastMessage(
+            toastData = toastMessage,
+            onDismiss = { viewModel.dismissToast() },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 60.dp)
         )
         
         // 拷贝进度
@@ -103,6 +122,48 @@ fun MainScreen(
 }
 
 /**
+ * 帮助提示
+ */
+@Composable
+private fun HelpTip() {
+    var showHelp by remember { mutableStateOf(true) }
+    
+    if (showHelp) {
+        Surface(
+            color = Color.Black.copy(alpha = 0.8f),
+            shape = MaterialTheme.shapes.small,
+            onClick = { showHelp = false }
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp)
+            ) {
+                Text(
+                    text = "💡 操作提示",
+                    color = Color.Cyan,
+                    fontSize = 12.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "• 单击播放器: 播放/暂停",
+                    color = Color.White,
+                    fontSize = 10.sp
+                )
+                Text(
+                    text = "• 长按播放器: 打开菜单",
+                    color = Color.White,
+                    fontSize = 10.sp
+                )
+                Text(
+                    text = "• 点击此处关闭提示",
+                    color = Color.Gray,
+                    fontSize = 10.sp
+                )
+            }
+        }
+    }
+}
+
+/**
  * U盘状态指示器
  */
 @Composable
@@ -110,15 +171,16 @@ private fun UsbStatusIndicator(
     usbState: MainViewModel.UsbState,
     modifier: Modifier = Modifier
 ) {
-    val (text, color) = when (usbState) {
-        is MainViewModel.UsbState.Disconnected -> "U盘未连接" to Color.Gray
+    val (text, color, icon) = when (usbState) {
+        is MainViewModel.UsbState.Disconnected -> Triple("U盘未连接", Color.Gray, "🔌")
         is MainViewModel.UsbState.Connected -> {
             if (usbState.hasMediaContent) {
-                "U盘已连接 ✓" to Color.Green
+                Triple("U盘已连接", Color.Green, "✅")
             } else {
-                "U盘已连接 (无媒体)" to Color.Yellow
+                Triple("U盘无媒体", Color.Yellow, "⚠️")
             }
         }
+        is MainViewModel.UsbState.Error -> Triple("U盘错误", Color.Red, "❌")
     }
     
     Surface(
@@ -126,12 +188,18 @@ private fun UsbStatusIndicator(
         color = Color.Black.copy(alpha = 0.7f),
         shape = MaterialTheme.shapes.small
     ) {
-        Text(
-            text = text,
-            color = color,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(text = icon, fontSize = 14.sp)
+            Text(
+                text = text,
+                color = color,
+                fontSize = 12.sp
+            )
+        }
     }
 }
 
@@ -145,41 +213,88 @@ private fun CopyProgressOverlay(
 ) {
     Surface(
         modifier = modifier,
-        color = Color.Black.copy(alpha = 0.8f),
+        color = Color.Black.copy(alpha = 0.9f),
         shape = MaterialTheme.shapes.medium
     ) {
         Column(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier.padding(32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            if (progress.isComplete) {
-                Text(
-                    text = "✓ 拷贝完成",
-                    color = Color.Green,
-                    fontSize = 16.sp
-                )
-            } else {
-                Text(
-                    text = "正在拷贝播放器 ${progress.playerIndex + 1} 的内容...",
-                    color = Color.White,
-                    fontSize = 14.sp
-                )
+            when {
+                progress.error != null -> {
+                    Text(text = "❌", fontSize = 48.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "拷贝失败",
+                        color = Color.Red,
+                        fontSize = 18.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = progress.error,
+                        color = Color.Gray,
+                        fontSize = 12.sp
+                    )
+                }
                 
-                Spacer(modifier = Modifier.height(12.dp))
+                progress.isComplete -> {
+                    Text(text = "✅", fontSize = 48.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "拷贝完成！",
+                        color = Color.Green,
+                        fontSize = 18.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "即将开始播放...",
+                        color = Color.Gray,
+                        fontSize = 12.sp
+                    )
+                }
                 
-                LinearProgressIndicator(
-                    progress = { progress.progress },
-                    modifier = Modifier.width(200.dp),
-                    color = Color.Cyan
-                )
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                Text(
-                    text = "${(progress.progress * 100).toInt()}%",
-                    color = Color.White,
-                    fontSize = 12.sp
-                )
+                else -> {
+                    Text(text = "📁", fontSize = 48.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "正在拷贝文件",
+                        color = Color.White,
+                        fontSize = 18.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "播放器 ${progress.playerIndex + 1} / 4",
+                        color = Color.Cyan,
+                        fontSize = 14.sp
+                    )
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    LinearProgressIndicator(
+                        progress = { progress.progress },
+                        modifier = Modifier
+                            .width(240.dp)
+                            .height(8.dp),
+                        color = Color.Cyan,
+                        trackColor = Color.DarkGray
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Text(
+                        text = "${(progress.progress * 100).toInt()}%",
+                        color = Color.White,
+                        fontSize = 14.sp
+                    )
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Text(
+                        text = "请勿拔出U盘...",
+                        color = Color.Yellow,
+                        fontSize = 12.sp
+                    )
+                }
             }
         }
     }
@@ -196,33 +311,55 @@ private fun BottomControlBar(
     onScanUsbClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // 默认隐藏，鼠标悬停或触摸时显示
-    var isVisible by remember { mutableStateOf(false) }
-    
     Surface(
         modifier = modifier,
-        color = Color.Black.copy(alpha = 0.7f),
+        color = Color.Black.copy(alpha = 0.8f),
         shape = MaterialTheme.shapes.medium
     ) {
         Row(
-            modifier = Modifier.padding(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            TextButton(onClick = onPlayAllClick) {
-                Text("▶ 全部播放", color = Color.White, fontSize = 12.sp)
-            }
+            ControlButton(
+                icon = "▶",
+                text = "全部播放",
+                onClick = onPlayAllClick
+            )
             
-            TextButton(onClick = onPauseAllClick) {
-                Text("⏸ 全部暂停", color = Color.White, fontSize = 12.sp)
-            }
+            ControlButton(
+                icon = "⏸",
+                text = "全部暂停",
+                onClick = onPauseAllClick
+            )
             
-            TextButton(onClick = onScanUsbClick) {
-                Text("🔍 扫描U盘", color = Color.White, fontSize = 12.sp)
-            }
+            ControlButton(
+                icon = "🔍",
+                text = "扫描U盘",
+                onClick = onScanUsbClick
+            )
             
-            TextButton(onClick = onSettingsClick) {
-                Text("⚙ 设置", color = Color.White, fontSize = 12.sp)
-            }
+            ControlButton(
+                icon = "⚙",
+                text = "设置",
+                onClick = onSettingsClick
+            )
         }
+    }
+}
+
+@Composable
+private fun ControlButton(
+    icon: String,
+    text: String,
+    onClick: () -> Unit
+) {
+    TextButton(
+        onClick = onClick,
+        colors = ButtonDefaults.textButtonColors(
+            contentColor = Color.White
+        )
+    ) {
+        Text(text = "$icon $text", fontSize = 13.sp)
     }
 }

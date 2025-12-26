@@ -2,6 +2,7 @@ package com.btf.rk3568_hdmi_mediaplay.ui.player
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -9,6 +10,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.btf.rk3568_hdmi_mediaplay.data.model.*
@@ -25,7 +28,8 @@ fun MediaPlayerView(
     showIndex: Boolean = true,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
-    onPlaybackEnded: (() -> Unit)? = null
+    onPlaybackEnded: (() -> Unit)? = null,
+    onError: ((String) -> Unit)? = null
 ) {
     val mediaItems = playerConfig.mediaItems
     val currentItem = mediaItems.getOrNull(playerConfig.currentIndex)
@@ -33,7 +37,12 @@ fun MediaPlayerView(
     Box(
         modifier = modifier
             .background(Color(settings.backgroundColor))
-            .clickable { onClick?.invoke() },
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { onClick?.invoke() },
+                    onLongPress = { onLongClick?.invoke() }
+                )
+            },
         contentAlignment = Alignment.Center
     ) {
         when {
@@ -52,7 +61,10 @@ fun MediaPlayerView(
             
             // 错误状态
             playerConfig.state == PlayerState.ERROR -> {
-                ErrorContent(message = "播放错误")
+                ErrorContent(
+                    message = "播放出错",
+                    suggestion = "请检查文件格式或重新选择"
+                )
             }
             
             // 视频内容
@@ -65,7 +77,10 @@ fun MediaPlayerView(
                     isMuted = playerConfig.isMuted || settings.defaultMuted,
                     isLooping = playerConfig.isLooping,
                     scaleMode = settings.videoScaleMode,
-                    onPlaybackEnded = onPlaybackEnded
+                    onPlaybackEnded = onPlaybackEnded,
+                    onError = { e ->
+                        onError?.invoke(e.message ?: "视频播放错误")
+                    }
                 )
             }
             
@@ -87,7 +102,10 @@ fun MediaPlayerView(
             
             // 未知类型
             else -> {
-                ErrorContent(message = "不支持的格式")
+                ErrorContent(
+                    message = "不支持的格式",
+                    suggestion = "支持: MP4, MKV, AVI, JPG, PNG 等"
+                )
             }
         }
         
@@ -95,10 +113,17 @@ fun MediaPlayerView(
         if (showIndex && settings.showPlayerIndex) {
             PlayerIndexBadge(
                 index = playerConfig.index,
+                state = playerConfig.state,
+                hasContent = mediaItems.isNotEmpty(),
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(8.dp)
             )
+        }
+        
+        // 暂停状态指示
+        if (playerConfig.state == PlayerState.PAUSED && mediaItems.isNotEmpty()) {
+            PausedOverlay()
         }
     }
 }
@@ -110,18 +135,26 @@ private fun EmptyPlayerContent(
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Center,
+        modifier = Modifier.padding(16.dp)
     ) {
         Text(
+            text = "📺",
+            fontSize = 48.sp
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
             text = if (showIndex) "播放器 ${playerIndex + 1}" else "无内容",
-            color = Color.Gray,
-            fontSize = 16.sp
+            color = Color.White,
+            fontSize = 18.sp
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "点击选择媒体文件",
-            color = Color.DarkGray,
-            fontSize = 12.sp
+            text = "长按选择媒体文件\n或插入U盘自动加载",
+            color = Color.Gray,
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center,
+            lineHeight = 18.sp
         )
     }
 }
@@ -133,51 +166,90 @@ private fun LoadingContent() {
         verticalArrangement = Arrangement.Center
     ) {
         CircularProgressIndicator(
-            color = Color.White,
-            modifier = Modifier.size(32.dp)
+            color = Color.Cyan,
+            modifier = Modifier.size(48.dp),
+            strokeWidth = 4.dp
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         Text(
             text = "加载中...",
             color = Color.White,
-            fontSize = 12.sp
+            fontSize = 14.sp
         )
     }
 }
 
 @Composable
-private fun ErrorContent(message: String) {
+private fun ErrorContent(
+    message: String,
+    suggestion: String? = null
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Center,
+        modifier = Modifier.padding(16.dp)
     ) {
         Text(
-            text = "⚠️",
-            fontSize = 32.sp
+            text = "❌",
+            fontSize = 48.sp
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         Text(
             text = message,
             color = Color.Red,
-            fontSize = 14.sp
+            fontSize = 16.sp
         )
+        suggestion?.let {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = it,
+                color = Color.Gray,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 
 @Composable
 private fun PlayerIndexBadge(
     index: Int,
+    state: PlayerState,
+    hasContent: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val (backgroundColor, textColor) = when {
+        state == PlayerState.ERROR -> Color.Red to Color.White
+        state == PlayerState.PLAYING -> Color.Green.copy(alpha = 0.8f) to Color.White
+        state == PlayerState.PAUSED -> Color.Yellow.copy(alpha = 0.8f) to Color.Black
+        hasContent -> Color.Cyan.copy(alpha = 0.8f) to Color.Black
+        else -> Color.Gray.copy(alpha = 0.8f) to Color.White
+    }
+    
     Box(
         modifier = modifier
-            .background(Color.Black.copy(alpha = 0.6f))
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .background(backgroundColor)
+            .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
         Text(
             text = "${index + 1}",
-            color = Color.White,
+            color = textColor,
             fontSize = 14.sp
+        )
+    }
+}
+
+@Composable
+private fun PausedOverlay() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.5f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "⏸",
+            fontSize = 64.sp
         )
     }
 }
