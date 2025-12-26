@@ -22,7 +22,8 @@ fun PlayerMenuDialog(
     onTogglePlayPause: () -> Unit,
     onToggleMute: () -> Unit,
     onSelectFile: () -> Unit,
-    onClearContent: (() -> Unit)? = null
+    onClearContent: (() -> Unit)? = null,
+    onScanLocal: (() -> Unit)? = null
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -104,6 +105,15 @@ fun PlayerMenuDialog(
                     icon = "📁",
                     text = "选择文件",
                     onClick = onSelectFile
+                )
+                
+                MenuButton(
+                    icon = "🔍",
+                    text = "扫描本地媒体",
+                    onClick = {
+                        onScanLocal?.invoke()
+                        onDismiss()
+                    }
                 )
                 
                 if (playerConfig?.mediaItems?.isNotEmpty() == true) {

@@ -321,6 +321,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     
     /**
+     * 为指定播放器设置媒体文件（带重复检测）
+     * 不允许多个播放器播放同一个文件
+     */
+    fun setMediaFilesWithDuplicateCheck(playerIndex: Int, mediaItems: List<MediaItem>) {
+        // 获取其他播放器正在使用的文件路径
+        val otherPlayerPaths = _playerConfigs.value
+            .filterIndexed { index, _ -> index != playerIndex }
+            .flatMap { it.mediaItems }
+            .map { it.path }
+            .toSet()
+        
+        // 过滤掉已被其他播放器使用的文件
+        val filteredItems = mediaItems.filter { item ->
+            item.path !in otherPlayerPaths
+        }
+        
+        val duplicateCount = mediaItems.size - filteredItems.size
+        
+        if (filteredItems.isEmpty() && duplicateCount > 0) {
+            showToast("所选文件已被其他播放器使用", MessageType.WARNING)
+            return
+        }
+        
+        if (duplicateCount > 0) {
+            showToast("已过滤 $duplicateCount 个重复文件", MessageType.WARNING)
+        }
+        
+        // 设置过滤后的文件
+        setMediaFiles(playerIndex, filteredItems)
+    }
+    
+    /**
      * 播放全部
      */
     fun playAll() {
@@ -427,6 +459,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (index == playerIndex) {
                     config.copy(state = PlayerState.ERROR)
                 } else config
+            }
+        }
+    }
+    
+    /**
+     * 扫描本地媒体文件
+     */
+    fun scanLocalMedia(playerIndex: Int) {
+        safeLaunch {
+            showToast("扫描本地媒体...", MessageType.INFO)
+            
+            val context = getApplication<Application>()
+            val mediaItems = withContext(Dispatchers.IO) {
+                com.btf.rk3568_hdmi_mediaplay.util.LocalMediaScanner.scanExternalStorage(context)
+            }
+            
+            if (mediaItems.isNotEmpty()) {
+                // 使用带重复检测的方法
+                setMediaFilesWithDuplicateCheck(playerIndex, mediaItems)
+            } else {
+                showToast("未找到媒体文件", MessageType.WARNING)
             }
         }
     }

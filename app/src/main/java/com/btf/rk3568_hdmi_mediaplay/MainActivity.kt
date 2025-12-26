@@ -21,6 +21,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -102,8 +103,8 @@ class MainActivity : ComponentActivity() {
                 val mainViewModel: MainViewModel = viewModel()
                 val settings by mainViewModel.settings.collectAsState()
                 
-                // 当前选择文件的播放器索引
-                var selectingPlayerIndex by remember { mutableIntStateOf(-1) }
+                // 当前选择文件的播放器索引 - 使用 rememberSaveable 保持状态
+                var selectingPlayerIndex by rememberSaveable { mutableIntStateOf(-1) }
                 
                 // 文件选择器
                 val filePickerLauncher = rememberLauncherForActivityResult(
@@ -115,7 +116,8 @@ class MainActivity : ComponentActivity() {
                             uris
                         )
                         if (mediaItems.isNotEmpty()) {
-                            mainViewModel.setMediaFiles(selectingPlayerIndex, mediaItems)
+                            // 检查重复文件并设置
+                            mainViewModel.setMediaFilesWithDuplicateCheck(selectingPlayerIndex, mediaItems)
                         } else {
                             showToast("无法加载所选文件")
                         }

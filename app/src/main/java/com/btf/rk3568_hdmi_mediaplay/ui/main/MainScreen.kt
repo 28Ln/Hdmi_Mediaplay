@@ -1,18 +1,22 @@
 package com.btf.rk3568_hdmi_mediaplay.ui.main
 
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.btf.rk3568_hdmi_mediaplay.ui.components.ToastMessage
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.OverwriteDialog
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.PlayerMenuDialog
+import kotlinx.coroutines.delay
 
 /**
  * 主界面
@@ -32,6 +36,17 @@ fun MainScreen(
     
     // 选中的播放器索引（用于显示菜单）
     var selectedPlayerIndex by remember { mutableStateOf<Int?>(null) }
+    
+    // 底部控制栏显示状态
+    var showBottomBar by remember { mutableStateOf(false) }
+    
+    // 自动隐藏计时器
+    LaunchedEffect(showBottomBar) {
+        if (showBottomBar) {
+            delay(5000) // 5秒后自动隐藏
+            showBottomBar = false
+        }
+    }
     
     Box(
         modifier = Modifier
@@ -53,6 +68,20 @@ fun MainScreen(
             }
         )
         
+        // 底部触发区域 - 触摸底部显示控制栏
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(60.dp)
+                .align(Alignment.BottomCenter)
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { showBottomBar = true },
+                        onPress = { showBottomBar = true }
+                    )
+                }
+        )
+        
         // 顶部状态栏
         Row(
             modifier = Modifier
@@ -63,7 +92,7 @@ fun MainScreen(
             verticalAlignment = Alignment.Top
         ) {
             // 帮助提示
-            HelpTip()
+            HelpTip(onShowBottomBar = { showBottomBar = true })
             
             // U盘状态指示器
             UsbStatusIndicator(usbState = usbState)
@@ -86,16 +115,22 @@ fun MainScreen(
             )
         }
         
-        // 底部控制栏
-        BottomControlBar(
-            onSettingsClick = onNavigateToSettings,
-            onPlayAllClick = { viewModel.playAll() },
-            onPauseAllClick = { viewModel.pauseAll() },
-            onScanUsbClick = { viewModel.scanUsb() },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(16.dp)
-        )
+        // 底部控制栏 - 带动画
+        AnimatedVisibility(
+            visible = showBottomBar,
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            BottomControlBar(
+                onSettingsClick = onNavigateToSettings,
+                onPlayAllClick = { viewModel.playAll() },
+                onPauseAllClick = { viewModel.pauseAll() },
+                onScanUsbClick = { viewModel.scanUsb() },
+                onHide = { showBottomBar = false },
+                modifier = Modifier.padding(16.dp)
+            )
+        }
     }
     
     // 覆盖确认对话框
@@ -120,6 +155,9 @@ fun MainScreen(
             },
             onClearContent = {
                 viewModel.setMediaFiles(index, emptyList())
+            },
+            onScanLocal = {
+                viewModel.scanLocalMedia(index)
             }
         )
     }
@@ -129,7 +167,7 @@ fun MainScreen(
  * 帮助提示
  */
 @Composable
-private fun HelpTip() {
+private fun HelpTip(onShowBottomBar: () -> Unit = {}) {
     var showHelp by remember { mutableStateOf(true) }
     
     if (showHelp) {
@@ -154,6 +192,11 @@ private fun HelpTip() {
                 )
                 Text(
                     text = "• 长按播放器: 打开菜单",
+                    color = Color.White,
+                    fontSize = 10.sp
+                )
+                Text(
+                    text = "• 触摸底部: 显示控制栏",
                     color = Color.White,
                     fontSize = 10.sp
                 )
@@ -313,6 +356,7 @@ private fun BottomControlBar(
     onPlayAllClick: () -> Unit,
     onPauseAllClick: () -> Unit,
     onScanUsbClick: () -> Unit,
+    onHide: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -348,6 +392,16 @@ private fun BottomControlBar(
                 text = "设置",
                 onClick = onSettingsClick
             )
+            
+            // 隐藏按钮
+            TextButton(
+                onClick = onHide,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = Color.Gray
+                )
+            ) {
+                Text(text = "✕", fontSize = 16.sp)
+            }
         }
     }
 }

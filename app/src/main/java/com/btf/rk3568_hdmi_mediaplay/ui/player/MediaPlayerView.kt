@@ -1,5 +1,6 @@
 package com.btf.rk3568_hdmi_mediaplay.ui.player
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -15,10 +16,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.btf.rk3568_hdmi_mediaplay.data.model.*
 
+private const val TAG = "MediaPlayerView"
+
 /**
  * 统一媒体播放器组件
- * 根据媒体类型自动切换视频播放器或图片显示
- * 支持视频列表循环播放
+ * 优化: 减少重组、稳定回调、内存管理
  */
 @Composable
 fun MediaPlayerView(
@@ -30,16 +32,15 @@ fun MediaPlayerView(
     onLongClick: (() -> Unit)? = null,
     onPlaybackEnded: (() -> Unit)? = null,
     onError: ((String) -> Unit)? = null,
-    onNextVideo: ((Int) -> Unit)? = null  // 切换到下一个视频的回调
+    onNextVideo: ((Int) -> Unit)? = null
 ) {
+    // 使用 remember 缓存媒体分类，避免每次重组都计算
     val mediaItems = playerConfig.mediaItems
     
-    // 分离视频和图片
-    val videoItems = remember(mediaItems) {
-        mediaItems.filter { it.type == MediaType.VIDEO }
-    }
-    val imageItems = remember(mediaItems) {
-        mediaItems.filter { it.type == MediaType.IMAGE }
+    val (videoItems, imageItems) = remember(mediaItems) {
+        val videos = mediaItems.filter { it.type == MediaType.VIDEO }
+        val images = mediaItems.filter { it.type == MediaType.IMAGE }
+        videos to images
     }
     
     // 当前播放的视频索引
@@ -47,35 +48,40 @@ fun MediaPlayerView(
     
     // 重置索引当媒体列表变化
     LaunchedEffect(mediaItems) {
-        currentVideoIndex = 0
+        if (currentVideoIndex >= videoItems.size) {
+            currentVideoIndex = 0
+        }
     }
     
-    // 确定当前显示的内容类型
     val hasVideos = videoItems.isNotEmpty()
     val hasImages = imageItems.isNotEmpty()
-    val currentItem = mediaItems.getOrNull(playerConfig.currentIndex)
+    
+    // 使用 remember 缓存手势处理器
+    val gestureModifier = remember(onClick, onLongClick) {
+        Modifier.pointerInput(Unit) {
+            detectTapGestures(
+                onTap = { 
+                    try {
+                        onClick?.invoke() 
+                    } catch (e: Exception) {
+                        Log.e(TAG, "onClick error", e)
+                    }
+                },
+                onLongPress = { 
+                    try {
+                        onLongClick?.invoke() 
+                    } catch (e: Exception) {
+                        Log.e(TAG, "onLongClick error", e)
+                    }
+                }
+            )
+        }
+    }
     
     Box(
         modifier = modifier
             .background(Color(settings.backgroundColor))
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { 
-                        try {
-                            onClick?.invoke() 
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-                    },
-                    onLongPress = { 
-                        try {
-                            onLongClick?.invoke() 
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-                    }
-                )
-            },
+            .then(gestureModifier),
         contentAlignment = Alignment.Center
     ) {
         when {
@@ -104,30 +110,46 @@ fun MediaPlayerView(
             hasVideos -> {
                 val currentVideo = videoItems.getOrNull(currentVideoIndex)
                 if (currentVideo != null) {
-                    VideoPlayerView(
-                        mediaPath = currentVideo.path,
-                        modifier = Modifier.fillMaxSize(),
-                        isPlaying = playerConfig.state == PlayerState.PLAYING,
-                        volume = playerConfig.volume * (settings.defaultVolume / 100f),
-                        isMuted = playerConfig.isMuted || settings.defaultMuted,
-                        isLooping = videoItems.size == 1 && settings.loopMode != LoopMode.RANDOM,
-                        scaleMode = settings.videoScaleMode,
-                        onPlaybackEnded = {
-                            // 视频播放完成，切换到下一个
-                            if (videoItems.size > 1) {
-                                currentVideoIndex = when (settings.loopMode) {
-                                    LoopMode.SINGLE -> currentVideoIndex
-                                    LoopMode.LIST -> (currentVideoIndex + 1) % videoItems.size
-                                    LoopMode.RANDOM -> (0 until videoItems.size).random()
+                    // 使用 key 确保视频切换时重新创建播放器
+                    key(currentVideo.path) {
+                        VideoPlayerView(
+                            mediaPath = currentVideo.path,
+                            modifier = Modifier.fillMaxSize(),
+                            isPlaying = playerConfig.state == PlayerState.PLAYING,
+                            volume = playerConfig.volume * (settings.defaultVolume / 100f),
+                            isMuted = playerConfig.isMuted || settings.defaultMuted,
+                            isLooping = videoItems.size == 1 && settings.loopMode != LoopMode.RANDOM,
+                            scaleMode = settings.videoScaleMode,
+                            onPlaybackEnded = {
+                                // 视频播放完成，切换到下一个
+                                if (videoItems.size > 1) {
+                                    val nextIndex = when (settings.loopMode) {
+                                        LoopMode.SINGLE -> currentVideoIndex
+                                        LoopMode.LIST -> (currentVideoIndex + 1) % videoItems.size
+                                        LoopMode.RANDOM -> (0 until videoItems.size).random()
+                                    }
+                                    currentVideoIndex = nextIndex
+                                    try {
+                                        onNextVideo?.invoke(nextIndex)
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "onNextVideo error", e)
+                                    }
                                 }
-                                onNextVideo?.invoke(currentVideoIndex)
+                                try {
+                                    onPlaybackEnded?.invoke()
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "onPlaybackEnded error", e)
+                                }
+                            },
+                            onError = { e ->
+                                try {
+                                    onError?.invoke(e.message ?: "视频播放错误")
+                                } catch (ex: Exception) {
+                                    Log.e(TAG, "onError callback error", ex)
+                                }
                             }
-                            onPlaybackEnded?.invoke()
-                        },
-                        onError = { e ->
-                            onError?.invoke(e.message ?: "视频播放错误")
-                        }
-                    )
+                        )
+                    }
                     
                     // 视频数量指示器
                     if (videoItems.size > 1) {
@@ -144,7 +166,7 @@ fun MediaPlayerView(
             
             // 只有图片
             hasImages -> {
-                val imagePaths = imageItems.map { it.path }
+                val imagePaths = remember(imageItems) { imageItems.map { it.path } }
                 
                 ImageDisplayView(
                     imagePaths = imagePaths,
@@ -152,7 +174,14 @@ fun MediaPlayerView(
                     intervalSeconds = settings.imageIntervalSeconds,
                     transition = settings.imageTransition,
                     scaleMode = settings.videoScaleMode,
-                    isPlaying = playerConfig.state == PlayerState.PLAYING
+                    isPlaying = playerConfig.state == PlayerState.PLAYING,
+                    onError = { msg ->
+                        try {
+                            onError?.invoke(msg)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "onError callback error", e)
+                        }
+                    }
                 )
             }
             
@@ -165,7 +194,7 @@ fun MediaPlayerView(
             }
         }
         
-        // 播放器编号标识
+        // 播放器编号标识 - 使用 derivedStateOf 减少重组
         if (showIndex && settings.showPlayerIndex) {
             PlayerIndexBadge(
                 index = playerConfig.index,
@@ -274,12 +303,14 @@ private fun PlayerIndexBadge(
     hasContent: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val (backgroundColor, textColor) = when {
-        state == PlayerState.ERROR -> Color.Red to Color.White
-        state == PlayerState.PLAYING -> Color.Green.copy(alpha = 0.8f) to Color.White
-        state == PlayerState.PAUSED -> Color.Yellow.copy(alpha = 0.8f) to Color.Black
-        hasContent -> Color.Cyan.copy(alpha = 0.8f) to Color.Black
-        else -> Color.Gray.copy(alpha = 0.8f) to Color.White
+    val (backgroundColor, textColor) = remember(state, hasContent) {
+        when {
+            state == PlayerState.ERROR -> Color.Red to Color.White
+            state == PlayerState.PLAYING -> Color.Green.copy(alpha = 0.8f) to Color.White
+            state == PlayerState.PAUSED -> Color.Yellow.copy(alpha = 0.8f) to Color.Black
+            hasContent -> Color.Cyan.copy(alpha = 0.8f) to Color.Black
+            else -> Color.Gray.copy(alpha = 0.8f) to Color.White
+        }
     }
     
     Box(
