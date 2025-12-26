@@ -20,15 +20,30 @@ android {
         }
     }
 
+    // 签名配置
+    signingConfigs {
+        create("release") {
+            storeFile = file("../app.jks")
+            storePassword = "byteflyer"
+            keyAlias = "byteflyer"
+            keyPassword = "byteflyer"
+        }
+    }
+
     buildTypes {
+        debug {
+            isMinifyEnabled = false
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
+    
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
