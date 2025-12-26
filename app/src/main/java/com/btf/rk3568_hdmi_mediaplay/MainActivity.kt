@@ -12,8 +12,6 @@ import android.os.Environment
 import android.os.IBinder
 import android.provider.Settings
 import android.view.View
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -21,8 +19,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.btf.rk3568_hdmi_mediaplay.data.local.LocalStorageManager
+import com.btf.rk3568_hdmi_mediaplay.data.model.AppSettings
 import com.btf.rk3568_hdmi_mediaplay.service.UsbMonitorService
 import com.btf.rk3568_hdmi_mediaplay.ui.main.MainScreen
 import com.btf.rk3568_hdmi_mediaplay.ui.main.MainViewModel
@@ -33,13 +35,18 @@ class MainActivity : ComponentActivity() {
     
     private var usbMonitorService: UsbMonitorService? = null
     private var serviceBound = false
-    private lateinit var localStorageManager: LocalStorageManager
+    private var localStorageManager: LocalStorageManager? = null
     
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            val binder = service as UsbMonitorService.LocalBinder
-            usbMonitorService = binder.getService()
-            serviceBound = true
+            try {
+                val binder = service as? UsbMonitorService.LocalBinder
+                usbMonitorService = binder?.getService()
+                serviceBound = true
+            } catch (e: Exception) {
+                e.printStackTrace()
+                showToast("服务连接失败")
+            }
         }
         
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -51,32 +58,42 @@ class MainActivity : ComponentActivity() {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        // 权限请求结果处理
         val allGranted = permissions.all { it.value }
         if (allGranted) {
             startUsbMonitorService()
-            showToast("权限已授予，应用已准备就绪")
+            showToast("权限已授予")
         } else {
-            showToast("部分权限被拒绝，可能影响U盘读取功能")
+            showToast("部分权限被拒绝，U盘功能可能受限")
         }
     }
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        localStorageManager = LocalStorageManager(this)
-        
-        // 设置全屏
-        setupFullscreen()
+        // 初始化存储管理器
+        try {
+            localStorageManager = LocalStorageManager(this)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         
         // 保持屏幕常亮
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        try {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         
         // 请求权限
         requestPermissions()
         
         setContent {
             Rk3568_hdmi_mediaplayTheme {
+                // 设置全屏 - 在 Compose 中设置更安全
+                LaunchedEffect(Unit) {
+                    setupFullscreen()
+                }
+                
                 var currentScreen by remember { mutableStateOf<Screen>(Screen.Main) }
                 val mainViewModel: MainViewModel = viewModel()
                 val settings by mainViewModel.settings.collectAsState()
@@ -84,18 +101,33 @@ class MainActivity : ComponentActivity() {
                 // 获取缓存大小
                 var cacheSizeMB by remember { mutableLongStateOf(0L) }
                 LaunchedEffect(Unit) {
-                    cacheSizeMB = localStorageManager.getCacheSizeMB()
+                    try {
+                        cacheSizeMB = localStorageManager?.getCacheSizeMB() ?: 0L
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
                 
                 // 设置U盘监听回调
                 LaunchedEffect(serviceBound) {
-                    usbMonitorService?.let { service ->
-                        service.onUsbConnected = { path, hasMedia ->
-                            mainViewModel.onUsbConnected(path, hasMedia)
+                    if (serviceBound) {
+                        usbMonitorService?.let { service ->
+                            service.onUsbConnected = { path, hasMedia ->
+                                mainViewModel.onUsbConnected(path, hasMedia)
+                            }
+                            service.onUsbDisconnected = {
+                                mainViewModel.onUsbDisconnected()
+                            }
                         }
-                        service.onUsbDisconnected = {
-                            mainViewModel.onUsbDisconnected()
-                        }
+                    }
+                }
+                
+                // 根据设置控制屏幕常亮
+                LaunchedEffect(settings.keepScreenOn) {
+                    if (settings.keepScreenOn) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     }
                 }
                 
@@ -116,7 +148,7 @@ class MainActivity : ComponentActivity() {
                                 cacheSizeMB = 0
                             },
                             onResetSettings = { 
-                                mainViewModel.updateSettings(com.btf.rk3568_hdmi_mediaplay.data.model.AppSettings())
+                                mainViewModel.updateSettings(AppSettings())
                             },
                             onBack = { currentScreen = Screen.Main },
                             cacheSizeMB = cacheSizeMB
@@ -129,72 +161,103 @@ class MainActivity : ComponentActivity() {
     
     override fun onStart() {
         super.onStart()
-        // 绑定U盘监听服务
-        Intent(this, UsbMonitorService::class.java).also { intent ->
-            bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        // 绑定U盘监听服务 (检查是否已绑定)
+        if (!serviceBound) {
+            try {
+                Intent(this, UsbMonitorService::class.java).also { intent ->
+                    bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                showToast("绑定服务失败")
+            }
         }
     }
     
     override fun onStop() {
         super.onStop()
+        // 解绑服务
         if (serviceBound) {
-            unbindService(serviceConnection)
-            serviceBound = false
+            try {
+                unbindService(serviceConnection)
+                serviceBound = false
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
     
+    override fun onResume() {
+        super.onResume()
+        // 恢复全屏
+        setupFullscreen()
+    }
+    
+    /**
+     * 设置全屏 - 使用 WindowCompat 更安全
+     */
     private fun setupFullscreen() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.insetsController?.let { controller ->
-                controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        try {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } catch (e: Exception) {
+            // 降级处理：使用旧 API
+            try {
+                @Suppress("DEPRECATION")
+                window.decorView.systemUiVisibility = (
+                    View.SYSTEM_UI_FLAG_FULLSCREEN
+                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                )
+            } catch (e2: Exception) {
+                e2.printStackTrace()
             }
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_FULLSCREEN
-                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-            )
         }
     }
     
     private fun requestPermissions() {
         val permissions = mutableListOf<String>()
         
-        // 存储权限
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Android 11+ 需要 MANAGE_EXTERNAL_STORAGE
-            if (!Environment.isExternalStorageManager()) {
-                try {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                // Android 11+ 需要 MANAGE_EXTERNAL_STORAGE
+                if (!Environment.isExternalStorageManager()) {
                     showToast("请授予文件管理权限以读取U盘")
-                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                    startActivity(intent)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    showToast("无法打开权限设置页面")
+                    try {
+                        val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        showToast("无法打开权限设置")
+                    }
+                } else {
+                    startUsbMonitorService()
                 }
             } else {
-                startUsbMonitorService()
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) 
+                    != PackageManager.PERMISSION_GRANTED) {
+                    permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+                }
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) 
+                    != PackageManager.PERMISSION_GRANTED) {
+                    permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                }
+                
+                if (permissions.isNotEmpty()) {
+                    permissionLauncher.launch(permissions.toTypedArray())
+                } else {
+                    startUsbMonitorService()
+                }
             }
-        } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) 
-                != PackageManager.PERMISSION_GRANTED) {
-                permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) 
-                != PackageManager.PERMISSION_GRANTED) {
-                permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            }
-            
-            if (permissions.isNotEmpty()) {
-                permissionLauncher.launch(permissions.toTypedArray())
-            } else {
-                startUsbMonitorService()
-            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            showToast("权限请求失败")
         }
     }
     
@@ -209,12 +272,16 @@ class MainActivity : ComponentActivity() {
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            showToast("启动U盘监听服务失败")
+            showToast("启动服务失败")
         }
     }
     
     private fun showToast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        try {
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
     
     sealed class Screen {

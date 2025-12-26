@@ -12,8 +12,8 @@ import com.btf.rk3568_hdmi_mediaplay.ui.components.MessageType
 import com.btf.rk3568_hdmi_mediaplay.ui.components.ToastData
 import com.btf.rk3568_hdmi_mediaplay.util.FileUtils
 import com.btf.rk3568_hdmi_mediaplay.util.UsbUtils
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
 import java.io.File
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -22,8 +22,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val TAG = "MainViewModel"
     }
     
-    private val settingsRepository = SettingsRepository(application)
-    private val localStorageManager = LocalStorageManager(application)
+    // 协程异常处理器
+    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.e(TAG, "Coroutine exception: ${throwable.message}")
+        throwable.printStackTrace()
+        showToast("操作失败: ${throwable.message}", MessageType.ERROR)
+    }
+    
+    // 安全的协程作用域
+    private val safeScope = viewModelScope + exceptionHandler
+    
+    private val settingsRepository: SettingsRepository
+    private val localStorageManager: LocalStorageManager
+    
+    init {
+        settingsRepository = SettingsRepository(application)
+        localStorageManager = LocalStorageManager(application)
+        
+        // 启动时加载本地内容
+        loadLocalContent()
+    }
     
     // 设置
     val settings: StateFlow<AppSettings> = settingsRepository.settingsFlow
@@ -91,7 +109,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 加载本地缓存内容
      */
     fun loadLocalContent() {
-        viewModelScope.launch {
+        safeScope.launch {
             try {
                 log("开始加载本地内容...")
                 val allMedia = localStorageManager.getAllLocalMediaFiles()
@@ -114,11 +132,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     showToast("已加载本地缓存内容", MessageType.SUCCESS)
                 } else {
                     log("本地无缓存内容")
-                    showToast("本地无缓存内容，请插入U盘或手动选择文件", MessageType.INFO)
+                    showToast("本地无缓存内容，请插入U盘", MessageType.INFO)
                 }
             } catch (e: Exception) {
                 log("加载本地内容失败: ${e.message}")
-                showToast("加载本地内容失败: ${e.message}", MessageType.ERROR)
+                showToast("加载失败: ${e.message}", MessageType.ERROR)
                 _errorMessage.value = "加载失败: ${e.message}"
             }
         }
@@ -128,14 +146,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * U盘连接
      */
     fun onUsbConnected(path: File, hasMediaContent: Boolean) {
-        viewModelScope.launch {
+        safeScope.launch {
             try {
                 log("U盘已连接: ${path.absolutePath}, 有媒体内容: $hasMediaContent")
                 _usbState.value = UsbState.Connected(path, hasMediaContent)
                 
                 if (!hasMediaContent) {
                     val folderName = settings.value.usbScanFolderName
-                    showToast("U盘已连接，但未找到 /$folderName 目录或媒体文件", MessageType.WARNING)
+                    showToast("U盘已连接，但未找到 /$folderName 目录", MessageType.WARNING)
                     return@launch
                 }
                 
@@ -204,7 +222,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 从U盘拷贝内容
      */
     private fun copyFromUsb(usbPath: File, folderName: String) {
-        viewModelScope.launch {
+        safeScope.launch {
             try {
                 log("开始从U盘拷贝: ${usbPath.absolutePath}/$folderName")
                 showToast("开始拷贝U盘内容...", MessageType.INFO)
@@ -227,7 +245,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 
                 // 延迟后隐藏进度
-                kotlinx.coroutines.delay(1500)
+                delay(1500)
                 _copyProgress.value = null
                 
                 if (success && settings.value.autoPlayAfterCopy) {
@@ -238,7 +256,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _copyProgress.value = CopyProgress(0, 0f, error = e.message)
                 showToast("拷贝出错: ${e.message}", MessageType.ERROR)
                 
-                kotlinx.coroutines.delay(2000)
+                delay(2000)
                 _copyProgress.value = null
             }
         }
@@ -360,10 +378,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 更新设置
      */
     fun updateSettings(newSettings: AppSettings) {
-        viewModelScope.launch {
+        safeScope.launch {
             try {
                 settingsRepository.updateSettings(newSettings)
-                showToast("设置已保存", MessageType.SUCCESS)
+                // 不显示保存成功提示，避免频繁弹窗
             } catch (e: Exception) {
                 showToast("保存设置失败: ${e.message}", MessageType.ERROR)
             }
@@ -374,7 +392,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 清除所有缓存
      */
     fun clearAllCache() {
-        viewModelScope.launch {
+        safeScope.launch {
             try {
                 val sizeBefore = localStorageManager.getCacheSizeMB()
                 localStorageManager.clearAllCache()
@@ -392,7 +410,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 手动扫描U盘
      */
     fun scanUsb() {
-        viewModelScope.launch {
+        safeScope.launch {
             try {
                 showToast("正在扫描U盘...", MessageType.INFO)
                 
@@ -400,7 +418,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val usbPaths = UsbUtils.getMountedUsbPaths(context)
                 
                 if (usbPaths.isEmpty()) {
-                    showToast("未检测到U盘，请确认U盘已正确插入", MessageType.WARNING)
+                    showToast("未检测到U盘", MessageType.WARNING)
                     _usbState.value = UsbState.Disconnected
                     return@launch
                 }
@@ -410,7 +428,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val hasMedia = UsbUtils.hasValidMediaStructure(usbPath, folderName)
                 
                 if (!hasMedia) {
-                    showToast("U盘中未找到有效的媒体目录结构\n请确保存在 /$folderName/player1~4 目录", MessageType.WARNING)
+                    showToast("U盘中未找到 /$folderName/player1~4 目录", MessageType.WARNING)
                 }
                 
                 onUsbConnected(usbPath, hasMedia)

@@ -29,11 +29,13 @@ enum class MessageType {
 data class ToastData(
     val message: String,
     val type: MessageType = MessageType.INFO,
-    val durationMs: Long = 3000
+    val durationMs: Long = 3000,
+    val id: Long = System.currentTimeMillis()  // 唯一ID，用于区分消息
 )
 
 /**
  * Toast 消息组件
+ * 修复: 使用唯一ID避免消息重叠问题
  */
 @Composable
 fun ToastMessage(
@@ -41,25 +43,48 @@ fun ToastMessage(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var currentToast by remember { mutableStateOf<ToastData?>(null) }
     var visible by remember { mutableStateOf(false) }
     
-    LaunchedEffect(toastData) {
+    // 当新消息到来时，立即显示（取消前一个）
+    LaunchedEffect(toastData?.id) {
         if (toastData != null) {
+            // 如果有新消息，先隐藏旧的
+            if (visible) {
+                visible = false
+                delay(100)  // 短暂延迟让动画完成
+            }
+            
+            currentToast = toastData
             visible = true
+            
+            // 等待显示时间
             delay(toastData.durationMs)
-            visible = false
-            delay(300) // 等待动画完成
-            onDismiss()
+            
+            // 只有当前显示的消息ID匹配时才隐藏
+            if (currentToast?.id == toastData.id) {
+                visible = false
+                delay(300)  // 等待退出动画
+                
+                // 再次检查，避免新消息被误清除
+                if (currentToast?.id == toastData.id) {
+                    try {
+                        onDismiss()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
         }
     }
     
     AnimatedVisibility(
-        visible = visible && toastData != null,
+        visible = visible && currentToast != null,
         enter = fadeIn() + slideInVertically { -it },
         exit = fadeOut() + slideOutVertically { -it },
         modifier = modifier
     ) {
-        toastData?.let { data ->
+        currentToast?.let { data ->
             val (backgroundColor, icon) = when (data.type) {
                 MessageType.INFO -> Color(0xFF2196F3) to "ℹ️"
                 MessageType.SUCCESS -> Color(0xFF4CAF50) to "✅"
@@ -80,31 +105,11 @@ fun ToastMessage(
                     Text(
                         text = data.message,
                         color = Color.White,
-                        fontSize = 14.sp
+                        fontSize = 14.sp,
+                        maxLines = 2
                     )
                 }
             }
         }
-    }
-}
-
-/**
- * 全局消息管理器
- */
-object ToastManager {
-    private val _currentToast = mutableStateOf<ToastData?>(null)
-    val currentToast: State<ToastData?> = _currentToast
-    
-    fun show(message: String, type: MessageType = MessageType.INFO, durationMs: Long = 3000) {
-        _currentToast.value = ToastData(message, type, durationMs)
-    }
-    
-    fun showInfo(message: String) = show(message, MessageType.INFO)
-    fun showSuccess(message: String) = show(message, MessageType.SUCCESS)
-    fun showWarning(message: String) = show(message, MessageType.WARNING)
-    fun showError(message: String) = show(message, MessageType.ERROR, 5000)
-    
-    fun dismiss() {
-        _currentToast.value = null
     }
 }

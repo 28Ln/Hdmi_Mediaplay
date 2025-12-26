@@ -1,7 +1,6 @@
 package com.btf.rk3568_hdmi_mediaplay.ui.player
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.CircularProgressIndicator
@@ -19,6 +18,7 @@ import com.btf.rk3568_hdmi_mediaplay.data.model.*
 /**
  * 统一媒体播放器组件
  * 根据媒体类型自动切换视频播放器或图片显示
+ * 支持视频列表循环播放
  */
 @Composable
 fun MediaPlayerView(
@@ -29,9 +29,30 @@ fun MediaPlayerView(
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     onPlaybackEnded: (() -> Unit)? = null,
-    onError: ((String) -> Unit)? = null
+    onError: ((String) -> Unit)? = null,
+    onNextVideo: ((Int) -> Unit)? = null  // 切换到下一个视频的回调
 ) {
     val mediaItems = playerConfig.mediaItems
+    
+    // 分离视频和图片
+    val videoItems = remember(mediaItems) {
+        mediaItems.filter { it.type == MediaType.VIDEO }
+    }
+    val imageItems = remember(mediaItems) {
+        mediaItems.filter { it.type == MediaType.IMAGE }
+    }
+    
+    // 当前播放的视频索引
+    var currentVideoIndex by remember { mutableIntStateOf(0) }
+    
+    // 重置索引当媒体列表变化
+    LaunchedEffect(mediaItems) {
+        currentVideoIndex = 0
+    }
+    
+    // 确定当前显示的内容类型
+    val hasVideos = videoItems.isNotEmpty()
+    val hasImages = imageItems.isNotEmpty()
     val currentItem = mediaItems.getOrNull(playerConfig.currentIndex)
     
     Box(
@@ -39,8 +60,20 @@ fun MediaPlayerView(
             .background(Color(settings.backgroundColor))
             .pointerInput(Unit) {
                 detectTapGestures(
-                    onTap = { onClick?.invoke() },
-                    onLongPress = { onLongClick?.invoke() }
+                    onTap = { 
+                        try {
+                            onClick?.invoke() 
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    },
+                    onLongPress = { 
+                        try {
+                            onLongClick?.invoke() 
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
                 )
             },
         contentAlignment = Alignment.Center
@@ -67,28 +100,51 @@ fun MediaPlayerView(
                 )
             }
             
-            // 视频内容
-            currentItem?.type == MediaType.VIDEO -> {
-                VideoPlayerView(
-                    mediaPath = currentItem.path,
-                    modifier = Modifier.fillMaxSize(),
-                    isPlaying = playerConfig.state == PlayerState.PLAYING,
-                    volume = playerConfig.volume,
-                    isMuted = playerConfig.isMuted || settings.defaultMuted,
-                    isLooping = playerConfig.isLooping,
-                    scaleMode = settings.videoScaleMode,
-                    onPlaybackEnded = onPlaybackEnded,
-                    onError = { e ->
-                        onError?.invoke(e.message ?: "视频播放错误")
+            // 优先播放视频
+            hasVideos -> {
+                val currentVideo = videoItems.getOrNull(currentVideoIndex)
+                if (currentVideo != null) {
+                    VideoPlayerView(
+                        mediaPath = currentVideo.path,
+                        modifier = Modifier.fillMaxSize(),
+                        isPlaying = playerConfig.state == PlayerState.PLAYING,
+                        volume = playerConfig.volume * (settings.defaultVolume / 100f),
+                        isMuted = playerConfig.isMuted || settings.defaultMuted,
+                        isLooping = videoItems.size == 1 && settings.loopMode != LoopMode.RANDOM,
+                        scaleMode = settings.videoScaleMode,
+                        onPlaybackEnded = {
+                            // 视频播放完成，切换到下一个
+                            if (videoItems.size > 1) {
+                                currentVideoIndex = when (settings.loopMode) {
+                                    LoopMode.SINGLE -> currentVideoIndex
+                                    LoopMode.LIST -> (currentVideoIndex + 1) % videoItems.size
+                                    LoopMode.RANDOM -> (0 until videoItems.size).random()
+                                }
+                                onNextVideo?.invoke(currentVideoIndex)
+                            }
+                            onPlaybackEnded?.invoke()
+                        },
+                        onError = { e ->
+                            onError?.invoke(e.message ?: "视频播放错误")
+                        }
+                    )
+                    
+                    // 视频数量指示器
+                    if (videoItems.size > 1) {
+                        VideoIndexIndicator(
+                            current = currentVideoIndex + 1,
+                            total = videoItems.size,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(8.dp)
+                        )
                     }
-                )
+                }
             }
             
-            // 图片内容
-            currentItem?.type == MediaType.IMAGE -> {
-                val imagePaths = mediaItems
-                    .filter { it.type == MediaType.IMAGE }
-                    .map { it.path }
+            // 只有图片
+            hasImages -> {
+                val imagePaths = imageItems.map { it.path }
                 
                 ImageDisplayView(
                     imagePaths = imagePaths,
@@ -235,6 +291,25 @@ private fun PlayerIndexBadge(
             text = "${index + 1}",
             color = textColor,
             fontSize = 14.sp
+        )
+    }
+}
+
+@Composable
+private fun VideoIndexIndicator(
+    current: Int,
+    total: Int,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .background(Color.Black.copy(alpha = 0.6f))
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = "$current/$total",
+            color = Color.White,
+            fontSize = 10.sp
         )
     }
 }
