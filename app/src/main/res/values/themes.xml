@@ -2,4 +2,14 @@
 <resources>
 
     <style name="Theme.Rk3568_hdmi_mediaplay" parent="android:Theme.Material.Light.NoActionBar" />
+    
+    <!-- 全屏主题 -->
+    <style name="Theme.Rk3568_hdmi_mediaplay.Fullscreen" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
 </resources>
