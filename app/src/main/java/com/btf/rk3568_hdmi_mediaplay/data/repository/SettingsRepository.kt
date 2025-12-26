@@ -6,7 +6,9 @@ import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.btf.rk3568_hdmi_mediaplay.data.model.*
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -46,67 +48,100 @@ class SettingsRepository(private val context: Context) {
         private val ENABLE_DEBUG_LOG = booleanPreferencesKey("enable_debug_log")
     }
     
-    val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { preferences ->
-        AppSettings(
-            showOverwriteConfirm = preferences[SHOW_OVERWRITE_CONFIRM] ?: true,
-            autoPlayOnStart = preferences[AUTO_PLAY_ON_START] ?: true,
-            bootAutoStart = preferences[BOOT_AUTO_START] ?: false,
-            loopMode = preferences[LOOP_MODE]?.let { LoopMode.valueOf(it) } ?: LoopMode.LIST,
-            
-            defaultVolume = preferences[DEFAULT_VOLUME] ?: 100,
-            defaultMuted = preferences[DEFAULT_MUTED] ?: false,
-            videoScaleMode = preferences[VIDEO_SCALE_MODE]?.let { VideoScaleMode.valueOf(it) } ?: VideoScaleMode.FIT,
-            useHardwareDecode = preferences[USE_HARDWARE_DECODE] ?: true,
-            
-            imageIntervalSeconds = preferences[IMAGE_INTERVAL_SECONDS] ?: 5,
-            imageTransition = preferences[IMAGE_TRANSITION]?.let { ImageTransition.valueOf(it) } ?: ImageTransition.FADE,
-            
-            usbDetectionEnabled = preferences[USB_DETECTION_ENABLED] ?: true,
-            usbScanFolderName = preferences[USB_SCAN_FOLDER_NAME] ?: "media",
-            autoPlayAfterCopy = preferences[AUTO_PLAY_AFTER_COPY] ?: true,
-            showCopyProgress = preferences[SHOW_COPY_PROGRESS] ?: true,
-            
-            layoutMode = preferences[LAYOUT_MODE]?.let { LayoutMode.valueOf(it) } ?: LayoutMode.GRID_2X2,
-            showPlayerIndex = preferences[SHOW_PLAYER_INDEX] ?: true,
-            keepScreenOn = preferences[KEEP_SCREEN_ON] ?: true,
-            backgroundColor = preferences[BACKGROUND_COLOR] ?: 0xFF000000,
-            
-            maxCacheSizeMB = preferences[MAX_CACHE_SIZE_MB] ?: 2048,
-            enableDebugLog = preferences[ENABLE_DEBUG_LOG] ?: false
-        )
-    }
+    val settingsFlow: Flow<AppSettings> = context.dataStore.data
+        .catch { exception ->
+            // 处理读取错误，返回默认值
+            if (exception is IOException) {
+                emit(emptyPreferences())
+            } else {
+                throw exception
+            }
+        }
+        .map { preferences ->
+            try {
+                AppSettings(
+                    showOverwriteConfirm = preferences[SHOW_OVERWRITE_CONFIRM] ?: true,
+                    autoPlayOnStart = preferences[AUTO_PLAY_ON_START] ?: true,
+                    bootAutoStart = preferences[BOOT_AUTO_START] ?: false,
+                    loopMode = safeEnumValueOf(preferences[LOOP_MODE], LoopMode.LIST),
+                    
+                    defaultVolume = preferences[DEFAULT_VOLUME] ?: 100,
+                    defaultMuted = preferences[DEFAULT_MUTED] ?: false,
+                    videoScaleMode = safeEnumValueOf(preferences[VIDEO_SCALE_MODE], VideoScaleMode.FIT),
+                    useHardwareDecode = preferences[USE_HARDWARE_DECODE] ?: true,
+                    
+                    imageIntervalSeconds = preferences[IMAGE_INTERVAL_SECONDS] ?: 5,
+                    imageTransition = safeEnumValueOf(preferences[IMAGE_TRANSITION], ImageTransition.FADE),
+                    
+                    usbDetectionEnabled = preferences[USB_DETECTION_ENABLED] ?: true,
+                    usbScanFolderName = preferences[USB_SCAN_FOLDER_NAME] ?: "media",
+                    autoPlayAfterCopy = preferences[AUTO_PLAY_AFTER_COPY] ?: true,
+                    showCopyProgress = preferences[SHOW_COPY_PROGRESS] ?: true,
+                    
+                    layoutMode = safeEnumValueOf(preferences[LAYOUT_MODE], LayoutMode.GRID_2X2),
+                    showPlayerIndex = preferences[SHOW_PLAYER_INDEX] ?: true,
+                    keepScreenOn = preferences[KEEP_SCREEN_ON] ?: true,
+                    backgroundColor = preferences[BACKGROUND_COLOR] ?: 0xFF000000,
+                    
+                    maxCacheSizeMB = preferences[MAX_CACHE_SIZE_MB] ?: 2048,
+                    enableDebugLog = preferences[ENABLE_DEBUG_LOG] ?: false
+                )
+            } catch (e: Exception) {
+                // 如果解析失败，返回默认设置
+                AppSettings()
+            }
+        }
     
     suspend fun updateSettings(settings: AppSettings) {
-        context.dataStore.edit { preferences ->
-            preferences[SHOW_OVERWRITE_CONFIRM] = settings.showOverwriteConfirm
-            preferences[AUTO_PLAY_ON_START] = settings.autoPlayOnStart
-            preferences[BOOT_AUTO_START] = settings.bootAutoStart
-            preferences[LOOP_MODE] = settings.loopMode.name
-            
-            preferences[DEFAULT_VOLUME] = settings.defaultVolume
-            preferences[DEFAULT_MUTED] = settings.defaultMuted
-            preferences[VIDEO_SCALE_MODE] = settings.videoScaleMode.name
-            preferences[USE_HARDWARE_DECODE] = settings.useHardwareDecode
-            
-            preferences[IMAGE_INTERVAL_SECONDS] = settings.imageIntervalSeconds
-            preferences[IMAGE_TRANSITION] = settings.imageTransition.name
-            
-            preferences[USB_DETECTION_ENABLED] = settings.usbDetectionEnabled
-            preferences[USB_SCAN_FOLDER_NAME] = settings.usbScanFolderName
-            preferences[AUTO_PLAY_AFTER_COPY] = settings.autoPlayAfterCopy
-            preferences[SHOW_COPY_PROGRESS] = settings.showCopyProgress
-            
-            preferences[LAYOUT_MODE] = settings.layoutMode.name
-            preferences[SHOW_PLAYER_INDEX] = settings.showPlayerIndex
-            preferences[KEEP_SCREEN_ON] = settings.keepScreenOn
-            preferences[BACKGROUND_COLOR] = settings.backgroundColor
-            
-            preferences[MAX_CACHE_SIZE_MB] = settings.maxCacheSizeMB
-            preferences[ENABLE_DEBUG_LOG] = settings.enableDebugLog
+        try {
+            context.dataStore.edit { preferences ->
+                preferences[SHOW_OVERWRITE_CONFIRM] = settings.showOverwriteConfirm
+                preferences[AUTO_PLAY_ON_START] = settings.autoPlayOnStart
+                preferences[BOOT_AUTO_START] = settings.bootAutoStart
+                preferences[LOOP_MODE] = settings.loopMode.name
+                
+                preferences[DEFAULT_VOLUME] = settings.defaultVolume
+                preferences[DEFAULT_MUTED] = settings.defaultMuted
+                preferences[VIDEO_SCALE_MODE] = settings.videoScaleMode.name
+                preferences[USE_HARDWARE_DECODE] = settings.useHardwareDecode
+                
+                preferences[IMAGE_INTERVAL_SECONDS] = settings.imageIntervalSeconds
+                preferences[IMAGE_TRANSITION] = settings.imageTransition.name
+                
+                preferences[USB_DETECTION_ENABLED] = settings.usbDetectionEnabled
+                preferences[USB_SCAN_FOLDER_NAME] = settings.usbScanFolderName
+                preferences[AUTO_PLAY_AFTER_COPY] = settings.autoPlayAfterCopy
+                preferences[SHOW_COPY_PROGRESS] = settings.showCopyProgress
+                
+                preferences[LAYOUT_MODE] = settings.layoutMode.name
+                preferences[SHOW_PLAYER_INDEX] = settings.showPlayerIndex
+                preferences[KEEP_SCREEN_ON] = settings.keepScreenOn
+                preferences[BACKGROUND_COLOR] = settings.backgroundColor
+                
+                preferences[MAX_CACHE_SIZE_MB] = settings.maxCacheSizeMB
+                preferences[ENABLE_DEBUG_LOG] = settings.enableDebugLog
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
     
     suspend fun resetToDefaults() {
-        context.dataStore.edit { it.clear() }
+        try {
+            context.dataStore.edit { it.clear() }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    
+    /**
+     * 安全的枚举值解析
+     */
+    private inline fun <reified T : Enum<T>> safeEnumValueOf(value: String?, default: T): T {
+        return try {
+            value?.let { enumValueOf<T>(it) } ?: default
+        } catch (e: Exception) {
+            default
+        }
     }
 }

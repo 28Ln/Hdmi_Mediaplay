@@ -23,13 +23,11 @@ object UsbUtils {
         
         // 方法1: 通过 StorageManager 获取
         try {
-            val storageManager = context.getSystemService(Context.STORAGE_SERVICE) as StorageManager
-            val storageVolumes = storageManager.storageVolumes
-            
-            for (volume in storageVolumes) {
-                if (volume.isRemovable) {
-                    // 使用反射获取路径 (Android 11+)
-                    try {
+            val storageManager = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
+            storageManager?.storageVolumes?.forEach { volume ->
+                try {
+                    if (volume.isRemovable) {
+                        // 使用反射获取路径 (Android 11+)
                         val getPath = volume.javaClass.getMethod("getPath")
                         val path = getPath.invoke(volume) as? String
                         path?.let { 
@@ -38,9 +36,9 @@ object UsbUtils {
                                 usbPaths.add(file)
                             }
                         }
-                    } catch (e: Exception) {
-                        // 忽略反射错误
                     }
+                } catch (e: Exception) {
+                    // 忽略单个卷的错误
                 }
             }
         } catch (e: Exception) {
@@ -49,15 +47,23 @@ object UsbUtils {
         
         // 方法2: 扫描常见挂载路径
         for (basePath in USB_MOUNT_PATHS) {
-            val baseDir = File(basePath)
-            if (baseDir.exists() && baseDir.isDirectory) {
-                baseDir.listFiles()?.forEach { subDir ->
-                    if (subDir.isDirectory && subDir.canRead() && !isInternalStorage(subDir)) {
-                        if (!usbPaths.any { it.absolutePath == subDir.absolutePath }) {
-                            usbPaths.add(subDir)
+            try {
+                val baseDir = File(basePath)
+                if (baseDir.exists() && baseDir.isDirectory) {
+                    baseDir.listFiles()?.forEach { subDir ->
+                        try {
+                            if (subDir.isDirectory && subDir.canRead() && !isInternalStorage(subDir)) {
+                                if (!usbPaths.any { it.absolutePath == subDir.absolutePath }) {
+                                    usbPaths.add(subDir)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            // 忽略单个目录的错误
                         }
                     }
                 }
+            } catch (e: Exception) {
+                // 忽略单个路径的错误
             }
         }
         
@@ -68,10 +74,14 @@ object UsbUtils {
      * 判断是否为内部存储
      */
     private fun isInternalStorage(file: File): Boolean {
-        val internalPath = Environment.getExternalStorageDirectory().absolutePath
-        return file.absolutePath.startsWith(internalPath) || 
-               file.name == "emulated" ||
-               file.name == "self"
+        return try {
+            val internalPath = Environment.getExternalStorageDirectory().absolutePath
+            file.absolutePath.startsWith(internalPath) || 
+                   file.name == "emulated" ||
+                   file.name == "self"
+        } catch (e: Exception) {
+            false
+        }
     }
     
     /**
@@ -85,22 +95,32 @@ object UsbUtils {
      * 获取U盘中指定播放器的目录
      */
     fun getUsbPlayerDir(usbPath: File, folderName: String, playerIndex: Int): File {
-        return File(getUsbMediaDir(usbPath, folderName), FileUtils.PLAYER_FOLDERS[playerIndex])
+        val safeIndex = playerIndex.coerceIn(0, FileUtils.PLAYER_FOLDERS.size - 1)
+        return File(getUsbMediaDir(usbPath, folderName), FileUtils.PLAYER_FOLDERS[safeIndex])
     }
     
     /**
      * 检查U盘是否包含有效的媒体目录结构
      */
     fun hasValidMediaStructure(usbPath: File, folderName: String): Boolean {
-        val mediaDir = getUsbMediaDir(usbPath, folderName)
-        if (!mediaDir.exists() || !mediaDir.isDirectory) return false
-        
-        // 检查是否至少有一个播放器目录包含媒体文件
-        return FileUtils.PLAYER_FOLDERS.any { playerFolder ->
-            val playerDir = File(mediaDir, playerFolder)
-            playerDir.exists() && 
-            playerDir.isDirectory && 
-            playerDir.listFiles()?.any { MediaTypeUtils.isSupportedMedia(it.name) } == true
+        return try {
+            val mediaDir = getUsbMediaDir(usbPath, folderName)
+            if (!mediaDir.exists() || !mediaDir.isDirectory) return false
+            
+            // 检查是否至少有一个播放器目录包含媒体文件
+            FileUtils.PLAYER_FOLDERS.any { playerFolder ->
+                try {
+                    val playerDir = File(mediaDir, playerFolder)
+                    playerDir.exists() && 
+                    playerDir.isDirectory && 
+                    playerDir.listFiles()?.any { MediaTypeUtils.isSupportedMedia(it.name) } == true
+                } catch (e: Exception) {
+                    false
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
         }
     }
     
@@ -116,12 +136,22 @@ object UsbUtils {
     )
     
     fun getUsbInfo(usbPath: File, folderName: String): UsbInfo {
-        return UsbInfo(
-            path = usbPath,
-            name = usbPath.name,
-            totalSpace = usbPath.totalSpace,
-            freeSpace = usbPath.freeSpace,
-            hasMediaContent = hasValidMediaStructure(usbPath, folderName)
-        )
+        return try {
+            UsbInfo(
+                path = usbPath,
+                name = usbPath.name,
+                totalSpace = usbPath.totalSpace,
+                freeSpace = usbPath.freeSpace,
+                hasMediaContent = hasValidMediaStructure(usbPath, folderName)
+            )
+        } catch (e: Exception) {
+            UsbInfo(
+                path = usbPath,
+                name = usbPath.name,
+                totalSpace = 0,
+                freeSpace = 0,
+                hasMediaContent = false
+            )
+        }
     }
 }
