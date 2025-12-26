@@ -12,8 +12,11 @@ import com.btf.rk3568_hdmi_mediaplay.ui.components.MessageType
 import com.btf.rk3568_hdmi_mediaplay.ui.components.ToastData
 import com.btf.rk3568_hdmi_mediaplay.util.FileUtils
 import com.btf.rk3568_hdmi_mediaplay.util.UsbUtils
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -22,26 +25,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val TAG = "MainViewModel"
     }
     
-    // 协程异常处理器
-    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
-        Log.e(TAG, "Coroutine exception: ${throwable.message}")
-        throwable.printStackTrace()
-        showToast("操作失败: ${throwable.message}", MessageType.ERROR)
-    }
-    
-    // 安全的协程作用域
-    private val safeScope = viewModelScope + exceptionHandler
-    
-    private val settingsRepository: SettingsRepository
-    private val localStorageManager: LocalStorageManager
-    
-    init {
-        settingsRepository = SettingsRepository(application)
-        localStorageManager = LocalStorageManager(application)
-        
-        // 启动时加载本地内容
-        loadLocalContent()
-    }
+    private val settingsRepository: SettingsRepository = SettingsRepository(application)
+    private val localStorageManager: LocalStorageManager = LocalStorageManager(application)
     
     // 设置
     val settings: StateFlow<AppSettings> = settingsRepository.settingsFlow
@@ -69,10 +54,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _toastMessage = MutableStateFlow<ToastData?>(null)
     val toastMessage: StateFlow<ToastData?> = _toastMessage.asStateFlow()
     
-    // 错误信息
-    private val _errorMessage = MutableStateFlow<String?>(null)
-    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
-    
     // 待处理的U盘路径
     private var pendingUsbPath: File? = null
     
@@ -95,10 +76,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     
     /**
-     * 显示 Toast 消息
+     * 显示 Toast 消息 - 线程安全
      */
     fun showToast(message: String, type: MessageType = MessageType.INFO) {
-        _toastMessage.value = ToastData(message, type)
+        viewModelScope.launch(Dispatchers.Main.immediate) {
+            _toastMessage.value = ToastData(message, type)
+        }
     }
     
     fun dismissToast() {
@@ -106,38 +89,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     
     /**
+     * 安全执行协程任务
+     */
+    private fun safeLaunch(block: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                block()
+            } catch (e: Exception) {
+                Log.e(TAG, "Task failed: ${e.message}")
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    _toastMessage.value = ToastData("操作失败: ${e.message}", MessageType.ERROR)
+                }
+            }
+        }
+    }
+    
+    /**
      * 加载本地缓存内容
      */
     fun loadLocalContent() {
-        safeScope.launch {
-            try {
-                log("开始加载本地内容...")
-                val allMedia = localStorageManager.getAllLocalMediaFiles()
-                
-                var hasContent = false
-                _playerConfigs.update { configs ->
-                    configs.mapIndexed { index, config ->
-                        val mediaItems = allMedia[index] ?: emptyList()
-                        if (mediaItems.isNotEmpty()) hasContent = true
-                        config.copy(
-                            mediaItems = mediaItems,
-                            state = if (mediaItems.isNotEmpty() && settings.value.autoPlayOnStart) 
-                                PlayerState.PLAYING else PlayerState.IDLE
-                        )
-                    }
+        safeLaunch {
+            log("开始加载本地内容...")
+            
+            val allMedia = withContext(Dispatchers.IO) {
+                localStorageManager.getAllLocalMediaFiles()
+            }
+            
+            var hasContent = false
+            _playerConfigs.update { configs ->
+                configs.mapIndexed { index, config ->
+                    val mediaItems = allMedia[index] ?: emptyList()
+                    if (mediaItems.isNotEmpty()) hasContent = true
+                    config.copy(
+                        mediaItems = mediaItems,
+                        state = if (mediaItems.isNotEmpty() && settings.value.autoPlayOnStart) 
+                            PlayerState.PLAYING else PlayerState.IDLE
+                    )
                 }
-                
-                if (hasContent) {
-                    log("本地内容加载完成")
-                    showToast("已加载本地缓存内容", MessageType.SUCCESS)
-                } else {
-                    log("本地无缓存内容")
-                    showToast("本地无缓存内容，请插入U盘", MessageType.INFO)
-                }
-            } catch (e: Exception) {
-                log("加载本地内容失败: ${e.message}")
-                showToast("加载失败: ${e.message}", MessageType.ERROR)
-                _errorMessage.value = "加载失败: ${e.message}"
+            }
+            
+            if (hasContent) {
+                log("本地内容加载完成")
+                showToast("已加载本地缓存", MessageType.SUCCESS)
+            } else {
+                log("本地无缓存内容")
+                // 首次启动不显示提示，避免干扰
             }
         }
     }
@@ -146,43 +143,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * U盘连接
      */
     fun onUsbConnected(path: File, hasMediaContent: Boolean) {
-        safeScope.launch {
-            try {
-                log("U盘已连接: ${path.absolutePath}, 有媒体内容: $hasMediaContent")
-                _usbState.value = UsbState.Connected(path, hasMediaContent)
-                
-                if (!hasMediaContent) {
-                    val folderName = settings.value.usbScanFolderName
-                    showToast("U盘已连接，但未找到 /$folderName 目录", MessageType.WARNING)
-                    return@launch
-                }
-                
-                showToast("检测到U盘媒体内容", MessageType.INFO)
-                
-                // 检查存储空间
-                val requiredSpace = calculateRequiredSpace(path)
-                val availableSpace = getAvailableSpace()
-                
-                if (requiredSpace > availableSpace) {
-                    val required = FileUtils.formatFileSize(requiredSpace)
-                    val available = FileUtils.formatFileSize(availableSpace)
-                    showToast("存储空间不足！需要 $required，可用 $available", MessageType.ERROR)
-                    _usbState.value = UsbState.Error("存储空间不足")
-                    return@launch
-                }
-                
-                // 检查是否需要确认覆盖
-                if (settings.value.showOverwriteConfirm && localStorageManager.hasLocalContent()) {
-                    pendingUsbPath = path
-                    _showOverwriteDialog.value = true
-                } else {
-                    // 自动覆盖
-                    copyFromUsb(path, settings.value.usbScanFolderName)
-                }
-            } catch (e: Exception) {
-                log("处理U盘连接失败: ${e.message}")
-                showToast("处理U盘失败: ${e.message}", MessageType.ERROR)
-                _usbState.value = UsbState.Error(e.message ?: "未知错误")
+        safeLaunch {
+            log("U盘已连接: ${path.absolutePath}, 有媒体内容: $hasMediaContent")
+            _usbState.value = UsbState.Connected(path, hasMediaContent)
+            
+            if (!hasMediaContent) {
+                val folderName = settings.value.usbScanFolderName
+                showToast("U盘已连接，未找到 /$folderName 目录", MessageType.WARNING)
+                return@safeLaunch
+            }
+            
+            showToast("检测到U盘媒体内容", MessageType.INFO)
+            
+            // 检查存储空间
+            val requiredSpace = withContext(Dispatchers.IO) {
+                calculateRequiredSpace(path)
+            }
+            val availableSpace = getAvailableSpace()
+            
+            if (requiredSpace > availableSpace) {
+                val required = FileUtils.formatFileSize(requiredSpace)
+                val available = FileUtils.formatFileSize(availableSpace)
+                showToast("存储空间不足！需要 $required，可用 $available", MessageType.ERROR)
+                _usbState.value = UsbState.Error("存储空间不足")
+                return@safeLaunch
+            }
+            
+            // 检查是否需要确认覆盖
+            val hasLocal = withContext(Dispatchers.IO) {
+                localStorageManager.hasLocalContent()
+            }
+            
+            if (settings.value.showOverwriteConfirm && hasLocal) {
+                pendingUsbPath = path
+                _showOverwriteDialog.value = true
+            } else {
+                copyFromUsb(path, settings.value.usbScanFolderName)
             }
         }
     }
@@ -193,8 +189,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onUsbDisconnected() {
         log("U盘已断开")
         _usbState.value = UsbState.Disconnected
-        showToast("U盘已断开，切换到本地内容", MessageType.INFO)
-        // 切换回本地内容
+        showToast("U盘已断开", MessageType.INFO)
         loadLocalContent()
     }
     
@@ -215,49 +210,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun cancelOverwrite() {
         _showOverwriteDialog.value = false
         pendingUsbPath = null
-        showToast("已取消，继续播放本地内容", MessageType.INFO)
+        showToast("已取消覆盖", MessageType.INFO)
     }
     
     /**
      * 从U盘拷贝内容
      */
     private fun copyFromUsb(usbPath: File, folderName: String) {
-        safeScope.launch {
-            try {
-                log("开始从U盘拷贝: ${usbPath.absolutePath}/$folderName")
-                showToast("开始拷贝U盘内容...", MessageType.INFO)
-                
-                // 显示拷贝进度
-                _copyProgress.value = CopyProgress(0, 0f)
-                
-                val success = localStorageManager.copyAllFromUsb(usbPath, folderName) { playerIndex, progress ->
+        safeLaunch {
+            log("开始从U盘拷贝: ${usbPath.absolutePath}/$folderName")
+            showToast("开始拷贝...", MessageType.INFO)
+            
+            _copyProgress.value = CopyProgress(0, 0f)
+            
+            val success = withContext(Dispatchers.IO) {
+                localStorageManager.copyAllFromUsb(usbPath, folderName) { playerIndex, progress ->
                     _copyProgress.value = CopyProgress(playerIndex, progress)
                 }
-                
-                if (success) {
-                    _copyProgress.value = CopyProgress(3, 1f, isComplete = true)
-                    log("拷贝完成")
-                    showToast("拷贝完成！", MessageType.SUCCESS)
-                } else {
-                    _copyProgress.value = CopyProgress(0, 0f, error = "拷贝失败")
-                    log("拷贝失败")
-                    showToast("拷贝失败，请检查U盘", MessageType.ERROR)
-                }
-                
-                // 延迟后隐藏进度
-                delay(1500)
-                _copyProgress.value = null
-                
-                if (success && settings.value.autoPlayAfterCopy) {
-                    loadLocalContent()
-                }
-            } catch (e: Exception) {
-                log("拷贝异常: ${e.message}")
-                _copyProgress.value = CopyProgress(0, 0f, error = e.message)
-                showToast("拷贝出错: ${e.message}", MessageType.ERROR)
-                
-                delay(2000)
-                _copyProgress.value = null
+            }
+            
+            if (success) {
+                _copyProgress.value = CopyProgress(3, 1f, isComplete = true)
+                log("拷贝完成")
+                showToast("拷贝完成！", MessageType.SUCCESS)
+            } else {
+                _copyProgress.value = CopyProgress(0, 0f, error = "拷贝失败")
+                log("拷贝失败")
+                showToast("拷贝失败", MessageType.ERROR)
+            }
+            
+            delay(1500)
+            _copyProgress.value = null
+            
+            if (success && settings.value.autoPlayAfterCopy) {
+                loadLocalContent()
             }
         }
     }
@@ -276,7 +262,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             if (config.mediaItems.isNotEmpty()) {
                                 PlayerState.PLAYING
                             } else {
-                                showToast("播放器 ${index + 1} 无内容", MessageType.WARNING)
                                 PlayerState.IDLE
                             }
                         }
@@ -295,12 +280,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _playerConfigs.update { configs ->
             configs.mapIndexed { index, config ->
                 if (index == playerIndex) {
-                    val newMuted = !config.isMuted
-                    showToast(
-                        "播放器 ${index + 1} ${if (newMuted) "已静音" else "已取消静音"}",
-                        MessageType.INFO
-                    )
-                    config.copy(isMuted = newMuted)
+                    config.copy(isMuted = !config.isMuted)
                 } else config
             }
         }
@@ -326,11 +306,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _playerConfigs.update { configs ->
             configs.mapIndexed { index, config ->
                 if (index == playerIndex) {
-                    if (mediaItems.isEmpty()) {
-                        showToast("未选择任何文件", MessageType.WARNING)
-                    } else {
-                        showToast("已为播放器 ${index + 1} 设置 ${mediaItems.size} 个文件", MessageType.SUCCESS)
-                    }
                     config.copy(
                         mediaItems = mediaItems,
                         currentIndex = 0,
@@ -338,6 +313,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 } else config
             }
+        }
+        
+        if (mediaItems.isNotEmpty()) {
+            showToast("已设置 ${mediaItems.size} 个文件", MessageType.SUCCESS)
         }
     }
     
@@ -356,9 +335,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         
         if (playCount > 0) {
-            showToast("已播放 $playCount 个播放器", MessageType.SUCCESS)
+            showToast("播放 $playCount 个", MessageType.SUCCESS)
         } else {
-            showToast("没有可播放的内容", MessageType.WARNING)
+            showToast("无可播放内容", MessageType.WARNING)
         }
     }
     
@@ -371,19 +350,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 config.copy(state = PlayerState.PAUSED)
             }
         }
-        showToast("已暂停全部播放器", MessageType.INFO)
+        showToast("已暂停", MessageType.INFO)
     }
     
     /**
      * 更新设置
      */
     fun updateSettings(newSettings: AppSettings) {
-        safeScope.launch {
-            try {
+        safeLaunch {
+            withContext(Dispatchers.IO) {
                 settingsRepository.updateSettings(newSettings)
-                // 不显示保存成功提示，避免频繁弹窗
-            } catch (e: Exception) {
-                showToast("保存设置失败: ${e.message}", MessageType.ERROR)
             }
         }
     }
@@ -392,17 +368,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 清除所有缓存
      */
     fun clearAllCache() {
-        safeScope.launch {
-            try {
-                val sizeBefore = localStorageManager.getCacheSizeMB()
-                localStorageManager.clearAllCache()
-                _playerConfigs.update { configs ->
-                    configs.map { it.copy(mediaItems = emptyList(), state = PlayerState.IDLE) }
-                }
-                showToast("已清除 ${sizeBefore}MB 缓存", MessageType.SUCCESS)
-            } catch (e: Exception) {
-                showToast("清除缓存失败: ${e.message}", MessageType.ERROR)
+        safeLaunch {
+            val sizeBefore = withContext(Dispatchers.IO) {
+                localStorageManager.getCacheSizeMB()
             }
+            
+            withContext(Dispatchers.IO) {
+                localStorageManager.clearAllCache()
+            }
+            
+            _playerConfigs.update { configs ->
+                configs.map { it.copy(mediaItems = emptyList(), state = PlayerState.IDLE) }
+            }
+            
+            showToast("已清除 ${sizeBefore}MB", MessageType.SUCCESS)
         }
     }
     
@@ -410,32 +389,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 手动扫描U盘
      */
     fun scanUsb() {
-        safeScope.launch {
-            try {
-                showToast("正在扫描U盘...", MessageType.INFO)
-                
-                val context = getApplication<Application>()
-                val usbPaths = UsbUtils.getMountedUsbPaths(context)
-                
-                if (usbPaths.isEmpty()) {
-                    showToast("未检测到U盘", MessageType.WARNING)
-                    _usbState.value = UsbState.Disconnected
-                    return@launch
-                }
-                
-                val usbPath = usbPaths.first()
-                val folderName = settings.value.usbScanFolderName
-                val hasMedia = UsbUtils.hasValidMediaStructure(usbPath, folderName)
-                
-                if (!hasMedia) {
-                    showToast("U盘中未找到 /$folderName/player1~4 目录", MessageType.WARNING)
-                }
-                
-                onUsbConnected(usbPath, hasMedia)
-            } catch (e: Exception) {
-                log("扫描U盘失败: ${e.message}")
-                showToast("扫描U盘失败: ${e.message}", MessageType.ERROR)
+        safeLaunch {
+            showToast("扫描中...", MessageType.INFO)
+            
+            val context = getApplication<Application>()
+            val usbPaths = withContext(Dispatchers.IO) {
+                UsbUtils.getMountedUsbPaths(context)
             }
+            
+            if (usbPaths.isEmpty()) {
+                showToast("未检测到U盘", MessageType.WARNING)
+                _usbState.value = UsbState.Disconnected
+                return@safeLaunch
+            }
+            
+            val usbPath = usbPaths.first()
+            val folderName = settings.value.usbScanFolderName
+            val hasMedia = withContext(Dispatchers.IO) {
+                UsbUtils.hasValidMediaStructure(usbPath, folderName)
+            }
+            
+            if (!hasMedia) {
+                showToast("未找到 /$folderName/player1~4", MessageType.WARNING)
+            }
+            
+            onUsbConnected(usbPath, hasMedia)
         }
     }
     
@@ -451,16 +429,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } else config
             }
         }
-        showToast("播放器 ${playerIndex + 1} 出错: $errorMessage", MessageType.ERROR)
     }
     
     /**
      * 计算U盘内容所需空间
      */
     private fun calculateRequiredSpace(usbPath: File): Long {
-        val folderName = settings.value.usbScanFolderName
-        val mediaDir = File(usbPath, folderName)
-        return FileUtils.getDirectorySizeMB(mediaDir) * 1024 * 1024
+        return try {
+            val folderName = settings.value.usbScanFolderName
+            val mediaDir = File(usbPath, folderName)
+            FileUtils.getDirectorySizeMB(mediaDir) * 1024 * 1024
+        } catch (e: Exception) {
+            0L
+        }
     }
     
     /**
@@ -480,8 +461,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 日志输出
      */
     private fun log(message: String) {
-        if (settings.value.enableDebugLog) {
-            Log.d(TAG, message)
+        try {
+            if (settings.value.enableDebugLog) {
+                Log.d(TAG, message)
+            }
+        } catch (e: Exception) {
+            // 忽略
         }
     }
 }
