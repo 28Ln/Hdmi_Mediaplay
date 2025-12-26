@@ -1,11 +1,13 @@
 package com.btf.rk3568_hdmi_mediaplay
 
 import android.Manifest
+import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -15,6 +17,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
@@ -30,6 +33,7 @@ import com.btf.rk3568_hdmi_mediaplay.ui.main.MainScreen
 import com.btf.rk3568_hdmi_mediaplay.ui.main.MainViewModel
 import com.btf.rk3568_hdmi_mediaplay.ui.settings.SettingsScreen
 import com.btf.rk3568_hdmi_mediaplay.ui.theme.Rk3568_hdmi_mediaplayTheme
+import com.btf.rk3568_hdmi_mediaplay.util.FilePickerHelper
 
 class MainActivity : ComponentActivity() {
     
@@ -89,7 +93,7 @@ class MainActivity : ComponentActivity() {
         
         setContent {
             Rk3568_hdmi_mediaplayTheme {
-                // 设置全屏 - 在 Compose 中设置更安全
+                // 设置全屏
                 LaunchedEffect(Unit) {
                     setupFullscreen()
                 }
@@ -97,6 +101,27 @@ class MainActivity : ComponentActivity() {
                 var currentScreen by remember { mutableStateOf<Screen>(Screen.Main) }
                 val mainViewModel: MainViewModel = viewModel()
                 val settings by mainViewModel.settings.collectAsState()
+                
+                // 当前选择文件的播放器索引
+                var selectingPlayerIndex by remember { mutableIntStateOf(-1) }
+                
+                // 文件选择器
+                val filePickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenMultipleDocuments()
+                ) { uris: List<Uri> ->
+                    if (uris.isNotEmpty() && selectingPlayerIndex >= 0) {
+                        val mediaItems = FilePickerHelper.createMediaItemsFromUris(
+                            this@MainActivity, 
+                            uris
+                        )
+                        if (mediaItems.isNotEmpty()) {
+                            mainViewModel.setMediaFiles(selectingPlayerIndex, mediaItems)
+                        } else {
+                            showToast("无法加载所选文件")
+                        }
+                    }
+                    selectingPlayerIndex = -1
+                }
                 
                 // 获取缓存大小
                 var cacheSizeMB by remember { mutableLongStateOf(0L) }
@@ -135,7 +160,18 @@ class MainActivity : ComponentActivity() {
                     Screen.Main -> {
                         MainScreen(
                             viewModel = mainViewModel,
-                            onNavigateToSettings = { currentScreen = Screen.Settings }
+                            onNavigateToSettings = { currentScreen = Screen.Settings },
+                            onSelectFile = { playerIndex ->
+                                selectingPlayerIndex = playerIndex
+                                try {
+                                    filePickerLauncher.launch(
+                                        arrayOf("video/*", "image/*")
+                                    )
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                    showToast("无法打开文件选择器")
+                                }
+                            }
                         )
                     }
                     
@@ -161,7 +197,6 @@ class MainActivity : ComponentActivity() {
     
     override fun onStart() {
         super.onStart()
-        // 绑定U盘监听服务 (检查是否已绑定)
         if (!serviceBound) {
             try {
                 Intent(this, UsbMonitorService::class.java).also { intent ->
@@ -176,7 +211,6 @@ class MainActivity : ComponentActivity() {
     
     override fun onStop() {
         super.onStop()
-        // 解绑服务
         if (serviceBound) {
             try {
                 unbindService(serviceConnection)
@@ -189,13 +223,24 @@ class MainActivity : ComponentActivity() {
     
     override fun onResume() {
         super.onResume()
-        // 恢复全屏
         setupFullscreen()
     }
     
-    /**
-     * 设置全屏 - 使用 WindowCompat 更安全
-     */
+    // 返回键处理 - 双击退出
+    private var lastBackPressTime = 0L
+    
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastBackPressTime < 2000) {
+            @Suppress("DEPRECATION")
+            super.onBackPressed()
+        } else {
+            lastBackPressTime = currentTime
+            showToast("再按一次退出应用")
+        }
+    }
+    
     private fun setupFullscreen() {
         try {
             WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -204,7 +249,6 @@ class MainActivity : ComponentActivity() {
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         } catch (e: Exception) {
-            // 降级处理：使用旧 API
             try {
                 @Suppress("DEPRECATION")
                 window.decorView.systemUiVisibility = (
@@ -226,7 +270,6 @@ class MainActivity : ComponentActivity() {
         
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                // Android 11+ 需要 MANAGE_EXTERNAL_STORAGE
                 if (!Environment.isExternalStorageManager()) {
                     showToast("请授予文件管理权限以读取U盘")
                     try {

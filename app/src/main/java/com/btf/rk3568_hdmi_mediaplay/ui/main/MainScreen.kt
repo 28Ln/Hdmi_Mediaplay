@@ -20,7 +20,8 @@ import com.btf.rk3568_hdmi_mediaplay.ui.dialog.PlayerMenuDialog
 @Composable
 fun MainScreen(
     viewModel: MainViewModel = viewModel(),
-    onNavigateToSettings: () -> Unit = {}
+    onNavigateToSettings: () -> Unit = {},
+    onSelectFile: ((Int) -> Unit)? = null  // 文件选择回调
 ) {
     val settings by viewModel.settings.collectAsState()
     val playerConfigs by viewModel.playerConfigs.collectAsState()
@@ -114,8 +115,11 @@ fun MainScreen(
             onTogglePlayPause = { viewModel.togglePlayPause(index) },
             onToggleMute = { viewModel.toggleMute(index) },
             onSelectFile = {
-                // TODO: 打开文件选择器
                 selectedPlayerIndex = null
+                onSelectFile?.invoke(index)
+            },
+            onClearContent = {
+                viewModel.setMediaFiles(index, emptyList())
             }
         )
     }
