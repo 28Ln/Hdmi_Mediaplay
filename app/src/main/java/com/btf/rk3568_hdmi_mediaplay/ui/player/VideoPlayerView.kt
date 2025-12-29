@@ -280,10 +280,11 @@ fun VideoPlayerView(
  */
 private fun createLowMemoryExoPlayer(context: android.content.Context): ExoPlayer {
     // 低内存缓冲配置 - 关键优化点
+    // 规则: minBufferMs >= bufferForPlaybackAfterRebufferMs
     val loadControl = DefaultLoadControl.Builder()
         .setBufferDurationsMs(
-            2000,   // minBufferMs - 最小缓冲 2秒
-            8000,   // maxBufferMs - 最大缓冲 8秒 (默认50秒太大)
+            5000,   // minBufferMs - 最小缓冲 5秒
+            15000,  // maxBufferMs - 最大缓冲 15秒 (默认50秒太大)
             1500,   // bufferForPlaybackMs - 开始播放需要 1.5秒
             3000    // bufferForPlaybackAfterRebufferMs - 重新缓冲后需要 3秒
         )
