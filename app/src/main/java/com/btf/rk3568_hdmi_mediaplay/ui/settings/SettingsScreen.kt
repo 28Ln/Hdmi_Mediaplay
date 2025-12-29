@@ -9,16 +9,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.btf.rk3568_hdmi_mediaplay.data.model.*
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.ClearCacheDialog
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.ResetSettingsDialog
-import com.btf.rk3568_hdmi_mediaplay.util.StringResources
+import com.btf.rk3568_hdmi_mediaplay.util.StringResources as S
 
 /**
- * 设置界面
+ * 设置界面 - 支持中英文切换
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,26 +29,28 @@ fun SettingsScreen(
     onBack: () -> Unit,
     cacheSizeMB: Long = 0
 ) {
+    // 强制重组当语言变化时
+    val currentLang = settings.language
     val scrollState = rememberScrollState()
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showResetDialog by remember { mutableStateOf(false) }
+    
+    // 根据语言获取文本
+    val isEnglish = currentLang == AppLanguage.ENGLISH
     
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF1A1A1A))
     ) {
-        // 顶部栏
         TopAppBar(
-            title = { Text("⚙ 设置", color = Color.White) },
+            title = { Text("⚙ ${S.settings}", color = Color.White) },
             navigationIcon = {
                 TextButton(onClick = onBack) {
-                    Text("← 返回", color = Color.White)
+                    Text("← ${S.back}", color = Color.White)
                 }
             },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = Color(0xFF2A2A2A)
-            )
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF2A2A2A))
         )
         
         Column(
@@ -60,54 +61,54 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // 使用说明
-            HelpSection()
+            HelpSection(isEnglish)
             
             // 基础设置
-            SettingsSection(title = "📋 基础设置") {
+            SettingsSection(title = "📋 ${S.basicSettings}") {
                 DropdownSetting(
-                    title = "语言 / Language",
-                    options = AppLanguage.entries.map { it.name to getLanguageText(it) },
+                    title = "${S.language} / Language",
+                    options = AppLanguage.entries.map { it.name to S.getLanguageText(it) },
                     selectedValue = settings.language.name,
                     onValueChange = { 
                         val newLang = AppLanguage.valueOf(it)
-                        StringResources.setLanguage(newLang)
+                        S.setLanguage(newLang)
                         onSettingsChange(settings.copy(language = newLang)) 
                     }
                 )
                 
                 SwitchSetting(
-                    title = "覆盖确认提示",
-                    subtitle = "插入U盘时是否提示覆盖本地内容\n关闭后将自动覆盖",
+                    title = S.overwriteConfirm,
+                    subtitle = S.overwriteConfirmDesc,
                     checked = settings.showOverwriteConfirm,
                     onCheckedChange = { onSettingsChange(settings.copy(showOverwriteConfirm = it)) }
                 )
                 
                 SwitchSetting(
-                    title = "启动后自动播放",
-                    subtitle = "应用启动后自动播放本地缓存内容",
+                    title = S.autoPlayOnStart,
+                    subtitle = S.autoPlayOnStartDesc,
                     checked = settings.autoPlayOnStart,
                     onCheckedChange = { onSettingsChange(settings.copy(autoPlayOnStart = it)) }
                 )
                 
                 SwitchSetting(
-                    title = "开机自启动",
-                    subtitle = "设备开机后自动启动本应用",
+                    title = S.bootAutoStart,
+                    subtitle = S.bootAutoStartDesc,
                     checked = settings.bootAutoStart,
                     onCheckedChange = { onSettingsChange(settings.copy(bootAutoStart = it)) }
                 )
                 
                 DropdownSetting(
-                    title = "循环模式",
-                    options = LoopMode.entries.map { it.name to getLoopModeText(it) },
+                    title = S.loopMode,
+                    options = LoopMode.entries.map { it.name to S.getLoopModeText(it) },
                     selectedValue = settings.loopMode.name,
                     onValueChange = { onSettingsChange(settings.copy(loopMode = LoopMode.valueOf(it))) }
                 )
             }
             
             // 视频设置
-            SettingsSection(title = "🎬 视频设置") {
+            SettingsSection(title = "🎬 ${S.videoSettings}") {
                 SliderSetting(
-                    title = "默认音量",
+                    title = S.defaultVolume,
                     value = settings.defaultVolume.toFloat(),
                     valueRange = 0f..100f,
                     onValueChange = { onSettingsChange(settings.copy(defaultVolume = it.toInt())) },
@@ -115,117 +116,116 @@ fun SettingsScreen(
                 )
                 
                 SwitchSetting(
-                    title = "默认静音",
-                    subtitle = "启动时默认静音播放视频",
+                    title = S.defaultMuted,
+                    subtitle = S.defaultMutedDesc,
                     checked = settings.defaultMuted,
                     onCheckedChange = { onSettingsChange(settings.copy(defaultMuted = it)) }
                 )
                 
                 DropdownSetting(
-                    title = "视频缩放模式",
-                    options = VideoScaleMode.entries.map { it.name to getScaleModeText(it) },
+                    title = S.videoScaleMode,
+                    options = VideoScaleMode.entries.map { it.name to S.getScaleModeText(it) },
                     selectedValue = settings.videoScaleMode.name,
                     onValueChange = { onSettingsChange(settings.copy(videoScaleMode = VideoScaleMode.valueOf(it))) }
                 )
                 
                 SwitchSetting(
-                    title = "硬件解码",
-                    subtitle = "使用硬件加速解码视频（推荐开启）",
+                    title = S.hardwareDecode,
+                    subtitle = S.hardwareDecodeDesc,
                     checked = settings.useHardwareDecode,
                     onCheckedChange = { onSettingsChange(settings.copy(useHardwareDecode = it)) }
                 )
             }
             
             // 音频设置
-            SettingsSection(title = "🔊 音频设置") {
+            SettingsSection(title = "🔊 ${S.audioSettings}") {
                 DropdownSetting(
-                    title = "音频输出",
-                    options = AudioOutput.entries.map { it.name to getAudioOutputText(it) },
+                    title = S.audioOutput,
+                    options = AudioOutput.entries.map { it.name to S.getAudioOutputText(it) },
                     selectedValue = settings.audioOutput.name,
                     onValueChange = { onSettingsChange(settings.copy(audioOutput = AudioOutput.valueOf(it))) }
                 )
             }
             
             // 图片设置
-            SettingsSection(title = "🖼 图片设置") {
+            SettingsSection(title = "🖼 ${S.imageSettings}") {
                 SliderSetting(
-                    title = "轮播间隔",
+                    title = S.slideInterval,
                     value = settings.imageIntervalSeconds.toFloat(),
                     valueRange = 1f..30f,
                     onValueChange = { onSettingsChange(settings.copy(imageIntervalSeconds = it.toInt())) },
-                    valueText = "${settings.imageIntervalSeconds}秒"
+                    valueText = "${settings.imageIntervalSeconds}${if (isEnglish) "s" else "秒"}"
                 )
                 
                 DropdownSetting(
-                    title = "切换动画",
-                    options = ImageTransition.entries.map { it.name to getTransitionText(it) },
+                    title = S.transitionEffect,
+                    options = ImageTransition.entries.map { it.name to S.getTransitionText(it) },
                     selectedValue = settings.imageTransition.name,
                     onValueChange = { onSettingsChange(settings.copy(imageTransition = ImageTransition.valueOf(it))) }
                 )
             }
             
             // U盘设置
-            SettingsSection(title = "💾 U盘设置") {
+            SettingsSection(title = "💾 ${S.usbSettings}") {
                 SwitchSetting(
-                    title = "U盘检测",
-                    subtitle = "自动检测U盘插入并扫描媒体文件",
+                    title = S.usbDetection,
+                    subtitle = S.usbDetectionDesc,
                     checked = settings.usbDetectionEnabled,
                     onCheckedChange = { onSettingsChange(settings.copy(usbDetectionEnabled = it)) }
                 )
                 
                 TextInputSetting(
-                    title = "扫描目录名",
-                    subtitle = "U盘中的媒体目录名称",
+                    title = S.scanFolderName,
+                    subtitle = S.scanFolderNameDesc,
                     value = settings.usbScanFolderName,
                     onValueChange = { onSettingsChange(settings.copy(usbScanFolderName = it)) }
                 )
                 
-                // U盘目录结构说明
-                UsbStructureHelp(folderName = settings.usbScanFolderName)
+                UsbStructureHelp(folderName = settings.usbScanFolderName, isEnglish = isEnglish)
                 
                 SwitchSetting(
-                    title = "拷贝后自动播放",
-                    subtitle = "从U盘拷贝完成后自动开始播放",
+                    title = S.autoPlayAfterCopy,
+                    subtitle = S.autoPlayAfterCopyDesc,
                     checked = settings.autoPlayAfterCopy,
                     onCheckedChange = { onSettingsChange(settings.copy(autoPlayAfterCopy = it)) }
                 )
                 
                 SwitchSetting(
-                    title = "显示拷贝进度",
-                    subtitle = "拷贝文件时显示进度条",
+                    title = S.showCopyProgress,
+                    subtitle = S.showCopyProgressDesc,
                     checked = settings.showCopyProgress,
                     onCheckedChange = { onSettingsChange(settings.copy(showCopyProgress = it)) }
                 )
             }
             
             // 显示设置
-            SettingsSection(title = "🖥 显示设置") {
+            SettingsSection(title = "🖥 ${S.displaySettings}") {
                 DropdownSetting(
-                    title = "布局模式",
-                    options = LayoutMode.entries.map { it.name to getLayoutModeText(it) },
+                    title = S.layoutMode,
+                    options = LayoutMode.entries.map { it.name to S.getLayoutModeText(it) },
                     selectedValue = settings.layoutMode.name,
                     onValueChange = { onSettingsChange(settings.copy(layoutMode = LayoutMode.valueOf(it))) }
                 )
                 
                 SwitchSetting(
-                    title = "显示播放器编号",
-                    subtitle = "在播放器左上角显示编号标识",
+                    title = S.showPlayerIndex,
+                    subtitle = S.showPlayerIndexDesc,
                     checked = settings.showPlayerIndex,
                     onCheckedChange = { onSettingsChange(settings.copy(showPlayerIndex = it)) }
                 )
                 
                 SwitchSetting(
-                    title = "屏幕常亮",
-                    subtitle = "播放时保持屏幕常亮不休眠",
+                    title = S.keepScreenOn,
+                    subtitle = S.keepScreenOnDesc,
                     checked = settings.keepScreenOn,
                     onCheckedChange = { onSettingsChange(settings.copy(keepScreenOn = it)) }
                 )
             }
             
             // 高级设置
-            SettingsSection(title = "🔧 高级设置") {
+            SettingsSection(title = "🔧 ${S.advancedSettings}") {
                 SliderSetting(
-                    title = "最大缓存大小",
+                    title = S.maxCacheSize,
                     value = settings.maxCacheSizeMB.toFloat(),
                     valueRange = 512f..8192f,
                     onValueChange = { onSettingsChange(settings.copy(maxCacheSizeMB = it.toInt())) },
@@ -233,8 +233,8 @@ fun SettingsScreen(
                 )
                 
                 SwitchSetting(
-                    title = "调试日志",
-                    subtitle = "启用详细日志输出（用于排查问题）",
+                    title = S.debugLog,
+                    subtitle = S.debugLogDesc,
                     checked = settings.enableDebugLog,
                     onCheckedChange = { onSettingsChange(settings.copy(enableDebugLog = it)) }
                 )
@@ -250,7 +250,7 @@ fun SettingsScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("🗑 清除缓存")
+                        Text("🗑 ${S.clearCache}")
                     }
                     
                     Button(
@@ -258,32 +258,22 @@ fun SettingsScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Gray),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("🔄 重置设置")
+                        Text("🔄 ${S.resetSettings}")
                     }
                 }
             }
             
             // 关于
-            SettingsSection(title = "ℹ️ 关于") {
-                Text(
-                    text = "RK3568 HDMI 媒体播放器",
-                    color = Color.White,
-                    fontSize = 16.sp
-                )
+            SettingsSection(title = "ℹ️ ${S.about}") {
+                Text(text = S.appName, color = Color.White, fontSize = 16.sp)
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "版本: 1.0.0",
-                    color = Color.Gray,
-                    fontSize = 12.sp
-                )
-                Text(
-                    text = "适用平台: Android 11 / RK3568",
-                    color = Color.Gray,
-                    fontSize = 12.sp
-                )
+                Text(text = "${S.version}: 1.0.0", color = Color.Gray, fontSize = 12.sp)
+                Text(text = "${S.platform}: Android 11 / RK3568", color = Color.Gray, fontSize = 12.sp)
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "支持格式:\n视频: MP4, MKV, AVI, MOV, WMV, FLV\n图片: JPG, PNG, BMP, GIF, WEBP",
+                    text = "${S.supportedFormats}:\n" +
+                           "${if (isEnglish) "Video" else "视频"}: MP4, MKV, AVI, MOV, WMV, FLV\n" +
+                           "${if (isEnglish) "Image" else "图片"}: JPG, PNG, BMP, GIF, WEBP",
                     color = Color.Gray,
                     fontSize = 11.sp,
                     lineHeight = 16.sp
@@ -294,56 +284,30 @@ fun SettingsScreen(
         }
     }
     
-    // 清除缓存确认对话框
     if (showClearCacheDialog) {
         ClearCacheDialog(
             cacheSizeMB = cacheSizeMB,
-            onConfirm = {
-                showClearCacheDialog = false
-                onClearCache()
-            },
+            onConfirm = { showClearCacheDialog = false; onClearCache() },
             onCancel = { showClearCacheDialog = false }
         )
     }
     
-    // 重置设置确认对话框
     if (showResetDialog) {
         ResetSettingsDialog(
-            onConfirm = {
-                showResetDialog = false
-                onResetSettings()
-            },
+            onConfirm = { showResetDialog = false; onResetSettings() },
             onCancel = { showResetDialog = false }
         )
     }
 }
 
-/**
- * 使用说明
- */
 @Composable
-private fun HelpSection() {
-    Surface(
-        color = Color(0xFF1E3A5F),
-        shape = MaterialTheme.shapes.medium
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Text(
-                text = "💡 使用说明",
-                color = Color.Cyan,
-                fontSize = 16.sp
-            )
+private fun HelpSection(isEnglish: Boolean) {
+    Surface(color = Color(0xFF1E3A5F), shape = MaterialTheme.shapes.medium) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "💡 ${S.usageTitle}", color = Color.Cyan, fontSize = 16.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = """
-                    1. 准备U盘，创建 media 目录
-                    2. 在 media 下创建 player1~4 文件夹
-                    3. 将视频/图片放入对应文件夹
-                    4. 插入U盘，自动检测并拷贝
-                    5. 拷贝完成后自动播放
-                """.trimIndent(),
+                text = "${S.usageStep1}\n${S.usageStep2}\n${S.usageStep3}\n${S.usageStep4}\n${S.usageStep5}",
                 color = Color.LightGray,
                 fontSize = 12.sp,
                 lineHeight = 18.sp
@@ -352,35 +316,26 @@ private fun HelpSection() {
     }
 }
 
-/**
- * U盘目录结构说明
- */
 @Composable
-private fun UsbStructureHelp(folderName: String) {
-    Surface(
-        color = Color(0xFF333333),
-        shape = MaterialTheme.shapes.small,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp)
-        ) {
+private fun UsbStructureHelp(folderName: String, isEnglish: Boolean) {
+    Surface(color = Color(0xFF333333), shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Text(
-                text = "📁 U盘目录结构示例:",
+                text = "📁 ${if (isEnglish) "USB folder structure:" else "U盘目录结构示例:"}",
                 color = Color.Yellow,
                 fontSize = 12.sp
             )
             Spacer(modifier = Modifier.height(4.dp))
+            val playerLabel = if (isEnglish) "Player" else "播放器"
+            val contentLabel = if (isEnglish) "content" else "的内容"
             Text(
                 text = """
-                    U盘根目录/
+                    USB/
                     └── $folderName/
-                        ├── player1/  ← 播放器1的内容
-                        │   ├── video1.mp4
-                        │   └── image1.jpg
-                        ├── player2/  ← 播放器2的内容
-                        ├── player3/  ← 播放器3的内容
-                        └── player4/  ← 播放器4的内容
+                        ├── player1/  ← ${playerLabel}1$contentLabel
+                        ├── player2/  ← ${playerLabel}2$contentLabel
+                        ├── player3/  ← ${playerLabel}3$contentLabel
+                        └── player4/  ← ${playerLabel}4$contentLabel
                 """.trimIndent(),
                 color = Color.LightGray,
                 fontSize = 10.sp,
@@ -391,122 +346,65 @@ private fun UsbStructureHelp(folderName: String) {
 }
 
 @Composable
-private fun SettingsSection(
-    title: String,
-    content: @Composable ColumnScope.() -> Unit
-) {
+private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color(0xFF2A2A2A), MaterialTheme.shapes.medium)
             .padding(16.dp)
     ) {
-        Text(
-            text = title,
-            color = Color.Cyan,
-            fontSize = 16.sp,
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
+        Text(text = title, color = Color.Cyan, fontSize = 16.sp, modifier = Modifier.padding(bottom = 12.dp))
         content()
     }
 }
 
 @Composable
-private fun SwitchSetting(
-    title: String,
-    subtitle: String? = null,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
+private fun SwitchSetting(title: String, subtitle: String? = null, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(text = title, color = Color.White, fontSize = 14.sp)
-            subtitle?.let {
-                Text(text = it, color = Color.Gray, fontSize = 12.sp)
-            }
+            subtitle?.let { Text(text = it, color = Color.Gray, fontSize = 12.sp) }
         }
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.Cyan,
-                checkedTrackColor = Color.Cyan.copy(alpha = 0.5f)
-            )
+            colors = SwitchDefaults.colors(checkedThumbColor = Color.Cyan, checkedTrackColor = Color.Cyan.copy(alpha = 0.5f))
         )
     }
 }
 
 @Composable
-private fun SliderSetting(
-    title: String,
-    value: Float,
-    valueRange: ClosedFloatingPointRange<Float>,
-    onValueChange: (Float) -> Unit,
-    valueText: String
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
+private fun SliderSetting(title: String, value: Float, valueRange: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit, valueText: String) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(text = title, color = Color.White, fontSize = 14.sp)
             Text(text = valueText, color = Color.Cyan, fontSize = 14.sp)
         }
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = valueRange,
-            colors = SliderDefaults.colors(
-                thumbColor = Color.Cyan,
-                activeTrackColor = Color.Cyan
-            )
-        )
+        Slider(value = value, onValueChange = onValueChange, valueRange = valueRange, colors = SliderDefaults.colors(thumbColor = Color.Cyan, activeTrackColor = Color.Cyan))
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DropdownSetting(
-    title: String,
-    options: List<Pair<String, String>>,  // value to display text
-    selectedValue: String,
-    onValueChange: (String) -> Unit
-) {
+private fun DropdownSetting(title: String, options: List<Pair<String, String>>, selectedValue: String, onValueChange: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     val selectedText = options.find { it.first == selectedValue }?.second ?: ""
     
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp)
-    ) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Text(text = title, color = Color.White, fontSize = 14.sp)
         Spacer(modifier = Modifier.height(4.dp))
         
-        ExposedDropdownMenuBox(
-            expanded = expanded,
-            onExpandedChange = { expanded = !expanded }
-        ) {
+        ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
             OutlinedTextField(
                 value = selectedText,
                 onValueChange = {},
                 readOnly = true,
-                trailingIcon = { 
-                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) 
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .menuAnchor(),
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                modifier = Modifier.fillMaxWidth().menuAnchor(),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
@@ -515,17 +413,11 @@ private fun DropdownSetting(
                 )
             )
             
-            ExposedDropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false }
-            ) {
+            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 options.forEach { (value, displayText) ->
                     DropdownMenuItem(
                         text = { Text(displayText) },
-                        onClick = {
-                            onValueChange(value)
-                            expanded = false
-                        },
+                        onClick = { onValueChange(value); expanded = false },
                         contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
                     )
                 }
@@ -535,23 +427,11 @@ private fun DropdownSetting(
 }
 
 @Composable
-private fun TextInputSetting(
-    title: String,
-    subtitle: String? = null,
-    value: String,
-    onValueChange: (String) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp)
-    ) {
+private fun TextInputSetting(title: String, subtitle: String? = null, value: String, onValueChange: (String) -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Text(text = title, color = Color.White, fontSize = 14.sp)
-        subtitle?.let {
-            Text(text = it, color = Color.Gray, fontSize = 12.sp)
-        }
+        subtitle?.let { Text(text = it, color = Color.Gray, fontSize = 12.sp) }
         Spacer(modifier = Modifier.height(4.dp))
-        
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
@@ -565,48 +445,4 @@ private fun TextInputSetting(
             singleLine = true
         )
     }
-}
-
-// 辅助函数
-private fun getLoopModeText(mode: LoopMode): String = when (mode) {
-    LoopMode.SINGLE -> "单个循环"
-    LoopMode.LIST -> "列表循环"
-    LoopMode.RANDOM -> "随机播放"
-}
-
-private fun getScaleModeText(mode: VideoScaleMode): String = when (mode) {
-    VideoScaleMode.FIT -> "适应 (保持比例)"
-    VideoScaleMode.FILL -> "填充 (裁剪)"
-    VideoScaleMode.STRETCH -> "拉伸"
-    VideoScaleMode.ORIGINAL -> "原始大小"
-}
-
-private fun getTransitionText(transition: ImageTransition): String = when (transition) {
-    ImageTransition.FADE -> "淡入淡出"
-    ImageTransition.SLIDE -> "滑动"
-    ImageTransition.NONE -> "无动画"
-}
-
-private fun getLayoutModeText(mode: LayoutMode): String = when (mode) {
-    LayoutMode.SINGLE -> "单屏 (全屏)"
-    LayoutMode.GRID_1X2 -> "1×2 左右分屏"
-    LayoutMode.GRID_2X1 -> "2×1 上下分屏"
-    LayoutMode.GRID_2X2 -> "2×2 四宫格"
-    LayoutMode.GRID_1X3 -> "1×3 三分屏"
-    LayoutMode.GRID_3X1 -> "3×1 三分屏"
-    LayoutMode.ROW_1X4 -> "1×4 横向四分"
-    LayoutMode.COLUMN_4X1 -> "4×1 纵向四分"
-    LayoutMode.PIP -> "画中画 (1大3小)"
-}
-
-private fun getLanguageText(lang: AppLanguage): String = when (lang) {
-    AppLanguage.CHINESE -> "中文"
-    AppLanguage.ENGLISH -> "English"
-}
-
-private fun getAudioOutputText(output: AudioOutput): String = when (output) {
-    AudioOutput.AUTO -> "自动"
-    AudioOutput.HDMI -> "HDMI"
-    AudioOutput.SPEAKER -> "扬声器/3.5mm"
-    AudioOutput.ALL -> "全部输出"
 }
