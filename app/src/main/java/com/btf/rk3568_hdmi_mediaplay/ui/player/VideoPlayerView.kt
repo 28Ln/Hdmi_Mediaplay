@@ -276,29 +276,23 @@ fun VideoPlayerView(
 
 /**
  * 创建低内存配置的 ExoPlayer
- * 针对4路同时播放优化
+ * 针对4路同时播放优化缓冲区，不限制分辨率
  */
 private fun createLowMemoryExoPlayer(context: android.content.Context): ExoPlayer {
-    // 低内存缓冲配置
+    // 低内存缓冲配置 - 关键优化点
     val loadControl = DefaultLoadControl.Builder()
         .setBufferDurationsMs(
             2000,   // minBufferMs - 最小缓冲 2秒
-            5000,   // maxBufferMs - 最大缓冲 5秒 (默认50秒太大)
-            1000,   // bufferForPlaybackMs - 开始播放需要 1秒
-            2000    // bufferForPlaybackAfterRebufferMs - 重新缓冲后需要 2秒
+            8000,   // maxBufferMs - 最大缓冲 8秒 (默认50秒太大)
+            1500,   // bufferForPlaybackMs - 开始播放需要 1.5秒
+            3000    // bufferForPlaybackAfterRebufferMs - 重新缓冲后需要 3秒
         )
-        .setTargetBufferBytes(C.LENGTH_UNSET) // 不限制字节，用时间控制
+        .setTargetBufferBytes(C.LENGTH_UNSET)
         .setPrioritizeTimeOverSizeThresholds(true)
         .build()
     
-    // 轨道选择器 - 限制视频分辨率
-    val trackSelector = DefaultTrackSelector(context).apply {
-        setParameters(
-            buildUponParameters()
-                .setMaxVideoSizeSd() // 限制最大 SD 分辨率 (720p)
-                .setForceLowestBitrate(false)
-        )
-    }
+    // 轨道选择器 - 不限制分辨率，RK3568 有硬件解码
+    val trackSelector = DefaultTrackSelector(context)
     
     return ExoPlayer.Builder(context)
         .setLoadControl(loadControl)
