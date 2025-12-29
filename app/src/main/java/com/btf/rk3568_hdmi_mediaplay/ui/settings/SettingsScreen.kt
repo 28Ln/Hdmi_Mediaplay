@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.sp
 import com.btf.rk3568_hdmi_mediaplay.data.model.*
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.ClearCacheDialog
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.ResetSettingsDialog
+import com.btf.rk3568_hdmi_mediaplay.util.StringResources
 
 /**
  * 设置界面
@@ -63,6 +64,17 @@ fun SettingsScreen(
             
             // 基础设置
             SettingsSection(title = "📋 基础设置") {
+                DropdownSetting(
+                    title = "语言 / Language",
+                    options = AppLanguage.entries.map { it.name to getLanguageText(it) },
+                    selectedValue = settings.language.name,
+                    onValueChange = { 
+                        val newLang = AppLanguage.valueOf(it)
+                        StringResources.setLanguage(newLang)
+                        onSettingsChange(settings.copy(language = newLang)) 
+                    }
+                )
+                
                 SwitchSetting(
                     title = "覆盖确认提示",
                     subtitle = "插入U盘时是否提示覆盖本地内容\n关闭后将自动覆盖",
@@ -121,6 +133,16 @@ fun SettingsScreen(
                     subtitle = "使用硬件加速解码视频（推荐开启）",
                     checked = settings.useHardwareDecode,
                     onCheckedChange = { onSettingsChange(settings.copy(useHardwareDecode = it)) }
+                )
+            }
+            
+            // 音频设置
+            SettingsSection(title = "🔊 音频设置") {
+                DropdownSetting(
+                    title = "音频输出",
+                    options = AudioOutput.entries.map { it.name to getAudioOutputText(it) },
+                    selectedValue = settings.audioOutput.name,
+                    onValueChange = { onSettingsChange(settings.copy(audioOutput = AudioOutput.valueOf(it))) }
                 )
             }
             
@@ -571,4 +593,16 @@ private fun getLayoutModeText(mode: LayoutMode): String = when (mode) {
     LayoutMode.ROW_1X4 -> "1×4 横向四分"
     LayoutMode.COLUMN_4X1 -> "4×1 纵向四分"
     LayoutMode.PIP -> "画中画 (1大3小)"
+}
+
+private fun getLanguageText(lang: AppLanguage): String = when (lang) {
+    AppLanguage.CHINESE -> "中文"
+    AppLanguage.ENGLISH -> "English"
+}
+
+private fun getAudioOutputText(output: AudioOutput): String = when (output) {
+    AudioOutput.AUTO -> "自动"
+    AudioOutput.HDMI -> "HDMI"
+    AudioOutput.SPEAKER -> "扬声器/3.5mm"
+    AudioOutput.ALL -> "全部输出"
 }

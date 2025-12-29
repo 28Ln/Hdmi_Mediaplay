@@ -44,6 +44,24 @@ enum class LayoutMode {
 }
 
 /**
+ * 语言设置
+ */
+enum class AppLanguage {
+    CHINESE,    // 中文
+    ENGLISH     // English
+}
+
+/**
+ * 音频输出设置
+ */
+enum class AudioOutput {
+    AUTO,       // 自动
+    HDMI,       // HDMI 输出
+    SPEAKER,    // 扬声器/3.5mm
+    ALL         // 全部输出
+}
+
+/**
  * 应用设置
  */
 data class AppSettings(
@@ -52,12 +70,16 @@ data class AppSettings(
     val autoPlayOnStart: Boolean = true,            // 启动后自动播放
     val bootAutoStart: Boolean = false,             // 开机自启动
     val loopMode: LoopMode = LoopMode.LIST,         // 循环模式
+    val language: AppLanguage = AppLanguage.CHINESE, // 语言设置
     
     // 视频设置
     val defaultVolume: Int = 100,                   // 默认音量 0-100
     val defaultMuted: Boolean = false,              // 默认静音
     val videoScaleMode: VideoScaleMode = VideoScaleMode.FIT,
     val useHardwareDecode: Boolean = true,          // 硬件解码
+    
+    // 音频设置
+    val audioOutput: AudioOutput = AudioOutput.AUTO, // 音频输出
     
     // 图片设置
     val imageIntervalSeconds: Int = 5,              // 图片轮播间隔(秒)
