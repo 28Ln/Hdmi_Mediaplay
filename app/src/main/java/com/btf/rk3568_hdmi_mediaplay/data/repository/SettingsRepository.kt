@@ -20,12 +20,16 @@ class SettingsRepository(private val context: Context) {
         private val AUTO_PLAY_ON_START = booleanPreferencesKey("auto_play_on_start")
         private val BOOT_AUTO_START = booleanPreferencesKey("boot_auto_start")
         private val LOOP_MODE = stringPreferencesKey("loop_mode")
+        private val LANGUAGE = stringPreferencesKey("language")
         
         // 视频设置
         private val DEFAULT_VOLUME = intPreferencesKey("default_volume")
         private val DEFAULT_MUTED = booleanPreferencesKey("default_muted")
         private val VIDEO_SCALE_MODE = stringPreferencesKey("video_scale_mode")
         private val USE_HARDWARE_DECODE = booleanPreferencesKey("use_hardware_decode")
+        
+        // 音频设置
+        private val AUDIO_OUTPUT = stringPreferencesKey("audio_output")
         
         // 图片设置
         private val IMAGE_INTERVAL_SECONDS = intPreferencesKey("image_interval_seconds")
@@ -64,11 +68,14 @@ class SettingsRepository(private val context: Context) {
                     autoPlayOnStart = preferences[AUTO_PLAY_ON_START] ?: true,
                     bootAutoStart = preferences[BOOT_AUTO_START] ?: false,
                     loopMode = safeEnumValueOf(preferences[LOOP_MODE], LoopMode.LIST),
+                    language = safeEnumValueOf(preferences[LANGUAGE], AppLanguage.CHINESE),
                     
                     defaultVolume = preferences[DEFAULT_VOLUME] ?: 100,
                     defaultMuted = preferences[DEFAULT_MUTED] ?: false,
                     videoScaleMode = safeEnumValueOf(preferences[VIDEO_SCALE_MODE], VideoScaleMode.FIT),
                     useHardwareDecode = preferences[USE_HARDWARE_DECODE] ?: true,
+                    
+                    audioOutput = safeEnumValueOf(preferences[AUDIO_OUTPUT], AudioOutput.AUTO),
                     
                     imageIntervalSeconds = preferences[IMAGE_INTERVAL_SECONDS] ?: 5,
                     imageTransition = safeEnumValueOf(preferences[IMAGE_TRANSITION], ImageTransition.FADE),
@@ -99,11 +106,14 @@ class SettingsRepository(private val context: Context) {
                 preferences[AUTO_PLAY_ON_START] = settings.autoPlayOnStart
                 preferences[BOOT_AUTO_START] = settings.bootAutoStart
                 preferences[LOOP_MODE] = settings.loopMode.name
+                preferences[LANGUAGE] = settings.language.name
                 
                 preferences[DEFAULT_VOLUME] = settings.defaultVolume
                 preferences[DEFAULT_MUTED] = settings.defaultMuted
                 preferences[VIDEO_SCALE_MODE] = settings.videoScaleMode.name
                 preferences[USE_HARDWARE_DECODE] = settings.useHardwareDecode
+                
+                preferences[AUDIO_OUTPUT] = settings.audioOutput.name
                 
                 preferences[IMAGE_INTERVAL_SECONDS] = settings.imageIntervalSeconds
                 preferences[IMAGE_TRANSITION] = settings.imageTransition.name

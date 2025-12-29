@@ -483,6 +483,7 @@ private fun DropdownSetting(
     onValueChange: (String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val selectedText = options.find { it.first == selectedValue }?.second ?: ""
     
     Column(
         modifier = Modifier
@@ -494,16 +495,18 @@ private fun DropdownSetting(
         
         ExposedDropdownMenuBox(
             expanded = expanded,
-            onExpandedChange = { expanded = it }
+            onExpandedChange = { expanded = !expanded }
         ) {
             OutlinedTextField(
-                value = options.find { it.first == selectedValue }?.second ?: "",
+                value = selectedText,
                 onValueChange = {},
                 readOnly = true,
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                trailingIcon = { 
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) 
+                },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .menuAnchor(),
+                    .menuAnchor(MenuAnchorType.PrimaryNotEditable, true),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
@@ -522,7 +525,8 @@ private fun DropdownSetting(
                         onClick = {
                             onValueChange(value)
                             expanded = false
-                        }
+                        },
+                        contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
                     )
                 }
             }

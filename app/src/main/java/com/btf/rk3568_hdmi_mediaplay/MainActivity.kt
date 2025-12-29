@@ -35,6 +35,7 @@ import com.btf.rk3568_hdmi_mediaplay.ui.main.MainViewModel
 import com.btf.rk3568_hdmi_mediaplay.ui.settings.SettingsScreen
 import com.btf.rk3568_hdmi_mediaplay.ui.theme.Rk3568_hdmi_mediaplayTheme
 import com.btf.rk3568_hdmi_mediaplay.util.FilePickerHelper
+import com.btf.rk3568_hdmi_mediaplay.util.StringResources
 
 class MainActivity : ComponentActivity() {
     
@@ -156,6 +157,11 @@ class MainActivity : ComponentActivity() {
                     } else {
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     }
+                }
+                
+                // 初始化语言设置
+                LaunchedEffect(settings.language) {
+                    StringResources.setLanguage(settings.language)
                 }
                 
                 when (currentScreen) {
