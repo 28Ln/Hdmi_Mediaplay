@@ -10,9 +10,10 @@ import androidx.compose.ui.unit.sp
 import com.btf.rk3568_hdmi_mediaplay.data.model.MediaType
 import com.btf.rk3568_hdmi_mediaplay.data.model.PlayerConfig
 import com.btf.rk3568_hdmi_mediaplay.data.model.PlayerState
+import com.btf.rk3568_hdmi_mediaplay.util.StringResources
 
 /**
- * 播放器菜单对话框
+ * 播放器菜单对话框 - 支持中英文
  */
 @Composable
 fun PlayerMenuDialog(
@@ -29,7 +30,7 @@ fun PlayerMenuDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "📺 播放器 ${playerIndex + 1}",
+                text = "📺 ${StringResources.playerN(playerIndex + 1)}",
                 color = Color.White
             )
         },
@@ -42,8 +43,8 @@ fun PlayerMenuDialog(
                 playerConfig?.let { config ->
                     // 状态
                     InfoRow(
-                        label = "状态",
-                        value = getStateText(config.state),
+                        label = StringResources.menuStatus,
+                        value = StringResources.getPlayerStateText(config.state),
                         valueColor = getStateColor(config.state)
                     )
                     
@@ -53,18 +54,18 @@ fun PlayerMenuDialog(
                         val imageCount = config.mediaItems.count { it.type == MediaType.IMAGE }
                         
                         InfoRow(
-                            label = "内容",
+                            label = StringResources.menuContent,
                             value = buildString {
-                                if (videoCount > 0) append("$videoCount 个视频")
+                                if (videoCount > 0) append(StringResources.nVideos(videoCount))
                                 if (videoCount > 0 && imageCount > 0) append(", ")
-                                if (imageCount > 0) append("$imageCount 张图片")
+                                if (imageCount > 0) append(StringResources.nImages(imageCount))
                             }
                         )
                         
                         // 当前播放文件
                         config.mediaItems.getOrNull(config.currentIndex)?.let { current ->
                             InfoRow(
-                                label = "当前",
+                                label = StringResources.menuCurrent,
                                 value = current.name,
                                 valueColor = Color.Cyan
                             )
@@ -73,8 +74,8 @@ fun PlayerMenuDialog(
                     
                     // 音量状态
                     InfoRow(
-                        label = "音量",
-                        value = if (config.isMuted) "静音" else "${(config.volume * 100).toInt()}%"
+                        label = StringResources.menuVolume,
+                        value = if (config.isMuted) StringResources.mute else "${(config.volume * 100).toInt()}%"
                     )
                 }
                 
@@ -85,7 +86,7 @@ fun PlayerMenuDialog(
                 // 操作按钮
                 MenuButton(
                     icon = if (playerConfig?.state == PlayerState.PLAYING) "⏸" else "▶",
-                    text = if (playerConfig?.state == PlayerState.PLAYING) "暂停" else "播放",
+                    text = if (playerConfig?.state == PlayerState.PLAYING) StringResources.pause else StringResources.play,
                     onClick = {
                         onTogglePlayPause()
                         onDismiss()
@@ -94,7 +95,7 @@ fun PlayerMenuDialog(
                 
                 MenuButton(
                     icon = if (playerConfig?.isMuted == true) "🔊" else "🔇",
-                    text = if (playerConfig?.isMuted == true) "取消静音" else "静音",
+                    text = if (playerConfig?.isMuted == true) StringResources.unmute else StringResources.mute,
                     onClick = {
                         onToggleMute()
                         onDismiss()
@@ -103,13 +104,13 @@ fun PlayerMenuDialog(
                 
                 MenuButton(
                     icon = "📁",
-                    text = "选择文件",
+                    text = StringResources.selectFile,
                     onClick = onSelectFile
                 )
                 
                 MenuButton(
                     icon = "🔍",
-                    text = "扫描本地媒体",
+                    text = StringResources.scanLocalMedia,
                     onClick = {
                         onScanLocal?.invoke()
                         onDismiss()
@@ -119,7 +120,7 @@ fun PlayerMenuDialog(
                 if (playerConfig?.mediaItems?.isNotEmpty() == true) {
                     MenuButton(
                         icon = "🗑",
-                        text = "清除内容",
+                        text = StringResources.clearContent,
                         textColor = Color.Red,
                         onClick = {
                             onClearContent?.invoke()
@@ -131,7 +132,7 @@ fun PlayerMenuDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("关闭", color = Color.White)
+                Text(StringResources.close, color = Color.White)
             }
         },
         containerColor = Color(0xFF2A2A2A),
@@ -185,16 +186,6 @@ private fun MenuButton(
                 fontSize = 14.sp
             )
         }
-    }
-}
-
-private fun getStateText(state: PlayerState): String {
-    return when (state) {
-        PlayerState.IDLE -> "空闲"
-        PlayerState.LOADING -> "加载中"
-        PlayerState.PLAYING -> "播放中"
-        PlayerState.PAUSED -> "已暂停"
-        PlayerState.ERROR -> "错误"
     }
 }
 
