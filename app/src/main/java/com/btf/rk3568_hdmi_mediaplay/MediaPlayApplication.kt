@@ -68,13 +68,13 @@ class MediaPlayApplication : Application(), ImageLoaderFactory {
         return ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.20) // 使用20%可用内存
+                    .maxSizePercent(0.10) // 只使用10%可用内存 (4路播放需要更多内存给视频)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(File(cacheDir, "image_cache"))
-                    .maxSizeBytes(100 * 1024 * 1024) // 100MB 磁盘缓存
+                    .maxSizeBytes(50 * 1024 * 1024) // 50MB 磁盘缓存
                     .build()
             }
             .crossfade(true)

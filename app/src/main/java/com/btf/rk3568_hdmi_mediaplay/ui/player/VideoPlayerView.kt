@@ -19,22 +19,23 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.btf.rk3568_hdmi_mediaplay.data.model.VideoScaleMode
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.File
 
 private const val TAG = "VideoPlayerView"
 
 /**
  * 视频播放器组件
- * 优化: 内存管理、生命周期、异常处理
+ * 优化: 内存管理、低内存缓冲配置
  */
 @Composable
 fun VideoPlayerView(
@@ -55,7 +56,7 @@ fun VideoPlayerView(
         return
     }
     
-    // 文件存在性检查（仅本地文件）
+    // 文件存在性检查
     if (!mediaPath.startsWith("http") && !mediaPath.startsWith("content://")) {
         val file = remember(mediaPath) { File(mediaPath) }
         if (!file.exists()) {
@@ -70,50 +71,38 @@ fun VideoPlayerView(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     
-    // 播放器状态 - 使用 derivedStateOf 减少重组
     var isLoading by remember { mutableStateOf(true) }
     var hasError by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
     
-    // 创建 ExoPlayer - 使用 produceState 确保在 IO 线程初始化
-    val exoPlayer by produceState<ExoPlayer?>(initialValue = null, context) {
-        value = withContext(Dispatchers.Main) {
-            try {
-                ExoPlayer.Builder(context)
-                    .setHandleAudioBecomingNoisy(true)
-                    .build()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to create ExoPlayer", e)
-                null
-            }
+    // 创建低内存配置的 ExoPlayer
+    val exoPlayer = remember(context) {
+        try {
+            createLowMemoryExoPlayer(context)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create ExoPlayer", e)
+            null
         }
     }
     
-    // 如果播放器创建失败
     if (exoPlayer == null) {
-        if (!isLoading) {
-            ErrorPlaceholder("播放器初始化失败", modifier)
-        } else {
-            LoadingPlaceholder(modifier)
-        }
+        ErrorPlaceholder("播放器初始化失败", modifier)
         return
     }
     
-    val player = exoPlayer!!
-    
-    // 设置媒体源 - 使用 key 确保路径变化时重新加载
-    LaunchedEffect(mediaPath, player) {
+    // 设置媒体源
+    LaunchedEffect(mediaPath) {
         try {
             isLoading = true
             hasError = false
             errorMessage = ""
             
-            player.stop()
-            player.clearMediaItems()
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
             
             val mediaItem = MediaItem.fromUri(mediaPath)
-            player.setMediaItem(mediaItem)
-            player.prepare()
+            exoPlayer.setMediaItem(mediaItem)
+            exoPlayer.prepare()
             
             Log.d(TAG, "Media prepared: $mediaPath")
         } catch (e: Exception) {
@@ -124,51 +113,51 @@ fun VideoPlayerView(
         }
     }
     
-    // 更新播放状态 - 使用 snapshotFlow 避免频繁更新
-    LaunchedEffect(isPlaying, player) {
+    // 更新播放状态
+    LaunchedEffect(isPlaying) {
         try {
-            player.playWhenReady = isPlaying
+            exoPlayer.playWhenReady = isPlaying
         } catch (e: Exception) {
             Log.e(TAG, "Failed to set playWhenReady", e)
         }
     }
     
-    // 更新音量 - 合并更新减少调用
-    LaunchedEffect(volume, isMuted, player) {
+    // 更新音量
+    LaunchedEffect(volume, isMuted) {
         try {
-            player.volume = if (isMuted) 0f else volume.coerceIn(0f, 1f)
+            exoPlayer.volume = if (isMuted) 0f else volume.coerceIn(0f, 1f)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to set volume", e)
         }
     }
     
     // 更新循环模式
-    LaunchedEffect(isLooping, player) {
+    LaunchedEffect(isLooping) {
         try {
-            player.repeatMode = if (isLooping) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+            exoPlayer.repeatMode = if (isLooping) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
         } catch (e: Exception) {
             Log.e(TAG, "Failed to set repeat mode", e)
         }
     }
     
-    // 生命周期管理 - 优化暂停/恢复逻辑
-    DisposableEffect(lifecycleOwner, player) {
+    // 生命周期管理
+    DisposableEffect(lifecycleOwner) {
         var wasPlaying = false
         
         val observer = LifecycleEventObserver { _, event ->
             try {
                 when (event) {
                     Lifecycle.Event.ON_PAUSE -> {
-                        wasPlaying = player.isPlaying
-                        player.pause()
+                        wasPlaying = exoPlayer.isPlaying
+                        exoPlayer.pause()
                     }
                     Lifecycle.Event.ON_RESUME -> {
                         if (wasPlaying && isPlaying) {
-                            player.play()
+                            exoPlayer.play()
                         }
                     }
                     Lifecycle.Event.ON_STOP -> {
-                        player.pause()
+                        exoPlayer.pause()
                     }
                     else -> {}
                 }
@@ -184,8 +173,8 @@ fun VideoPlayerView(
         }
     }
     
-    // 播放器事件监听 - 使用稳定的监听器引用
-    DisposableEffect(player) {
+    // 播放器事件监听和释放
+    DisposableEffect(Unit) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 when (playbackState) {
@@ -193,7 +182,7 @@ fun VideoPlayerView(
                         isLoading = false
                         hasError = false
                         try {
-                            onPlayerReady?.invoke(player)
+                            onPlayerReady?.invoke(exoPlayer)
                         } catch (e: Exception) {
                             Log.e(TAG, "onPlayerReady callback error", e)
                         }
@@ -208,9 +197,7 @@ fun VideoPlayerView(
                     Player.STATE_BUFFERING -> {
                         isLoading = true
                     }
-                    Player.STATE_IDLE -> {
-                        // 空闲状态
-                    }
+                    Player.STATE_IDLE -> {}
                 }
             }
             
@@ -227,13 +214,13 @@ fun VideoPlayerView(
             }
         }
         
-        player.addListener(listener)
+        exoPlayer.addListener(listener)
         
         onDispose {
             try {
-                player.removeListener(listener)
-                player.stop()
-                player.release()
+                exoPlayer.removeListener(listener)
+                exoPlayer.stop()
+                exoPlayer.release()
                 Log.d(TAG, "Player released")
             } catch (e: Exception) {
                 Log.e(TAG, "Error releasing player", e)
@@ -241,7 +228,7 @@ fun VideoPlayerView(
         }
     }
     
-    // UI - 使用 remember 缓存 PlayerView
+    // UI
     Box(modifier = modifier.background(Color.Black)) {
         if (hasError) {
             ErrorPlaceholder(errorMessage, Modifier.fillMaxSize())
@@ -251,27 +238,25 @@ fun VideoPlayerView(
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
-                        this.player = player
+                        player = exoPlayer
                         useController = false
                         layoutParams = FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
                         this.resizeMode = resizeMode
-                        // 优化性能
                         keepScreenOn = true
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
                 update = { playerView ->
                     playerView.resizeMode = resizeMode
-                    if (playerView.player != player) {
-                        playerView.player = player
+                    if (playerView.player != exoPlayer) {
+                        playerView.player = exoPlayer
                     }
                 }
             )
             
-            // 加载指示器 - 使用 AnimatedVisibility 优化
             if (isLoading) {
                 Box(
                     modifier = Modifier
@@ -290,8 +275,38 @@ fun VideoPlayerView(
 }
 
 /**
- * 获取用户友好的错误消息
+ * 创建低内存配置的 ExoPlayer
+ * 针对4路同时播放优化
  */
+private fun createLowMemoryExoPlayer(context: android.content.Context): ExoPlayer {
+    // 低内存缓冲配置
+    val loadControl = DefaultLoadControl.Builder()
+        .setBufferDurationsMs(
+            2000,   // minBufferMs - 最小缓冲 2秒
+            5000,   // maxBufferMs - 最大缓冲 5秒 (默认50秒太大)
+            1000,   // bufferForPlaybackMs - 开始播放需要 1秒
+            2000    // bufferForPlaybackAfterRebufferMs - 重新缓冲后需要 2秒
+        )
+        .setTargetBufferBytes(C.LENGTH_UNSET) // 不限制字节，用时间控制
+        .setPrioritizeTimeOverSizeThresholds(true)
+        .build()
+    
+    // 轨道选择器 - 限制视频分辨率
+    val trackSelector = DefaultTrackSelector(context).apply {
+        setParameters(
+            buildUponParameters()
+                .setMaxVideoSizeSd() // 限制最大 SD 分辨率 (720p)
+                .setForceLowestBitrate(false)
+        )
+    }
+    
+    return ExoPlayer.Builder(context)
+        .setLoadControl(loadControl)
+        .setTrackSelector(trackSelector)
+        .setHandleAudioBecomingNoisy(true)
+        .build()
+}
+
 private fun getErrorMessage(error: PlaybackException): String {
     return when (error.errorCode) {
         PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "文件未找到"
@@ -304,9 +319,6 @@ private fun getErrorMessage(error: PlaybackException): String {
     }
 }
 
-/**
- * 获取缩放模式
- */
 private fun getResizeMode(scaleMode: VideoScaleMode): Int {
     return when (scaleMode) {
         VideoScaleMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -316,26 +328,16 @@ private fun getResizeMode(scaleMode: VideoScaleMode): Int {
     }
 }
 
-/**
- * 空视频占位
- */
 @Composable
 private fun EmptyVideoPlaceholder(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier.background(Color.Black),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = "无视频",
-            color = Color.Gray,
-            fontSize = 14.sp
-        )
+        Text(text = "无视频", color = Color.Gray, fontSize = 14.sp)
     }
 }
 
-/**
- * 加载占位
- */
 @Composable
 private fun LoadingPlaceholder(modifier: Modifier = Modifier) {
     Box(
@@ -346,19 +348,12 @@ private fun LoadingPlaceholder(modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * 错误占位
- */
 @Composable
 private fun ErrorPlaceholder(message: String, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier.background(Color.Black),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = "❌ $message",
-            color = Color.Red,
-            fontSize = 12.sp
-        )
+        Text(text = "❌ $message", color = Color.Red, fontSize = 12.sp)
     }
 }
