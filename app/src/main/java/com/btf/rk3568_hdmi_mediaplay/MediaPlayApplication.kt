@@ -1,13 +1,11 @@
 package com.btf.rk3568_hdmi_mediaplay
 
 import android.app.Application
-import android.os.StrictMode
 import android.util.Log
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
-import coil.util.DebugLogger
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -53,11 +51,6 @@ class MediaPlayApplication : Application(), ImageLoaderFactory {
         // 设置全局未捕获异常处理
         setupUncaughtExceptionHandler()
         
-        // 开发模式下启用严格模式检测
-        if (BuildConfig.DEBUG) {
-            enableStrictMode()
-        }
-        
         Log.i(TAG, "Application initialized")
     }
     
@@ -79,11 +72,6 @@ class MediaPlayApplication : Application(), ImageLoaderFactory {
             }
             .crossfade(true)
             .respectCacheHeaders(false)
-            .apply {
-                if (BuildConfig.DEBUG) {
-                    logger(DebugLogger())
-                }
-            }
             .build()
     }
     
@@ -102,29 +90,6 @@ class MediaPlayApplication : Application(), ImageLoaderFactory {
             // 调用默认处理器
             defaultHandler?.uncaughtException(thread, throwable)
         }
-    }
-    
-    /**
-     * 启用严格模式（仅调试）
-     */
-    private fun enableStrictMode() {
-        StrictMode.setThreadPolicy(
-            StrictMode.ThreadPolicy.Builder()
-                .detectDiskReads()
-                .detectDiskWrites()
-                .detectNetwork()
-                .penaltyLog()
-                .build()
-        )
-        
-        StrictMode.setVmPolicy(
-            StrictMode.VmPolicy.Builder()
-                .detectLeakedSqlLiteObjects()
-                .detectLeakedClosableObjects()
-                .detectActivityLeaks()
-                .penaltyLog()
-                .build()
-        )
     }
     
     /**
