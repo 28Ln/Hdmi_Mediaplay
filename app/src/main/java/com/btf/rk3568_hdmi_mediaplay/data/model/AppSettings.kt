@@ -32,9 +32,15 @@ enum class LoopMode {
  * 布局模式
  */
 enum class LayoutMode {
+    SINGLE,     // 单屏 (1个播放器全屏)
+    GRID_1X2,   // 1行2列
+    GRID_2X1,   // 2行1列
     GRID_2X2,   // 2x2 网格
+    GRID_1X3,   // 1行3列
+    GRID_3X1,   // 3行1列
     ROW_1X4,    // 1行4列
-    COLUMN_4X1  // 4行1列
+    COLUMN_4X1, // 4行1列
+    PIP         // 画中画 (1大3小)
 }
 
 /**

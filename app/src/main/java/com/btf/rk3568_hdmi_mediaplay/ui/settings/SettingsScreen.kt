@@ -562,7 +562,13 @@ private fun getTransitionText(transition: ImageTransition): String = when (trans
 }
 
 private fun getLayoutModeText(mode: LayoutMode): String = when (mode) {
-    LayoutMode.GRID_2X2 -> "2×2 网格"
-    LayoutMode.ROW_1X4 -> "1×4 横向"
-    LayoutMode.COLUMN_4X1 -> "4×1 纵向"
+    LayoutMode.SINGLE -> "单屏 (全屏)"
+    LayoutMode.GRID_1X2 -> "1×2 左右分屏"
+    LayoutMode.GRID_2X1 -> "2×1 上下分屏"
+    LayoutMode.GRID_2X2 -> "2×2 四宫格"
+    LayoutMode.GRID_1X3 -> "1×3 三分屏"
+    LayoutMode.GRID_3X1 -> "3×1 三分屏"
+    LayoutMode.ROW_1X4 -> "1×4 横向四分"
+    LayoutMode.COLUMN_4X1 -> "4×1 纵向四分"
+    LayoutMode.PIP -> "画中画 (1大3小)"
 }
