@@ -15,6 +15,8 @@ import com.btf.rk3568_hdmi_mediaplay.data.model.*
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.ClearCacheDialog
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.ResetSettingsDialog
 import com.btf.rk3568_hdmi_mediaplay.util.StringResources
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * 设置界面 - 完整支持中英文切换
@@ -66,6 +68,9 @@ fun SettingsScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // ========== HDMI 控制 (放最顶部) ==========
+                HdmiControlSection()
+                
                 // ========== 核心设置 (最重要，放最前面) ==========
                 SettingsSection(title = "⭐ ${StringResources.coreSettings}") {
                     // 语言设置
@@ -168,6 +173,19 @@ fun SettingsScreen(
                         selectedValue = settings.imageTransition.name,
                         onValueChange = { onSettingsChange(settings.copy(imageTransition = ImageTransition.valueOf(it))) }
                     )
+                }
+                
+                // ========== 存储设置 ==========
+                SettingsSection(title = "💿 ${StringResources.storageSettings}") {
+                    DropdownSetting(
+                        title = StringResources.storageLocation,
+                        options = StorageLocation.entries.map { it.name to StringResources.getStorageLocationText(it) },
+                        selectedValue = settings.storageLocation.name,
+                        onValueChange = { onSettingsChange(settings.copy(storageLocation = StorageLocation.valueOf(it))) }
+                    )
+                    
+                    // 显示当前存储路径
+                    StoragePathInfo(settings.storageLocation)
                 }
                 
                 // ========== U盘设置 ==========
@@ -311,6 +329,125 @@ private fun HelpSection() {
             Text(text = "💡 ${StringResources.usageTitle}", color = Color.Cyan, fontSize = 16.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Text(text = StringResources.usageSteps, color = Color.LightGray, fontSize = 12.sp, lineHeight = 18.sp)
+        }
+    }
+}
+
+/**
+ * HDMI 控制区域
+ */
+@Composable
+private fun HdmiControlSection() {
+    val scope = rememberCoroutineScope()
+    var lastClickTime by remember { mutableLongStateOf(0L) }
+    var clickResult by remember { mutableStateOf("") }
+    
+    val isEn = StringResources.getLanguage() == AppLanguage.ENGLISH
+    
+    SettingsSection(title = "🔌 ${if (isEn) "HDMI Control" else "HDMI 控制"}") {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Button(
+                onClick = {
+                    val now = System.currentTimeMillis()
+                    if (now - lastClickTime > 500) {
+                        lastClickTime = now
+                        scope.launch(Dispatchers.IO) {
+                            val success = simulateHdmiKeyPress("/sys/devices/platform/hdmi-control/hdmi_b2")
+                            clickResult = if (success) "✓" else "✗"
+                        }
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2)),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(if (isEn) "Switch Mode" else "切换模式")
+            }
+            
+            Button(
+                onClick = {
+                    val now = System.currentTimeMillis()
+                    if (now - lastClickTime > 500) {
+                        lastClickTime = now
+                        scope.launch(Dispatchers.IO) {
+                            val success = simulateHdmiKeyPress("/sys/devices/platform/hdmi-control/hdmi_b3")
+                            clickResult = if (success) "✓" else "✗"
+                        }
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF388E3C)),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(if (isEn) "Switch Resolution" else "切换分辨率")
+            }
+        }
+        
+        if (clickResult.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = clickResult,
+                color = if (clickResult == "✓") Color.Green else Color.Red,
+                fontSize = 12.sp
+            )
+        }
+    }
+}
+
+/**
+ * 模拟 HDMI 按键按下
+ */
+private fun simulateHdmiKeyPress(filePath: String): Boolean {
+    return try {
+        val command = "echo 0 > $filePath; sleep 0.05; echo 1 > $filePath"
+        executeRootCommand(command)
+        true
+    } catch (e: Exception) {
+        e.printStackTrace()
+        false
+    }
+}
+
+/**
+ * 执行 root 命令
+ */
+private fun executeRootCommand(command: String) {
+    try {
+        val process = Runtime.getRuntime().exec("su")
+        java.io.DataOutputStream(process.outputStream).use { os ->
+            os.writeBytes("$command\n")
+            os.writeBytes("exit\n")
+            os.flush()
+        }
+        process.waitFor()
+    } catch (e: java.io.IOException) {
+        e.printStackTrace()
+    } catch (e: InterruptedException) {
+        e.printStackTrace()
+    }
+}
+
+@Composable
+private fun StoragePathInfo(storageLocation: StorageLocation) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val pathInfo = remember(storageLocation) {
+        try {
+            val dir = com.btf.rk3568_hdmi_mediaplay.util.FileUtils.getLocalMediaDir(context, storageLocation, "")
+            val available = com.btf.rk3568_hdmi_mediaplay.util.FileUtils.getAvailableSpaceMB(dir)
+            Pair(dir.absolutePath, available)
+        } catch (e: Exception) {
+            Pair("N/A", 0L)
+        }
+    }
+    
+    Surface(color = Color(0xFF333333), shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(text = "📂 ${StringResources.currentStoragePath}:", color = Color.Yellow, fontSize = 12.sp)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(text = pathInfo.first, color = Color.LightGray, fontSize = 10.sp)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(text = "${StringResources.availableSpace}: ${pathInfo.second} MB", color = Color.Cyan, fontSize = 11.sp)
         }
     }
 }

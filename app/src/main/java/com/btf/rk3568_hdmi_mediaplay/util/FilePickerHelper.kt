@@ -2,149 +2,80 @@ package com.btf.rk3568_hdmi_mediaplay.util
 
 import android.content.Context
 import android.content.Intent
+import android.database.Cursor
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.MediaStore
-import androidx.activity.result.ActivityResultLauncher
+import android.provider.OpenableColumns
+import android.util.Log
 import com.btf.rk3568_hdmi_mediaplay.data.model.MediaItem
 import com.btf.rk3568_hdmi_mediaplay.data.model.MediaSource
-import java.io.File
+import com.btf.rk3568_hdmi_mediaplay.data.model.MediaType
 
 /**
  * 文件选择器帮助类
  */
 object FilePickerHelper {
     
-    // 支持的 MIME 类型
-    private val VIDEO_MIME_TYPES = arrayOf(
-        "video/mp4",
-        "video/x-matroska",  // mkv
-        "video/avi",
-        "video/quicktime",   // mov
-        "video/x-ms-wmv",
-        "video/x-flv",
-        "video/webm",
-        "video/3gpp"
-    )
-    
-    private val IMAGE_MIME_TYPES = arrayOf(
-        "image/jpeg",
-        "image/png",
-        "image/bmp",
-        "image/gif",
-        "image/webp"
-    )
+    private const val TAG = "FilePickerHelper"
     
     /**
-     * 创建选择视频的 Intent
+     * 从 Uri 获取文件名
      */
-    fun createVideoPickerIntent(): Intent {
-        return Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "video/*"
-            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-        }
-    }
-    
-    /**
-     * 创建选择图片的 Intent
-     */
-    fun createImagePickerIntent(): Intent {
-        return Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "image/*"
-            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-        }
-    }
-    
-    /**
-     * 创建选择媒体文件的 Intent (视频和图片)
-     */
-    fun createMediaPickerIntent(): Intent {
-        return Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "*/*"
-            putExtra(Intent.EXTRA_MIME_TYPES, VIDEO_MIME_TYPES + IMAGE_MIME_TYPES)
-            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-        }
-    }
-    
-    /**
-     * 从 Uri 获取文件路径
-     */
-    fun getPathFromUri(context: Context, uri: Uri): String? {
-        return try {
-            // 尝试获取真实路径
-            getRealPathFromUri(context, uri) ?: uri.toString()
-        } catch (e: Exception) {
-            e.printStackTrace()
-            uri.toString()
-        }
-    }
-    
-    /**
-     * 获取真实文件路径
-     */
-    private fun getRealPathFromUri(context: Context, uri: Uri): String? {
-        return try {
-            when {
-                // DocumentProvider
-                DocumentsContract.isDocumentUri(context, uri) -> {
-                    getDocumentPath(context, uri)
-                }
-                // MediaStore
-                "content".equals(uri.scheme, ignoreCase = true) -> {
-                    getMediaStorePath(context, uri)
-                }
-                // File
-                "file".equals(uri.scheme, ignoreCase = true) -> {
-                    uri.path
-                }
-                else -> null
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-    
-    private fun getDocumentPath(context: Context, uri: Uri): String? {
+    fun getFileName(context: Context, uri: Uri): String {
+        var name = "unknown"
+        
         try {
-            val docId = DocumentsContract.getDocumentId(uri)
-            val split = docId.split(":")
-            val type = split[0]
-            
-            if ("primary".equals(type, ignoreCase = true)) {
-                return "${android.os.Environment.getExternalStorageDirectory()}/${split.getOrNull(1) ?: ""}"
-            }
-            
-            // 外部存储
-            val externalStorageVolumes = context.getExternalFilesDirs(null)
-            for (volume in externalStorageVolumes) {
-                val path = volume?.absolutePath
-                if (path != null && path.contains(type)) {
-                    val basePath = path.substringBefore("/Android")
-                    return "$basePath/${split.getOrNull(1) ?: ""}"
+            // 方法1: 从 ContentResolver 查询
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex >= 0) {
+                        name = cursor.getString(nameIndex) ?: name
+                    }
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.w(TAG, "Failed to get name from cursor: ${e.message}")
         }
-        return null
+        
+        // 方法2: 从路径提取
+        if (name == "unknown") {
+            val path = uri.path
+            if (path != null) {
+                name = path.substringAfterLast('/')
+            }
+        }
+        
+        // 方法3: 从 lastPathSegment
+        if (name == "unknown" || name.isEmpty()) {
+            name = uri.lastPathSegment ?: "unknown"
+        }
+        
+        Log.d(TAG, "getFileName: uri=$uri, name=$name")
+        return name
     }
     
-    private fun getMediaStorePath(context: Context, uri: Uri): String? {
-        val projection = arrayOf(MediaStore.MediaColumns.DATA)
+    /**
+     * 从 Uri 获取 MIME 类型
+     */
+    fun getMimeType(context: Context, uri: Uri): String? {
         return try {
-            context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val columnIndex = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
-                    cursor.getString(columnIndex)
-                } else null
-            }
+            context.contentResolver.getType(uri)
         } catch (e: Exception) {
-            e.printStackTrace()
             null
+        }
+    }
+    
+    /**
+     * 根据 MIME 类型判断媒体类型
+     */
+    fun getMediaTypeFromMime(mimeType: String?): MediaType {
+        return when {
+            mimeType == null -> MediaType.UNKNOWN
+            mimeType.startsWith("video/") -> MediaType.VIDEO
+            mimeType.startsWith("image/") -> MediaType.IMAGE
+            else -> MediaType.UNKNOWN
         }
     }
     
@@ -153,9 +84,25 @@ object FilePickerHelper {
      */
     fun createMediaItemFromUri(context: Context, uri: Uri): MediaItem? {
         return try {
-            val path = getPathFromUri(context, uri) ?: return null
-            val name = uri.lastPathSegment ?: "unknown"
-            val type = MediaTypeUtils.getMediaType(name)
+            // 获取文件名
+            val name = getFileName(context, uri)
+            
+            // 获取 MIME 类型
+            val mimeType = getMimeType(context, uri)
+            
+            // 判断媒体类型 - 优先使用 MIME 类型，其次使用文件扩展名
+            var type = getMediaTypeFromMime(mimeType)
+            if (type == MediaType.UNKNOWN) {
+                type = MediaTypeUtils.getMediaType(name)
+            }
+            
+            Log.d(TAG, "createMediaItemFromUri: uri=$uri, name=$name, mime=$mimeType, type=$type")
+            
+            // 如果还是未知类型，跳过
+            if (type == MediaType.UNKNOWN) {
+                Log.w(TAG, "Unsupported media type: $name, mime=$mimeType")
+                return null
+            }
             
             // 获取持久化权限
             try {
@@ -164,16 +111,18 @@ object FilePickerHelper {
                     Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             } catch (e: Exception) {
-                // 忽略权限错误
+                Log.w(TAG, "Failed to take persistable permission: ${e.message}")
             }
             
+            // 使用 Uri 字符串作为路径（content:// URI 可以直接被 ExoPlayer 播放）
             MediaItem(
-                path = path,
+                path = uri.toString(),
                 name = name,
                 type = type,
                 source = MediaSource.MANUAL
             )
         } catch (e: Exception) {
+            Log.e(TAG, "Error creating MediaItem from Uri: ${e.message}")
             e.printStackTrace()
             null
         }
@@ -183,8 +132,11 @@ object FilePickerHelper {
      * 从多个 Uri 创建 MediaItem 列表
      */
     fun createMediaItemsFromUris(context: Context, uris: List<Uri>): List<MediaItem> {
+        Log.d(TAG, "createMediaItemsFromUris: ${uris.size} uris")
         return uris.mapNotNull { uri ->
             createMediaItemFromUri(context, uri)
+        }.also {
+            Log.d(TAG, "Created ${it.size} MediaItems")
         }
     }
 }

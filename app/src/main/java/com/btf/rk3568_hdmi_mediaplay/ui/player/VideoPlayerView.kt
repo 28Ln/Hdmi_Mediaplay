@@ -75,9 +75,10 @@ fun VideoPlayerView(
     var hasError by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
     
-    // 创建低内存配置的 ExoPlayer
-    val exoPlayer = remember(context) {
+    // 创建低内存配置的 ExoPlayer - 使用 mediaPath 作为 key，确保路径变化时重建播放器
+    val exoPlayer = remember(mediaPath) {
         try {
+            Log.d(TAG, "Creating new ExoPlayer for: $mediaPath")
             createLowMemoryExoPlayer(context)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create ExoPlayer", e)

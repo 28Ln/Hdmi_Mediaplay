@@ -325,17 +325,20 @@ private fun PlayerCell(
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
-    Box(
-        modifier = modifier
-            .padding(1.dp)
-            .border(1.dp, Color.DarkGray)
-    ) {
-        MediaPlayerView(
-            playerConfig = config,
-            settings = settings,
-            modifier = Modifier.fillMaxSize(),
-            onClick = onClick,
-            onLongClick = onLongClick
-        )
+    // 使用 config 的 mediaItems hashCode 作为额外的 key，确保内容变化时重组
+    key(config.index, config.mediaItems.hashCode()) {
+        Box(
+            modifier = modifier
+                .padding(1.dp)
+                .border(1.dp, Color.DarkGray)
+        ) {
+            MediaPlayerView(
+                playerConfig = config,
+                settings = settings,
+                modifier = Modifier.fillMaxSize(),
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
+        }
     }
 }

@@ -158,6 +158,20 @@ object StringResources {
     val showCopyProgressDesc: String get() = if (isEn) "Show progress bar when copying" else "拷贝文件时显示进度条"
     val usbStructure: String get() = if (isEn) "USB folder structure:" else "U盘目录结构示例:"
     
+    // ========== 存储设置项 ==========
+    val storageSettings: String get() = if (isEn) "Storage" else "存储设置"
+    val storageLocation: String get() = if (isEn) "Storage Location" else "存储位置"
+    val storageLocationDesc: String get() = if (isEn) "Where to save media files" else "媒体文件保存位置"
+    val storageInternal: String get() = if (isEn) "Internal (App Private)" else "内部存储 (应用私有)"
+    val storageSdcard: String get() = if (isEn) "SD Card (Public)" else "SD卡/外部存储 (公共)"
+    val currentStoragePath: String get() = if (isEn) "Current Path" else "当前路径"
+    val availableSpace: String get() = if (isEn) "Available Space" else "可用空间"
+    
+    fun getStorageLocationText(location: com.btf.rk3568_hdmi_mediaplay.data.model.StorageLocation): String = when (location) {
+        com.btf.rk3568_hdmi_mediaplay.data.model.StorageLocation.INTERNAL -> storageInternal
+        com.btf.rk3568_hdmi_mediaplay.data.model.StorageLocation.SDCARD -> storageSdcard
+    }
+    
     // ========== 显示设置项 ==========
     val layoutMode: String get() = if (isEn) "Layout Mode" else "布局模式"
     val showPlayerIndex: String get() = if (isEn) "Show Player Index" else "显示播放器编号"

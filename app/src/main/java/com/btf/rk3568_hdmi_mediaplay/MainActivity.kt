@@ -1,7 +1,6 @@
 package com.btf.rk3568_hdmi_mediaplay
 
 import android.Manifest
-import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -13,6 +12,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.IBinder
 import android.provider.Settings
+import android.util.Log
 import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
@@ -36,28 +36,55 @@ import com.btf.rk3568_hdmi_mediaplay.ui.settings.SettingsScreen
 import com.btf.rk3568_hdmi_mediaplay.ui.theme.Rk3568_hdmi_mediaplayTheme
 import com.btf.rk3568_hdmi_mediaplay.util.FilePickerHelper
 import com.btf.rk3568_hdmi_mediaplay.util.StringResources
+import java.io.File
 
 class MainActivity : ComponentActivity() {
+    
+    companion object {
+        private const val TAG = "MainActivity"
+    }
     
     private var usbMonitorService: UsbMonitorService? = null
     private var serviceBound = false
     private var localStorageManager: LocalStorageManager? = null
     
+    // 保存 ViewModel 引用，用于服务回调
+    private var mainViewModelRef: MainViewModel? = null
+    
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            Log.i(TAG, "Service connected")
             try {
                 val binder = service as? UsbMonitorService.LocalBinder
                 usbMonitorService = binder?.getService()
                 serviceBound = true
+                
+                // 立即设置回调
+                setupServiceCallbacks()
             } catch (e: Exception) {
+                Log.e(TAG, "Service connection error: ${e.message}")
                 e.printStackTrace()
-                showToast("服务连接失败")
             }
         }
         
         override fun onServiceDisconnected(name: ComponentName?) {
+            Log.i(TAG, "Service disconnected")
             usbMonitorService = null
             serviceBound = false
+        }
+    }
+    
+    private fun setupServiceCallbacks() {
+        Log.i(TAG, "Setting up service callbacks, viewModel=${mainViewModelRef != null}")
+        usbMonitorService?.let { service ->
+            service.onUsbConnected = { path: File, hasMedia: Boolean ->
+                Log.i(TAG, "USB connected callback received: $path, hasMedia=$hasMedia")
+                mainViewModelRef?.onUsbConnected(path, hasMedia)
+            }
+            service.onUsbDisconnected = {
+                Log.i(TAG, "USB disconnected callback received")
+                mainViewModelRef?.onUsbDisconnected()
+            }
         }
     }
     
@@ -67,7 +94,6 @@ class MainActivity : ComponentActivity() {
         val allGranted = permissions.all { it.value }
         if (allGranted) {
             startUsbMonitorService()
-            showToast("权限已授予")
         } else {
             showToast("部分权限被拒绝，U盘功能可能受限")
         }
@@ -76,26 +102,22 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // 初始化存储管理器
         try {
             localStorageManager = LocalStorageManager(this)
         } catch (e: Exception) {
             e.printStackTrace()
         }
         
-        // 保持屏幕常亮
         try {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } catch (e: Exception) {
             e.printStackTrace()
         }
         
-        // 请求权限
         requestPermissions()
         
         setContent {
             Rk3568_hdmi_mediaplayTheme {
-                // 设置全屏
                 LaunchedEffect(Unit) {
                     setupFullscreen()
                 }
@@ -104,29 +126,39 @@ class MainActivity : ComponentActivity() {
                 val mainViewModel: MainViewModel = viewModel()
                 val settings by mainViewModel.settings.collectAsState()
                 
-                // 当前选择文件的播放器索引 - 使用 rememberSaveable 保持状态
+                // 保存 ViewModel 引用
+                LaunchedEffect(mainViewModel) {
+                    mainViewModelRef = mainViewModel
+                    Log.i(TAG, "ViewModel reference saved")
+                    // 如果服务已绑定，重新设置回调
+                    if (serviceBound) {
+                        setupServiceCallbacks()
+                    }
+                }
+                
                 var selectingPlayerIndex by rememberSaveable { mutableIntStateOf(-1) }
                 
-                // 文件选择器
                 val filePickerLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenMultipleDocuments()
                 ) { uris: List<Uri> ->
+                    Log.d(TAG, "File picker result: ${uris.size} uris, selectingPlayerIndex=$selectingPlayerIndex")
                     if (uris.isNotEmpty() && selectingPlayerIndex >= 0) {
                         val mediaItems = FilePickerHelper.createMediaItemsFromUris(
                             this@MainActivity, 
                             uris
                         )
+                        Log.d(TAG, "Created ${mediaItems.size} media items")
                         if (mediaItems.isNotEmpty()) {
-                            // 检查重复文件并设置
                             mainViewModel.setMediaFilesWithDuplicateCheck(selectingPlayerIndex, mediaItems)
                         } else {
                             showToast("无法加载所选文件")
                         }
+                    } else {
+                        Log.d(TAG, "No uris or invalid player index")
                     }
                     selectingPlayerIndex = -1
                 }
                 
-                // 获取缓存大小
                 var cacheSizeMB by remember { mutableLongStateOf(0L) }
                 LaunchedEffect(Unit) {
                     try {
@@ -136,21 +168,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 
-                // 设置U盘监听回调
-                LaunchedEffect(serviceBound) {
-                    if (serviceBound) {
-                        usbMonitorService?.let { service ->
-                            service.onUsbConnected = { path, hasMedia ->
-                                mainViewModel.onUsbConnected(path, hasMedia)
-                            }
-                            service.onUsbDisconnected = {
-                                mainViewModel.onUsbDisconnected()
-                            }
-                        }
-                    }
-                }
-                
-                // 根据设置控制屏幕常亮
                 LaunchedEffect(settings.keepScreenOn) {
                     if (settings.keepScreenOn) {
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -159,7 +176,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 
-                // 初始化语言设置
                 LaunchedEffect(settings.language) {
                     StringResources.setLanguage(settings.language)
                 }
@@ -172,9 +188,7 @@ class MainActivity : ComponentActivity() {
                             onSelectFile = { playerIndex ->
                                 selectingPlayerIndex = playerIndex
                                 try {
-                                    filePickerLauncher.launch(
-                                        arrayOf("video/*", "image/*")
-                                    )
+                                    filePickerLauncher.launch(arrayOf("video/*", "image/*"))
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                     showToast("无法打开文件选择器")
@@ -186,7 +200,7 @@ class MainActivity : ComponentActivity() {
                     Screen.Settings -> {
                         SettingsScreen(
                             settings = settings,
-                            onSettingsChange = { mainViewModel.updateSettings(it) },
+                            onSettingsChange = { newSettings -> mainViewModel.updateSettings(newSettings) },
                             onClearCache = { 
                                 mainViewModel.clearAllCache()
                                 cacheSizeMB = 0
@@ -205,6 +219,7 @@ class MainActivity : ComponentActivity() {
     
     override fun onStart() {
         super.onStart()
+        Log.i(TAG, "onStart, serviceBound=$serviceBound")
         if (!serviceBound) {
             try {
                 Intent(this, UsbMonitorService::class.java).also { intent ->
@@ -212,29 +227,34 @@ class MainActivity : ComponentActivity() {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                showToast("绑定服务失败")
             }
         }
     }
     
-    override fun onStop() {
-        super.onStop()
+    override fun onDestroy() {
+        super.onDestroy()
+        Log.i(TAG, "onDestroy")
         if (serviceBound) {
             try {
+                usbMonitorService?.onUsbConnected = null
+                usbMonitorService?.onUsbDisconnected = null
                 unbindService(serviceConnection)
                 serviceBound = false
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
+        mainViewModelRef = null
     }
     
     override fun onResume() {
         super.onResume()
         setupFullscreen()
+        if (serviceBound && mainViewModelRef != null) {
+            setupServiceCallbacks()
+        }
     }
     
-    // 返回键处理 - 双击退出
     private var lastBackPressTime = 0L
     
     @Deprecated("Deprecated in Java")
@@ -252,7 +272,6 @@ class MainActivity : ComponentActivity() {
     private fun setupFullscreen() {
         try {
             WindowCompat.setDecorFitsSystemWindows(window, false)
-            
             val controller = WindowInsetsControllerCompat(window, window.decorView)
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -274,8 +293,6 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun requestPermissions() {
-        val permissions = mutableListOf<String>()
-        
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 if (!Environment.isExternalStorageManager()) {
@@ -285,12 +302,12 @@ class MainActivity : ComponentActivity() {
                         startActivity(intent)
                     } catch (e: Exception) {
                         e.printStackTrace()
-                        showToast("无法打开权限设置")
                     }
                 } else {
                     startUsbMonitorService()
                 }
             } else {
+                val permissions = mutableListOf<String>()
                 if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) 
                     != PackageManager.PERMISSION_GRANTED) {
                     permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
@@ -308,7 +325,6 @@ class MainActivity : ComponentActivity() {
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            showToast("权限请求失败")
         }
     }
     
@@ -323,7 +339,6 @@ class MainActivity : ComponentActivity() {
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            showToast("启动服务失败")
         }
     }
     

@@ -39,16 +39,12 @@ fun MediaPlayerView(
     val (videoItems, imageItems) = remember(mediaItems) {
         val videos = mediaItems.filter { it.type == MediaType.VIDEO }
         val images = mediaItems.filter { it.type == MediaType.IMAGE }
+        Log.d(TAG, "Media items updated: ${videos.size} videos, ${images.size} images")
         videos to images
     }
     
-    var currentVideoIndex by remember { mutableIntStateOf(0) }
-    
-    LaunchedEffect(mediaItems) {
-        if (currentVideoIndex >= videoItems.size) {
-            currentVideoIndex = 0
-        }
-    }
+    // 使用 mediaItems 的 hashCode 作为 key，确保列表变化时重置索引
+    var currentVideoIndex by remember(mediaItems.hashCode()) { mutableIntStateOf(0) }
     
     val hasVideos = videoItems.isNotEmpty()
     val hasImages = imageItems.isNotEmpty()
@@ -131,17 +127,20 @@ fun MediaPlayerView(
             hasImages -> {
                 val imagePaths = remember(imageItems) { imageItems.map { it.path } }
                 
-                ImageDisplayView(
-                    imagePaths = imagePaths,
-                    modifier = Modifier.fillMaxSize(),
-                    intervalSeconds = settings.imageIntervalSeconds,
-                    transition = settings.imageTransition,
-                    scaleMode = settings.videoScaleMode,
-                    isPlaying = playerConfig.state == PlayerState.PLAYING,
-                    onError = { msg ->
-                        try { onError?.invoke(msg) } catch (e: Exception) { Log.e(TAG, "onError callback error", e) }
-                    }
-                )
+                // 使用 key 确保图片列表变化时重新创建组件
+                key(imagePaths.hashCode()) {
+                    ImageDisplayView(
+                        imagePaths = imagePaths,
+                        modifier = Modifier.fillMaxSize(),
+                        intervalSeconds = settings.imageIntervalSeconds,
+                        transition = settings.imageTransition,
+                        scaleMode = settings.videoScaleMode,
+                        isPlaying = playerConfig.state == PlayerState.PLAYING,
+                        onError = { msg ->
+                            try { onError?.invoke(msg) } catch (e: Exception) { Log.e(TAG, "onError callback error", e) }
+                        }
+                    )
+                }
             }
             
             else -> {

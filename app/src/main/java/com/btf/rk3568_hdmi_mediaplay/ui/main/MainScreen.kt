@@ -174,39 +174,33 @@ private fun HelpTip(onShowBottomBar: () -> Unit = {}) {
 }
 
 /**
- * U盘状态指示器 - 支持中英文
+ * U盘状态指示器 - 简化版，不显示具体状态
  */
 @Composable
 private fun UsbStatusIndicator(
     usbState: MainViewModel.UsbState,
     modifier: Modifier = Modifier
 ) {
-    val (text, color, icon) = when (usbState) {
-        is MainViewModel.UsbState.Disconnected -> Triple(StringResources.usbDisconnected, Color.Gray, "🔌")
-        is MainViewModel.UsbState.Connected -> {
-            if (usbState.hasMediaContent) {
-                Triple(StringResources.usbConnected, Color.Green, "✅")
-            } else {
-                Triple(StringResources.usbNoMedia, Color.Yellow, "⚠️")
+    // 简化显示，只在有内容时显示绿色
+    val hasContent = usbState is MainViewModel.UsbState.Connected && usbState.hasMediaContent
+    
+    if (hasContent) {
+        Surface(
+            modifier = modifier,
+            color = Color.Black.copy(alpha = 0.7f),
+            shape = MaterialTheme.shapes.small
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(text = "✅", fontSize = 14.sp)
+                Text(text = StringResources.usbConnected, color = Color.Green, fontSize = 12.sp)
             }
         }
-        is MainViewModel.UsbState.Error -> Triple(StringResources.usbError, Color.Red, "❌")
     }
-    
-    Surface(
-        modifier = modifier,
-        color = Color.Black.copy(alpha = 0.7f),
-        shape = MaterialTheme.shapes.small
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(text = icon, fontSize = 14.sp)
-            Text(text = text, color = color, fontSize = 12.sp)
-        }
-    }
+    // 不显示"未连接"或"无媒体"状态，避免误导
 }
 
 /**

@@ -62,6 +62,14 @@ enum class AudioOutput {
 }
 
 /**
+ * 存储位置
+ */
+enum class StorageLocation {
+    INTERNAL,   // 内部存储 (应用私有目录)
+    SDCARD      // SD卡/外部存储 (公共目录)
+}
+
+/**
  * 应用设置
  */
 data class AppSettings(
@@ -90,6 +98,10 @@ data class AppSettings(
     val usbScanFolderName: String = "media",        // U盘扫描目录名
     val autoPlayAfterCopy: Boolean = true,          // 拷贝完成后自动播放
     val showCopyProgress: Boolean = true,           // 显示拷贝进度
+    
+    // 存储设置
+    val storageLocation: StorageLocation = StorageLocation.SDCARD, // 存储位置
+    val customStoragePath: String = "",             // 自定义存储路径 (为空则使用默认)
     
     // 显示设置
     val layoutMode: LayoutMode = LayoutMode.GRID_2X2,

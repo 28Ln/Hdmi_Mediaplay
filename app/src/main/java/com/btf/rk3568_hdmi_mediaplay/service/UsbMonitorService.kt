@@ -9,7 +9,9 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Binder
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import com.btf.rk3568_hdmi_mediaplay.MainActivity
 import com.btf.rk3568_hdmi_mediaplay.R
@@ -24,7 +26,6 @@ import java.io.File
 
 /**
  * U盘监听服务
- * 后台监听U盘的插入和拔出，并扫描媒体内容
  */
 class UsbMonitorService : Service() {
     
@@ -37,6 +38,7 @@ class UsbMonitorService : Service() {
     
     private val binder = LocalBinder()
     private var serviceScope: CoroutineScope? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
     
     private val _usbState = MutableStateFlow<UsbState>(UsbState.Disconnected)
     val usbState: StateFlow<UsbState> = _usbState
@@ -45,53 +47,76 @@ class UsbMonitorService : Service() {
     private var usbReceiver: UsbBroadcastReceiver? = null
     private var settingsRepository: SettingsRepository? = null
     
-    // U盘状态
+    // 缓存最后检测到的U盘状态
+    @Volatile
+    private var lastDetectedUsb: Pair<File, Boolean>? = null
+    
     sealed class UsbState {
         object Disconnected : UsbState()
         data class Connected(val path: File, val hasMediaContent: Boolean) : UsbState()
         data class Scanning(val path: File) : UsbState()
     }
     
-    // 事件回调
+    // 事件回调 - 使用 @Volatile 确保线程可见性
+    @Volatile
     var onUsbConnected: ((File, Boolean) -> Unit)? = null
+        set(value) {
+            Log.i(TAG, "onUsbConnected callback ${if (value != null) "SET" else "CLEARED"}")
+            field = value
+            // 设置回调后，如果已经检测到U盘，立即通知
+            if (value != null) {
+                lastDetectedUsb?.let { (path, hasMedia) ->
+                    Log.i(TAG, "Notifying cached USB state: $path, hasMedia=$hasMedia")
+                    mainHandler.post {
+                        try {
+                            value.invoke(path, hasMedia)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error in cached callback: ${e.message}")
+                        }
+                    }
+                }
+            }
+        }
+    
+    @Volatile
     var onUsbDisconnected: (() -> Unit)? = null
     
     inner class LocalBinder : Binder() {
         fun getService(): UsbMonitorService = this@UsbMonitorService
     }
     
-    override fun onBind(intent: Intent?): IBinder = binder
+    override fun onBind(intent: Intent?): IBinder {
+        Log.i(TAG, "Service bound")
+        return binder
+    }
+    
+    override fun onUnbind(intent: Intent?): Boolean {
+        Log.i(TAG, "Service unbound")
+        return super.onUnbind(intent)
+    }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // 确保服务在前台运行
         try {
             createNotificationChannel()
             startForeground(NOTIFICATION_ID, createNotification())
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start foreground: ${e.message}")
         }
-        
         return START_STICKY
     }
     
     override fun onCreate() {
         super.onCreate()
+        Log.i(TAG, "Service onCreate")
         
         try {
-            // 初始化协程作用域
             serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-            
-            // 初始化设置仓库
             settingsRepository = SettingsRepository(this)
             
-            // 创建通知渠道并启动前台服务
             createNotificationChannel()
             startForeground(NOTIFICATION_ID, createNotification())
             
-            // 注册广播接收器
             registerUsbReceiver()
-            
-            // 启动周期性扫描
             startPeriodicScan()
             
             Log.i(TAG, "Service created successfully")
@@ -103,12 +128,11 @@ class UsbMonitorService : Service() {
     
     override fun onDestroy() {
         super.onDestroy()
-        
+        Log.i(TAG, "Service onDestroy")
         try {
             scanJob?.cancel()
             serviceScope?.cancel()
             unregisterUsbReceiver()
-            Log.i(TAG, "Service destroyed")
         } catch (e: Exception) {
             Log.e(TAG, "Error destroying service: ${e.message}")
         }
@@ -125,9 +149,7 @@ class UsbMonitorService : Service() {
                     description = "监听U盘插入和拔出"
                     setShowBadge(false)
                 }
-                
-                val notificationManager = getSystemService(NotificationManager::class.java)
-                notificationManager?.createNotificationChannel(channel)
+                getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to create notification channel: ${e.message}")
             }
@@ -135,7 +157,6 @@ class UsbMonitorService : Service() {
     }
     
     private fun createNotification(): Notification {
-        // 创建点击通知时打开应用的 Intent
         val pendingIntent = try {
             val intent = Intent(this, MainActivity::class.java)
             val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -180,7 +201,6 @@ class UsbMonitorService : Service() {
                 addDataScheme("file")
             }
             
-            // Android 13+ 需要指定导出标志
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 registerReceiver(usbReceiver, filter, RECEIVER_NOT_EXPORTED)
             } else {
@@ -188,18 +208,15 @@ class UsbMonitorService : Service() {
             }
             
             UsbBroadcastReceiver.onUsbMounted = { path ->
-                Log.i(TAG, "USB mounted callback: $path")
+                Log.i(TAG, "Broadcast: USB mounted at $path")
                 checkUsbContent(File(path))
             }
             
-            UsbBroadcastReceiver.onUsbUnmounted = { _ ->
-                Log.i(TAG, "USB unmounted callback")
+            UsbBroadcastReceiver.onUsbUnmounted = { path ->
+                Log.i(TAG, "Broadcast: USB unmounted from $path")
+                lastDetectedUsb = null
                 _usbState.value = UsbState.Disconnected
-                try {
-                    onUsbDisconnected?.invoke()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error in onUsbDisconnected callback: ${e.message}")
-                }
+                notifyUsbDisconnected()
             }
             
             Log.i(TAG, "USB receiver registered")
@@ -210,9 +227,7 @@ class UsbMonitorService : Service() {
     
     private fun unregisterUsbReceiver() {
         try {
-            usbReceiver?.let {
-                unregisterReceiver(it)
-            }
+            usbReceiver?.let { unregisterReceiver(it) }
             UsbBroadcastReceiver.onUsbMounted = null
             UsbBroadcastReceiver.onUsbUnmounted = null
         } catch (e: Exception) {
@@ -220,12 +235,11 @@ class UsbMonitorService : Service() {
         }
     }
     
-    /**
-     * 启动周期性扫描
-     */
     private fun startPeriodicScan() {
         scanJob?.cancel()
         scanJob = serviceScope?.launch {
+            // 首次扫描延迟一下，等待服务完全启动
+            delay(1000)
             while (isActive) {
                 try {
                     scanForUsb()
@@ -237,29 +251,30 @@ class UsbMonitorService : Service() {
         }
     }
     
-    /**
-     * 扫描U盘
-     */
-    private fun scanForUsb() {
+    private suspend fun scanForUsb() {
         try {
-            val usbPaths = UsbUtils.getMountedUsbPaths(this)
+            val usbPaths = UsbUtils.getMountedUsbPaths(this@UsbMonitorService)
             
             if (usbPaths.isEmpty()) {
                 if (_usbState.value !is UsbState.Disconnected) {
+                    Log.i(TAG, "No USB detected, setting disconnected")
+                    lastDetectedUsb = null
                     _usbState.value = UsbState.Disconnected
-                    try {
-                        onUsbDisconnected?.invoke()
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error in onUsbDisconnected: ${e.message}")
-                    }
+                    notifyUsbDisconnected()
                 }
             } else {
                 val usbPath = usbPaths.first()
                 val currentState = _usbState.value
                 
-                if (currentState is UsbState.Disconnected || 
-                    (currentState is UsbState.Connected && currentState.path != usbPath)) {
-                    checkUsbContent(usbPath)
+                // 检查是否需要更新状态
+                val needCheck = when {
+                    currentState is UsbState.Disconnected -> true
+                    currentState is UsbState.Connected && currentState.path.absolutePath != usbPath.absolutePath -> true
+                    else -> false
+                }
+                
+                if (needCheck) {
+                    checkUsbContentAsync(usbPath)
                 }
             }
         } catch (e: Exception) {
@@ -267,35 +282,67 @@ class UsbMonitorService : Service() {
         }
     }
     
-    /**
-     * 检查U盘内容
-     */
     private fun checkUsbContent(usbPath: File) {
+        serviceScope?.launch {
+            checkUsbContentAsync(usbPath)
+        }
+    }
+    
+    private suspend fun checkUsbContentAsync(usbPath: File) {
+        Log.i(TAG, "Checking USB content: ${usbPath.absolutePath}")
         _usbState.value = UsbState.Scanning(usbPath)
         
-        serviceScope?.launch {
-            try {
-                // 从设置中获取目录名
-                val folderName = try {
-                    settingsRepository?.settingsFlow?.first()?.usbScanFolderName ?: "media"
-                } catch (e: Exception) {
-                    "media"
-                }
-                
-                val hasMediaContent = UsbUtils.hasValidMediaStructure(usbPath, folderName)
-                
-                _usbState.value = UsbState.Connected(usbPath, hasMediaContent)
-                
+        try {
+            val folderName = try {
+                settingsRepository?.settingsFlow?.first()?.usbScanFolderName ?: "media"
+            } catch (e: Exception) {
+                "media"
+            }
+            
+            val hasMediaContent = withContext(Dispatchers.IO) {
+                UsbUtils.hasValidMediaStructure(usbPath, folderName)
+            }
+            
+            Log.i(TAG, "USB check result: path=${usbPath.absolutePath}, hasMedia=$hasMediaContent")
+            
+            // 更新状态
+            lastDetectedUsb = Pair(usbPath, hasMediaContent)
+            _usbState.value = UsbState.Connected(usbPath, hasMediaContent)
+            
+            // 通知回调
+            notifyUsbConnected(usbPath, hasMediaContent)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking USB content: ${e.message}")
+            _usbState.value = UsbState.Disconnected
+        }
+    }
+    
+    private fun notifyUsbConnected(path: File, hasMedia: Boolean) {
+        val callback = onUsbConnected
+        Log.i(TAG, "notifyUsbConnected: callback is ${if (callback != null) "SET" else "NULL"}")
+        
+        if (callback != null) {
+            mainHandler.post {
                 try {
-                    onUsbConnected?.invoke(usbPath, hasMediaContent)
+                    Log.i(TAG, "Invoking onUsbConnected on main thread")
+                    callback.invoke(path, hasMedia)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error in onUsbConnected callback: ${e.message}")
                 }
-                
-                Log.i(TAG, "USB content check: path=$usbPath, hasMedia=$hasMediaContent")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error checking USB content: ${e.message}")
-                _usbState.value = UsbState.Disconnected
+            }
+        }
+    }
+    
+    private fun notifyUsbDisconnected() {
+        val callback = onUsbDisconnected
+        if (callback != null) {
+            mainHandler.post {
+                try {
+                    callback.invoke()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in onUsbDisconnected callback: ${e.message}")
+                }
             }
         }
     }
@@ -304,8 +351,22 @@ class UsbMonitorService : Service() {
      * 手动触发扫描
      */
     fun triggerScan() {
+        Log.i(TAG, "Manual scan triggered")
         serviceScope?.launch {
-            scanForUsb()
+            // 强制重新扫描
+            val usbPaths = UsbUtils.getMountedUsbPaths(this@UsbMonitorService)
+            if (usbPaths.isNotEmpty()) {
+                checkUsbContentAsync(usbPaths.first())
+            } else {
+                lastDetectedUsb = null
+                _usbState.value = UsbState.Disconnected
+                notifyUsbDisconnected()
+            }
         }
     }
+    
+    /**
+     * 获取当前U盘状态
+     */
+    fun getCurrentUsbState(): UsbState = _usbState.value
 }

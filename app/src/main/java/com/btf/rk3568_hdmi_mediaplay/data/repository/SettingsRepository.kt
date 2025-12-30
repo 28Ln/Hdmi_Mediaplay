@@ -41,6 +41,10 @@ class SettingsRepository(private val context: Context) {
         private val AUTO_PLAY_AFTER_COPY = booleanPreferencesKey("auto_play_after_copy")
         private val SHOW_COPY_PROGRESS = booleanPreferencesKey("show_copy_progress")
         
+        // 存储设置
+        private val STORAGE_LOCATION = stringPreferencesKey("storage_location")
+        private val CUSTOM_STORAGE_PATH = stringPreferencesKey("custom_storage_path")
+        
         // 显示设置
         private val LAYOUT_MODE = stringPreferencesKey("layout_mode")
         private val SHOW_PLAYER_INDEX = booleanPreferencesKey("show_player_index")
@@ -85,6 +89,9 @@ class SettingsRepository(private val context: Context) {
                     autoPlayAfterCopy = preferences[AUTO_PLAY_AFTER_COPY] ?: true,
                     showCopyProgress = preferences[SHOW_COPY_PROGRESS] ?: true,
                     
+                    storageLocation = safeEnumValueOf(preferences[STORAGE_LOCATION], StorageLocation.SDCARD),
+                    customStoragePath = preferences[CUSTOM_STORAGE_PATH] ?: "",
+                    
                     layoutMode = safeEnumValueOf(preferences[LAYOUT_MODE], LayoutMode.GRID_2X2),
                     showPlayerIndex = preferences[SHOW_PLAYER_INDEX] ?: true,
                     keepScreenOn = preferences[KEEP_SCREEN_ON] ?: true,
@@ -122,6 +129,9 @@ class SettingsRepository(private val context: Context) {
                 preferences[USB_SCAN_FOLDER_NAME] = settings.usbScanFolderName
                 preferences[AUTO_PLAY_AFTER_COPY] = settings.autoPlayAfterCopy
                 preferences[SHOW_COPY_PROGRESS] = settings.showCopyProgress
+                
+                preferences[STORAGE_LOCATION] = settings.storageLocation.name
+                preferences[CUSTOM_STORAGE_PATH] = settings.customStoragePath
                 
                 preferences[LAYOUT_MODE] = settings.layoutMode.name
                 preferences[SHOW_PLAYER_INDEX] = settings.showPlayerIndex

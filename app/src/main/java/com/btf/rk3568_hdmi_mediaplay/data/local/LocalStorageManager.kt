@@ -4,18 +4,15 @@ import android.content.Context
 import android.util.Log
 import com.btf.rk3568_hdmi_mediaplay.data.model.MediaItem
 import com.btf.rk3568_hdmi_mediaplay.data.model.MediaSource
+import com.btf.rk3568_hdmi_mediaplay.data.model.StorageLocation
 import com.btf.rk3568_hdmi_mediaplay.util.FileUtils
 import com.btf.rk3568_hdmi_mediaplay.util.UsbUtils
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.coroutines.coroutineContext
 
 /**
  * 本地存储管理器
- * 负责管理本地缓存和U盘文件的拷贝
- * 优化: 异常处理、协程取消支持、日志记录
  */
 class LocalStorageManager(private val context: Context) {
     
@@ -23,15 +20,27 @@ class LocalStorageManager(private val context: Context) {
         private const val TAG = "LocalStorageManager"
     }
     
+    private var storageLocation: StorageLocation = StorageLocation.SDCARD
+    private var customPath: String = ""
+    
+    fun updateStorageSettings(location: StorageLocation, path: String = "") {
+        storageLocation = location
+        customPath = path
+        Log.d(TAG, "Storage settings updated: $location, path=$path")
+    }
+    
     /**
      * 获取指定播放器的本地媒体文件
      */
     fun getLocalMediaFiles(playerIndex: Int): List<MediaItem> {
         return try {
-            val localDir = FileUtils.getPlayerLocalDir(context, playerIndex)
-            FileUtils.scanMediaFiles(localDir, MediaSource.LOCAL)
+            val localDir = FileUtils.getPlayerLocalDir(context, playerIndex, storageLocation, customPath)
+            Log.d(TAG, "Getting files for player $playerIndex from: ${localDir.absolutePath}")
+            val files = FileUtils.scanMediaFiles(localDir, MediaSource.LOCAL)
+            Log.d(TAG, "Player $playerIndex: ${files.size} files")
+            files
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to get local media files for player $playerIndex", e)
+            Log.e(TAG, "Error getting files for player $playerIndex: ${e.message}")
             emptyList()
         }
     }
@@ -40,12 +49,13 @@ class LocalStorageManager(private val context: Context) {
      * 获取所有播放器的本地媒体文件
      */
     fun getAllLocalMediaFiles(): Map<Int, List<MediaItem>> {
-        return try {
-            (0..3).associateWith { getLocalMediaFiles(it) }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to get all local media files", e)
-            emptyMap()
+        val result = mutableMapOf<Int, List<MediaItem>>()
+        for (i in 0..3) {
+            result[i] = getLocalMediaFiles(i)
         }
+        val total = result.values.sumOf { it.size }
+        Log.i(TAG, "Total local files: $total")
+        return result
     }
     
     /**
@@ -59,32 +69,51 @@ class LocalStorageManager(private val context: Context) {
     ): Boolean = withContext(Dispatchers.IO) {
         try {
             val usbPlayerDir = UsbUtils.getUsbPlayerDir(usbPath, folderName, playerIndex)
-            val localPlayerDir = FileUtils.getPlayerLocalDir(context, playerIndex)
+            val localPlayerDir = FileUtils.getPlayerLocalDir(context, playerIndex, storageLocation, customPath)
+            
+            Log.i(TAG, "Copying player $playerIndex:")
+            Log.i(TAG, "  From: ${usbPlayerDir.absolutePath}")
+            Log.i(TAG, "  To: ${localPlayerDir.absolutePath}")
             
             if (!usbPlayerDir.exists() || !usbPlayerDir.isDirectory) {
                 Log.w(TAG, "USB player dir not found: ${usbPlayerDir.absolutePath}")
                 return@withContext false
             }
             
-            // 检查协程是否被取消
-            coroutineContext.ensureActive()
+            // 检查U盘目录是否有文件
+            val usbFiles = usbPlayerDir.listFiles()?.filter { 
+                it.isFile && it.length() > 0 
+            } ?: emptyList()
+            
+            if (usbFiles.isEmpty()) {
+                Log.w(TAG, "No files in USB player $playerIndex")
+                return@withContext false
+            }
+            
+            Log.d(TAG, "Found ${usbFiles.size} files in USB player $playerIndex")
             
             // 清空本地目录
-            if (!FileUtils.clearDirectory(localPlayerDir)) {
-                Log.w(TAG, "Failed to clear local directory: ${localPlayerDir.absolutePath}")
+            FileUtils.clearDirectory(localPlayerDir)
+            
+            // 确保目录存在
+            if (!localPlayerDir.exists()) {
+                localPlayerDir.mkdirs()
             }
             
             // 拷贝文件
-            FileUtils.copyDirectory(usbPlayerDir, localPlayerDir) { current, total, progress ->
-                coroutineContext.ensureActive()
+            val success = FileUtils.copyDirectory(usbPlayerDir, localPlayerDir) { current, total, progress ->
                 val overallProgress = ((current - 1) + progress) / total
                 onProgress?.invoke(overallProgress)
             }
             
-            Log.i(TAG, "Copy completed for player $playerIndex")
-            true
+            // 验证结果
+            val copiedFiles = localPlayerDir.listFiles()?.filter { it.isFile } ?: emptyList()
+            Log.i(TAG, "Player $playerIndex copy result: ${copiedFiles.size} files")
+            
+            copiedFiles.isNotEmpty()
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to copy from USB for player $playerIndex", e)
+            Log.e(TAG, "Error copying player $playerIndex: ${e.message}")
+            e.printStackTrace()
             false
         }
     }
@@ -99,120 +128,88 @@ class LocalStorageManager(private val context: Context) {
     ): Boolean = withContext(Dispatchers.IO) {
         var anySuccess = false
         
+        Log.i(TAG, "Starting copy from USB: ${usbPath.absolutePath}/$folderName")
+        
         for (playerIndex in 0..3) {
             try {
-                coroutineContext.ensureActive()
-                
                 val result = copyFromUsb(usbPath, folderName, playerIndex) { progress ->
                     onProgress?.invoke(playerIndex, progress)
                 }
-                
                 if (result) {
                     anySuccess = true
+                    Log.i(TAG, "Player $playerIndex: copy success")
+                } else {
+                    Log.w(TAG, "Player $playerIndex: no files or copy failed")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error copying player $playerIndex", e)
+                Log.e(TAG, "Error copying player $playerIndex: ${e.message}")
             }
         }
         
+        Log.i(TAG, "Copy all completed, anySuccess=$anySuccess")
         anySuccess
     }
     
-    /**
-     * 清空指定播放器的本地缓存
-     */
     fun clearPlayerCache(playerIndex: Int): Boolean {
         return try {
-            val localDir = FileUtils.getPlayerLocalDir(context, playerIndex)
+            val localDir = FileUtils.getPlayerLocalDir(context, playerIndex, storageLocation, customPath)
             FileUtils.clearDirectory(localDir)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to clear player cache for player $playerIndex", e)
+            Log.e(TAG, "Error clearing player $playerIndex cache: ${e.message}")
             false
         }
     }
     
-    /**
-     * 清空所有本地缓存
-     */
     fun clearAllCache(): Boolean {
         return try {
-            val mediaDir = FileUtils.getLocalMediaDir(context)
+            val mediaDir = FileUtils.getLocalMediaDir(context, storageLocation, customPath)
             FileUtils.clearDirectory(mediaDir)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to clear all cache", e)
+            Log.e(TAG, "Error clearing all cache: ${e.message}")
             false
         }
     }
     
-    /**
-     * 获取本地缓存大小 (MB)
-     */
     fun getCacheSizeMB(): Long {
         return try {
-            val mediaDir = FileUtils.getLocalMediaDir(context)
+            val mediaDir = FileUtils.getLocalMediaDir(context, storageLocation, customPath)
             FileUtils.getDirectorySizeMB(mediaDir)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to get cache size", e)
             0L
         }
     }
     
-    /**
-     * 检查本地是否有缓存内容
-     */
     fun hasLocalContent(): Boolean {
         return try {
             (0..3).any { getLocalMediaFiles(it).isNotEmpty() }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to check local content", e)
             false
         }
     }
     
-    /**
-     * 比较U盘和本地内容是否相同
-     */
-    fun compareWithUsb(usbPath: File, folderName: String, playerIndex: Int): ContentComparison {
+    fun getCurrentStoragePath(): String {
         return try {
-            val usbPlayerDir = UsbUtils.getUsbPlayerDir(usbPath, folderName, playerIndex)
-            val localPlayerDir = FileUtils.getPlayerLocalDir(context, playerIndex)
-            
-            val usbFiles = FileUtils.scanMediaFiles(usbPlayerDir, MediaSource.USB)
-            val localFiles = FileUtils.scanMediaFiles(localPlayerDir, MediaSource.LOCAL)
-            
-            val usbFileNames = usbFiles.map { it.name }.toSet()
-            val localFileNames = localFiles.map { it.name }.toSet()
-            
-            ContentComparison(
-                newFiles = usbFileNames - localFileNames,
-                deletedFiles = localFileNames - usbFileNames,
-                modifiedFiles = usbFiles.filter { usbFile ->
-                    localFiles.find { it.name == usbFile.name }?.let { localFile ->
-                        usbFile.size != localFile.size || usbFile.lastModified > localFile.lastModified
-                    } ?: false
-                }.map { it.name }.toSet(),
-                isSame = usbFileNames == localFileNames && 
-                         usbFiles.all { usbFile ->
-                             localFiles.find { it.name == usbFile.name }?.let { localFile ->
-                                 usbFile.size == localFile.size
-                             } ?: false
-                         }
-            )
+            FileUtils.getLocalMediaDir(context, storageLocation, customPath).absolutePath
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to compare with USB", e)
-            ContentComparison(
-                newFiles = emptySet(),
-                deletedFiles = emptySet(),
-                modifiedFiles = emptySet(),
-                isSame = false
-            )
+            ""
         }
     }
     
-    data class ContentComparison(
-        val newFiles: Set<String>,
-        val deletedFiles: Set<String>,
-        val modifiedFiles: Set<String>,
-        val isSame: Boolean
-    )
+    fun isStorageAvailable(): Boolean {
+        return try {
+            val dir = FileUtils.getLocalMediaDir(context, storageLocation, customPath)
+            FileUtils.isDirectoryWritable(dir)
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    fun getAvailableSpaceMB(): Long {
+        return try {
+            val dir = FileUtils.getLocalMediaDir(context, storageLocation, customPath)
+            FileUtils.getAvailableSpaceMB(dir)
+        } catch (e: Exception) {
+            0L
+        }
+    }
 }
