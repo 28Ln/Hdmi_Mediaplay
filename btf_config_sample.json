@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "settings": {
+    "layoutMode": "GRID_2X2",
+    "language": "zh",
+    "backgroundColor": "#FF000000",
+    "defaultVolume": 80,
+    "defaultMuted": false,
+    "imageIntervalSeconds": 5,
+    "imageTransition": "FADE",
+    "loopMode": "LIST",
+    "videoScaleMode": "FIT",
+    "autoPlayOnStart": true,
+    "autoPlayAfterCopy": true,
+    "keepScreenOn": true,
+    "usbScanFolderName": "btf_media",
+    "showOverwriteConfirm": false
+  },
+  "features": {
+    "showSettingsButton": true,
+    "allowManualFileSelect": true,
+    "allowLocalMediaScan": true,
+    "showHelpTip": true,
+    "allowLayoutChange": true,
+    "showDebugInfo": false,
+    "showPlayerIndex": true,
+    "allowVolumeControl": true,
+    "allowClearCache": true,
+    "showUsbStatus": true,
+    "allowPlayPauseControl": true,
+    "showBottomControlBar": true
+  }
+}

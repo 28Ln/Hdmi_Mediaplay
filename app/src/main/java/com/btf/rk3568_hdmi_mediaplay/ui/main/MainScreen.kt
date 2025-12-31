@@ -13,6 +13,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.btf.rk3568_hdmi_mediaplay.FeatureManager
 import com.btf.rk3568_hdmi_mediaplay.ui.components.ToastMessage
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.OverwriteDialog
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.PlayerMenuDialog
@@ -34,6 +35,9 @@ fun MainScreen(
     val copyProgress by viewModel.copyProgress.collectAsState()
     val showOverwriteDialog by viewModel.showOverwriteDialog.collectAsState()
     val toastMessage by viewModel.toastMessage.collectAsState()
+    
+    // 功能开关
+    val featureFlags by FeatureManager.featureFlags.collectAsState()
     
     // 确保语言同步
     LaunchedEffect(settings.language) {
@@ -59,22 +63,29 @@ fun MainScreen(
             playerConfigs = playerConfigs,
             settings = settings,
             modifier = Modifier.fillMaxSize(),
-            onPlayerClick = { index -> viewModel.togglePlayPause(index) },
+            onPlayerClick = { index ->
+                if (featureFlags.allowPlayPauseControl) {
+                    viewModel.togglePlayPause(index)
+                }
+            },
             onPlayerLongClick = { index -> selectedPlayerIndex = index }
         )
         
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(60.dp)
-                .align(Alignment.BottomCenter)
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onTap = { showBottomBar = true },
-                        onPress = { showBottomBar = true }
-                    )
-                }
-        )
+        // 底部触发区域 - 根据功能开关决定是否显示
+        if (featureFlags.showBottomControlBar) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(60.dp)
+                    .align(Alignment.BottomCenter)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = { showBottomBar = true },
+                            onPress = { showBottomBar = true }
+                        )
+                    }
+            )
+        }
         
         Row(
             modifier = Modifier
@@ -84,8 +95,17 @@ fun MainScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top
         ) {
-            HelpTip(onShowBottomBar = { showBottomBar = true })
-            UsbStatusIndicator(usbState = usbState)
+            // 帮助提示 - 根据功能开关
+            if (featureFlags.showHelpTip) {
+                HelpTip(onShowBottomBar = { showBottomBar = true })
+            } else {
+                Spacer(modifier = Modifier.width(1.dp))
+            }
+            
+            // U盘状态 - 根据功能开关
+            if (featureFlags.showUsbStatus) {
+                UsbStatusIndicator(usbState = usbState)
+            }
         }
         
         ToastMessage(
@@ -103,20 +123,24 @@ fun MainScreen(
             )
         }
         
-        AnimatedVisibility(
-            visible = showBottomBar,
-            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            BottomControlBar(
-                onSettingsClick = onNavigateToSettings,
-                onPlayAllClick = { viewModel.playAll() },
-                onPauseAllClick = { viewModel.pauseAll() },
-                onScanUsbClick = { viewModel.scanUsb() },
-                onHide = { showBottomBar = false },
-                modifier = Modifier.padding(16.dp)
-            )
+        // 底部控制栏 - 根据功能开关
+        if (featureFlags.showBottomControlBar) {
+            AnimatedVisibility(
+                visible = showBottomBar,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) {
+                BottomControlBar(
+                    featureFlags = featureFlags,
+                    onSettingsClick = onNavigateToSettings,
+                    onPlayAllClick = { viewModel.playAll() },
+                    onPauseAllClick = { viewModel.pauseAll() },
+                    onScanUsbClick = { viewModel.scanUsb() },
+                    onHide = { showBottomBar = false },
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
         }
     }
     
@@ -131,6 +155,7 @@ fun MainScreen(
         PlayerMenuDialog(
             playerIndex = index,
             playerConfig = playerConfigs.getOrNull(index),
+            featureFlags = featureFlags,
             onDismiss = { selectedPlayerIndex = null },
             onTogglePlayPause = { viewModel.togglePlayPause(index) },
             onToggleMute = { viewModel.toggleMute(index) },
@@ -269,10 +294,11 @@ private fun CopyProgressOverlay(
 }
 
 /**
- * 底部控制栏 - 支持中英文
+ * 底部控制栏 - 支持中英文，根据功能开关显示按钮
  */
 @Composable
 private fun BottomControlBar(
+    featureFlags: com.btf.rk3568_hdmi_mediaplay.data.model.FeatureFlags,
     onSettingsClick: () -> Unit,
     onPlayAllClick: () -> Unit,
     onPauseAllClick: () -> Unit,
@@ -290,10 +316,14 @@ private fun BottomControlBar(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            ControlButton(icon = "▶", text = StringResources.playAll, onClick = onPlayAllClick)
-            ControlButton(icon = "⏸", text = StringResources.pauseAll, onClick = onPauseAllClick)
+            if (featureFlags.allowPlayPauseControl) {
+                ControlButton(icon = "▶", text = StringResources.playAll, onClick = onPlayAllClick)
+                ControlButton(icon = "⏸", text = StringResources.pauseAll, onClick = onPauseAllClick)
+            }
             ControlButton(icon = "🔍", text = StringResources.scanUsb, onClick = onScanUsbClick)
-            ControlButton(icon = "⚙", text = StringResources.settings, onClick = onSettingsClick)
+            if (featureFlags.showSettingsButton) {
+                ControlButton(icon = "⚙", text = StringResources.settings, onClick = onSettingsClick)
+            }
             
             TextButton(
                 onClick = onHide,

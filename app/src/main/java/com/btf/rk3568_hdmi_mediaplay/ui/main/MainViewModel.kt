@@ -1,10 +1,11 @@
 package com.btf.rk3568_hdmi_mediaplay.ui.main
 
 import android.app.Application
-import android.os.StatFs
+import android.graphics.Color
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.btf.rk3568_hdmi_mediaplay.FeatureManager
 import com.btf.rk3568_hdmi_mediaplay.data.local.LocalStorageManager
 import com.btf.rk3568_hdmi_mediaplay.data.model.*
 import com.btf.rk3568_hdmi_mediaplay.data.repository.SettingsRepository
@@ -189,6 +190,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         safeLaunch {
             log("U盘已连接: ${path.absolutePath}, 有媒体内容: $hasMediaContent")
             _usbState.value = UsbState.Connected(path, hasMediaContent)
+            
+            // 检查并应用U盘配置
+            applyUsbConfigSettings()
             
             if (!hasMediaContent) {
                 val folderName = settings.value.usbScanFolderName
@@ -564,6 +568,127 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             FileUtils.getDirectorySizeMB(mediaDir) * 1024 * 1024
         } catch (e: Exception) {
             0L
+        }
+    }
+
+    /**
+     * 应用U盘配置到设置
+     */
+    private fun applyUsbConfigSettings() {
+        val configSettings = FeatureManager.getSettingsOverride() ?: return
+
+        log("应用U盘配置设置...")
+
+        val currentSettings = settings.value
+        var newSettings = currentSettings
+
+        // 应用各项设置覆盖
+        configSettings.layoutMode?.let { mode ->
+            try {
+                newSettings = newSettings.copy(layoutMode = LayoutMode.valueOf(mode))
+                log("  布局模式: $mode")
+            } catch (e: Exception) {
+                log("  无效的布局模式: $mode")
+            }
+        }
+
+        configSettings.language?.let { lang ->
+            try {
+                val appLang = when (lang.lowercase()) {
+                    "zh", "chinese" -> AppLanguage.CHINESE
+                    "en", "english" -> AppLanguage.ENGLISH
+                    else -> null
+                }
+                appLang?.let {
+                    newSettings = newSettings.copy(language = it)
+                    log("  语言: $lang")
+                }
+            } catch (e: Exception) {
+                log("  无效的语言: $lang")
+            }
+        }
+
+        configSettings.backgroundColor?.let { color ->
+            try {
+                val colorLong = Color.parseColor(color).toLong() or 0xFF000000
+                newSettings = newSettings.copy(backgroundColor = colorLong)
+                log("  背景色: $color")
+            } catch (e: Exception) {
+                log("  无效的背景色: $color")
+            }
+        }
+
+        configSettings.defaultVolume?.let { volume ->
+            newSettings = newSettings.copy(defaultVolume = volume.coerceIn(0, 100))
+            log("  默认音量: $volume")
+        }
+
+        configSettings.defaultMuted?.let { muted ->
+            newSettings = newSettings.copy(defaultMuted = muted)
+            log("  默认静音: $muted")
+        }
+
+        configSettings.imageIntervalSeconds?.let { interval ->
+            newSettings = newSettings.copy(imageIntervalSeconds = interval.coerceIn(1, 60))
+            log("  图片间隔: ${interval}秒")
+        }
+
+        configSettings.imageTransition?.let { transition ->
+            try {
+                newSettings = newSettings.copy(imageTransition = ImageTransition.valueOf(transition))
+                log("  图片过渡: $transition")
+            } catch (e: Exception) {
+                log("  无效的图片过渡: $transition")
+            }
+        }
+
+        configSettings.loopMode?.let { mode ->
+            try {
+                newSettings = newSettings.copy(loopMode = LoopMode.valueOf(mode))
+                log("  循环模式: $mode")
+            } catch (e: Exception) {
+                log("  无效的循环模式: $mode")
+            }
+        }
+
+        configSettings.videoScaleMode?.let { mode ->
+            try {
+                newSettings = newSettings.copy(videoScaleMode = VideoScaleMode.valueOf(mode))
+                log("  视频缩放: $mode")
+            } catch (e: Exception) {
+                log("  无效的视频缩放: $mode")
+            }
+        }
+
+        configSettings.autoPlayOnStart?.let { auto ->
+            newSettings = newSettings.copy(autoPlayOnStart = auto)
+            log("  启动自动播放: $auto")
+        }
+
+        configSettings.autoPlayAfterCopy?.let { auto ->
+            newSettings = newSettings.copy(autoPlayAfterCopy = auto)
+            log("  拷贝后自动播放: $auto")
+        }
+
+        configSettings.keepScreenOn?.let { keep ->
+            newSettings = newSettings.copy(keepScreenOn = keep)
+            log("  屏幕常亮: $keep")
+        }
+
+        configSettings.usbScanFolderName?.let { folder ->
+            newSettings = newSettings.copy(usbScanFolderName = folder)
+            log("  U盘扫描目录: $folder")
+        }
+
+        configSettings.showOverwriteConfirm?.let { show ->
+            newSettings = newSettings.copy(showOverwriteConfirm = show)
+            log("  覆盖确认: $show")
+        }
+
+        // 如果有变化，更新设置
+        if (newSettings != currentSettings) {
+            updateSettings(newSettings)
+            showToast("已应用U盘配置", MessageType.SUCCESS)
         }
     }
     

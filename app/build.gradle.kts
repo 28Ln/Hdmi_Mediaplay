@@ -33,6 +33,8 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
+            // Debug版本标识
+            buildConfigField("boolean", "IS_DEBUG_BUILD", "true")
         }
         release {
             isMinifyEnabled = false
@@ -41,6 +43,8 @@ android {
                 "proguard-rules.pro"
             )
             signingConfig = signingConfigs.getByName("release")
+            // Release版本标识
+            buildConfigField("boolean", "IS_DEBUG_BUILD", "false")
         }
     }
     
@@ -53,6 +57,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.1"

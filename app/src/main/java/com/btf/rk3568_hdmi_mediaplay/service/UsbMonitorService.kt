@@ -13,10 +13,13 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import com.btf.rk3568_hdmi_mediaplay.FeatureManager
 import com.btf.rk3568_hdmi_mediaplay.MainActivity
 import com.btf.rk3568_hdmi_mediaplay.R
+import com.btf.rk3568_hdmi_mediaplay.data.model.UsbConfig
 import com.btf.rk3568_hdmi_mediaplay.data.repository.SettingsRepository
 import com.btf.rk3568_hdmi_mediaplay.receiver.UsbBroadcastReceiver
+import com.btf.rk3568_hdmi_mediaplay.util.UsbConfigLoader
 import com.btf.rk3568_hdmi_mediaplay.util.UsbUtils
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,9 +54,13 @@ class UsbMonitorService : Service() {
     @Volatile
     private var lastDetectedUsb: Pair<File, Boolean>? = null
     
+    // 缓存最后加载的U盘配置
+    @Volatile
+    private var lastLoadedConfig: UsbConfig? = null
+    
     sealed class UsbState {
         object Disconnected : UsbState()
-        data class Connected(val path: File, val hasMediaContent: Boolean) : UsbState()
+        data class Connected(val path: File, val hasMediaContent: Boolean, val hasConfig: Boolean = false) : UsbState()
         data class Scanning(val path: File) : UsbState()
     }
     
@@ -80,6 +87,10 @@ class UsbMonitorService : Service() {
     
     @Volatile
     var onUsbDisconnected: (() -> Unit)? = null
+    
+    // U盘配置加载回调
+    @Volatile
+    var onConfigLoaded: ((UsbConfig?) -> Unit)? = null
     
     inner class LocalBinder : Binder() {
         fun getService(): UsbMonitorService = this@UsbMonitorService
@@ -215,7 +226,10 @@ class UsbMonitorService : Service() {
             UsbBroadcastReceiver.onUsbUnmounted = { path ->
                 Log.i(TAG, "Broadcast: USB unmounted from $path")
                 lastDetectedUsb = null
+                lastLoadedConfig = null
                 _usbState.value = UsbState.Disconnected
+                // 清除U盘配置
+                FeatureManager.applyUsbConfig(null)
                 notifyUsbDisconnected()
             }
             
@@ -259,7 +273,10 @@ class UsbMonitorService : Service() {
                 if (_usbState.value !is UsbState.Disconnected) {
                     Log.i(TAG, "No USB detected, setting disconnected")
                     lastDetectedUsb = null
+                    lastLoadedConfig = null
                     _usbState.value = UsbState.Disconnected
+                    // 清除U盘配置
+                    FeatureManager.applyUsbConfig(null)
                     notifyUsbDisconnected()
                 }
             } else {
@@ -303,11 +320,30 @@ class UsbMonitorService : Service() {
                 UsbUtils.hasValidMediaStructure(usbPath, folderName)
             }
             
-            Log.i(TAG, "USB check result: path=${usbPath.absolutePath}, hasMedia=$hasMediaContent")
+            // 加载U盘配置文件
+            val usbConfig = withContext(Dispatchers.IO) {
+                UsbConfigLoader.loadConfig(usbPath)
+            }
+            
+            val hasConfig = usbConfig != null
+            
+            Log.i(TAG, "USB check result: path=${usbPath.absolutePath}, hasMedia=$hasMediaContent, hasConfig=$hasConfig")
+            
+            // 应用U盘配置到 FeatureManager
+            if (usbConfig != null) {
+                Log.i(TAG, "Applying USB config: version=${usbConfig.version}")
+                FeatureManager.applyUsbConfig(usbConfig)
+                lastLoadedConfig = usbConfig
+                
+                // 通知配置加载
+                mainHandler.post {
+                    onConfigLoaded?.invoke(usbConfig)
+                }
+            }
             
             // 更新状态
             lastDetectedUsb = Pair(usbPath, hasMediaContent)
-            _usbState.value = UsbState.Connected(usbPath, hasMediaContent)
+            _usbState.value = UsbState.Connected(usbPath, hasMediaContent, hasConfig)
             
             // 通知回调
             notifyUsbConnected(usbPath, hasMediaContent)
@@ -359,7 +395,9 @@ class UsbMonitorService : Service() {
                 checkUsbContentAsync(usbPaths.first())
             } else {
                 lastDetectedUsb = null
+                lastLoadedConfig = null
                 _usbState.value = UsbState.Disconnected
+                FeatureManager.applyUsbConfig(null)
                 notifyUsbDisconnected()
             }
         }
@@ -369,4 +407,9 @@ class UsbMonitorService : Service() {
      * 获取当前U盘状态
      */
     fun getCurrentUsbState(): UsbState = _usbState.value
+    
+    /**
+     * 获取当前加载的U盘配置
+     */
+    fun getCurrentConfig(): UsbConfig? = lastLoadedConfig
 }

@@ -7,18 +7,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.btf.rk3568_hdmi_mediaplay.data.model.FeatureFlags
 import com.btf.rk3568_hdmi_mediaplay.data.model.MediaType
 import com.btf.rk3568_hdmi_mediaplay.data.model.PlayerConfig
 import com.btf.rk3568_hdmi_mediaplay.data.model.PlayerState
 import com.btf.rk3568_hdmi_mediaplay.util.StringResources
 
 /**
- * 播放器菜单对话框 - 支持中英文
+ * 播放器菜单对话框 - 支持中英文，根据功能开关显示选项
  */
 @Composable
 fun PlayerMenuDialog(
     playerIndex: Int,
     playerConfig: PlayerConfig?,
+    featureFlags: FeatureFlags = FeatureFlags(),
     onDismiss: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onToggleMute: () -> Unit,
@@ -72,52 +74,68 @@ fun PlayerMenuDialog(
                         }
                     }
                     
-                    // 音量状态
-                    InfoRow(
-                        label = StringResources.menuVolume,
-                        value = if (config.isMuted) StringResources.mute else "${(config.volume * 100).toInt()}%"
-                    )
+                    // 音量状态 - 根据功能开关
+                    if (featureFlags.allowVolumeControl) {
+                        InfoRow(
+                            label = StringResources.menuVolume,
+                            value = if (config.isMuted) StringResources.mute else "${(config.volume * 100).toInt()}%"
+                        )
+                    }
                 }
                 
                 Spacer(modifier = Modifier.height(12.dp))
                 HorizontalDivider(color = Color.DarkGray)
                 Spacer(modifier = Modifier.height(8.dp))
                 
-                // 操作按钮
-                MenuButton(
-                    icon = if (playerConfig?.state == PlayerState.PLAYING) "⏸" else "▶",
-                    text = if (playerConfig?.state == PlayerState.PLAYING) StringResources.pause else StringResources.play,
-                    onClick = {
-                        onTogglePlayPause()
-                        onDismiss()
-                    }
-                )
+                // 操作按钮 - 根据功能开关显示
                 
-                MenuButton(
-                    icon = if (playerConfig?.isMuted == true) "🔊" else "🔇",
-                    text = if (playerConfig?.isMuted == true) StringResources.unmute else StringResources.mute,
-                    onClick = {
-                        onToggleMute()
-                        onDismiss()
-                    }
-                )
+                // 播放/暂停
+                if (featureFlags.allowPlayPauseControl) {
+                    MenuButton(
+                        icon = if (playerConfig?.state == PlayerState.PLAYING) "⏸" else "▶",
+                        text = if (playerConfig?.state == PlayerState.PLAYING) StringResources.pause else StringResources.play,
+                        onClick = {
+                            onTogglePlayPause()
+                            onDismiss()
+                        }
+                    )
+                }
                 
-                MenuButton(
-                    icon = "📁",
-                    text = StringResources.selectFile,
-                    onClick = onSelectFile
-                )
+                // 静音/取消静音
+                if (featureFlags.allowVolumeControl) {
+                    MenuButton(
+                        icon = if (playerConfig?.isMuted == true) "🔊" else "🔇",
+                        text = if (playerConfig?.isMuted == true) StringResources.unmute else StringResources.mute,
+                        onClick = {
+                            onToggleMute()
+                            onDismiss()
+                        }
+                    )
+                }
                 
-                MenuButton(
-                    icon = "🔍",
-                    text = StringResources.scanLocalMedia,
-                    onClick = {
-                        onScanLocal?.invoke()
-                        onDismiss()
-                    }
-                )
+                // 选择文件
+                if (featureFlags.allowManualFileSelect) {
+                    MenuButton(
+                        icon = "📁",
+                        text = StringResources.selectFile,
+                        onClick = onSelectFile
+                    )
+                }
                 
-                if (playerConfig?.mediaItems?.isNotEmpty() == true) {
+                // 扫描本地媒体
+                if (featureFlags.allowLocalMediaScan) {
+                    MenuButton(
+                        icon = "🔍",
+                        text = StringResources.scanLocalMedia,
+                        onClick = {
+                            onScanLocal?.invoke()
+                            onDismiss()
+                        }
+                    )
+                }
+                
+                // 清除内容
+                if (featureFlags.allowClearCache && playerConfig?.mediaItems?.isNotEmpty() == true) {
                     MenuButton(
                         icon = "🗑",
                         text = StringResources.clearContent,

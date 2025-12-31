@@ -51,7 +51,10 @@ class MediaPlayApplication : Application(), ImageLoaderFactory {
         // 设置全局未捕获异常处理
         setupUncaughtExceptionHandler()
         
-        Log.i(TAG, "Application initialized")
+        // 初始化功能管理器
+        FeatureManager.init(BuildConfig.DEBUG)
+        
+        Log.i(TAG, "Application initialized, isDebug=${BuildConfig.DEBUG}")
     }
     
     /**
