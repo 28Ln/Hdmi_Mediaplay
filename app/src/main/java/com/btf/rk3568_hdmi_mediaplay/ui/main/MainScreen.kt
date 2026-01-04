@@ -27,6 +27,7 @@ import kotlinx.coroutines.delay
 fun MainScreen(
     viewModel: MainViewModel = viewModel(),
     onNavigateToSettings: () -> Unit = {},
+    onNavigateToImageSplit: () -> Unit = {},
     onSelectFile: ((Int) -> Unit)? = null
 ) {
     val settings by viewModel.settings.collectAsState()
@@ -134,6 +135,7 @@ fun MainScreen(
                 BottomControlBar(
                     featureFlags = featureFlags,
                     onSettingsClick = onNavigateToSettings,
+                    onImageSplitClick = onNavigateToImageSplit,
                     onPlayAllClick = { viewModel.playAll() },
                     onPauseAllClick = { viewModel.pauseAll() },
                     onScanUsbClick = { viewModel.scanUsb() },
@@ -300,6 +302,7 @@ private fun CopyProgressOverlay(
 private fun BottomControlBar(
     featureFlags: com.btf.rk3568_hdmi_mediaplay.data.model.FeatureFlags,
     onSettingsClick: () -> Unit,
+    onImageSplitClick: () -> Unit,
     onPlayAllClick: () -> Unit,
     onPauseAllClick: () -> Unit,
     onScanUsbClick: () -> Unit,
@@ -321,7 +324,9 @@ private fun BottomControlBar(
                 ControlButton(icon = "⏸", text = StringResources.pauseAll, onClick = onPauseAllClick)
             }
             ControlButton(icon = "🔍", text = StringResources.scanUsb, onClick = onScanUsbClick)
+            // 图片裁剪工具按钮
             if (featureFlags.showSettingsButton) {
+                ControlButton(icon = "✂️", text = "裁剪", onClick = onImageSplitClick)
                 ControlButton(icon = "⚙", text = StringResources.settings, onClick = onSettingsClick)
             }
             

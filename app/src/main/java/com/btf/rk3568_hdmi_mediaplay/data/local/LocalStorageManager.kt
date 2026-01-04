@@ -212,4 +212,16 @@ class LocalStorageManager(private val context: Context) {
             0L
         }
     }
+
+    /**
+     * 获取播放器基础目录（包含 player1~4 子目录的父目录）
+     */
+    fun getPlayerBaseDir(): File? {
+        return try {
+            FileUtils.getLocalMediaDir(context, storageLocation, customPath)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting player base dir: ${e.message}")
+            null
+        }
+    }
 }

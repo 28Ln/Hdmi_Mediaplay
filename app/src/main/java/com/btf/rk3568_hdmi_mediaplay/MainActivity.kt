@@ -33,6 +33,8 @@ import com.btf.rk3568_hdmi_mediaplay.service.UsbMonitorService
 import com.btf.rk3568_hdmi_mediaplay.ui.main.MainScreen
 import com.btf.rk3568_hdmi_mediaplay.ui.main.MainViewModel
 import com.btf.rk3568_hdmi_mediaplay.ui.settings.SettingsScreen
+import com.btf.rk3568_hdmi_mediaplay.ui.split.ImageSplitScreen
+import com.btf.rk3568_hdmi_mediaplay.ui.split.ImageSplitViewModel
 import com.btf.rk3568_hdmi_mediaplay.ui.theme.Rk3568_hdmi_mediaplayTheme
 import com.btf.rk3568_hdmi_mediaplay.util.FilePickerHelper
 import com.btf.rk3568_hdmi_mediaplay.util.StringResources
@@ -138,6 +140,14 @@ class MainActivity : ComponentActivity() {
                 
                 var selectingPlayerIndex by rememberSaveable { mutableIntStateOf(-1) }
                 
+                // 图片裁剪用的文件选择器
+                val splitImageViewModel: ImageSplitViewModel = viewModel()
+                val splitImagePickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri: Uri? ->
+                    uri?.let { splitImageViewModel.selectImage(it) }
+                }
+                
                 val filePickerLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenMultipleDocuments()
                 ) { uris: List<Uri> ->
@@ -185,6 +195,7 @@ class MainActivity : ComponentActivity() {
                         MainScreen(
                             viewModel = mainViewModel,
                             onNavigateToSettings = { currentScreen = Screen.Settings },
+                            onNavigateToImageSplit = { currentScreen = Screen.ImageSplit },
                             onSelectFile = { playerIndex ->
                                 selectingPlayerIndex = playerIndex
                                 try {
@@ -210,6 +221,30 @@ class MainActivity : ComponentActivity() {
                             },
                             onBack = { currentScreen = Screen.Main },
                             cacheSizeMB = cacheSizeMB
+                        )
+                    }
+                    
+                    Screen.ImageSplit -> {
+                        ImageSplitScreen(
+                            viewModel = splitImageViewModel,
+                            onBack = { 
+                                splitImageViewModel.clear()
+                                currentScreen = Screen.Main 
+                            },
+                            onSelectImage = {
+                                try {
+                                    splitImagePickerLauncher.launch(arrayOf("image/*"))
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                    showToast("无法打开文件选择器")
+                                }
+                            },
+                            onApplyComplete = {
+                                showToast("裁剪完成，已应用到播放器")
+                                splitImageViewModel.clear()
+                                mainViewModel.loadLocalContent()
+                                currentScreen = Screen.Main
+                            }
                         )
                     }
                 }
@@ -353,5 +388,6 @@ class MainActivity : ComponentActivity() {
     sealed class Screen {
         object Main : Screen()
         object Settings : Screen()
+        object ImageSplit : Screen()
     }
 }
