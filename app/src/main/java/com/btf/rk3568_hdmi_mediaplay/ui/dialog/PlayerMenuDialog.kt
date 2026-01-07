@@ -20,7 +20,7 @@ import com.btf.rk3568_hdmi_mediaplay.util.StringResources
 fun PlayerMenuDialog(
     playerIndex: Int,
     playerConfig: PlayerConfig?,
-    featureFlags: FeatureFlags = FeatureFlags(),
+    featureFlags: FeatureFlags = FeatureFlags.releaseDefaults(),
     onDismiss: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onToggleMute: () -> Unit,

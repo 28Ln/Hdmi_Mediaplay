@@ -128,6 +128,9 @@ class MainActivity : ComponentActivity() {
                 val mainViewModel: MainViewModel = viewModel()
                 val settings by mainViewModel.settings.collectAsState()
                 
+                // 功能开关
+                val featureFlags by FeatureManager.featureFlags.collectAsState()
+                
                 // 保存 ViewModel 引用
                 LaunchedEffect(mainViewModel) {
                     mainViewModelRef = mainViewModel
@@ -220,7 +223,8 @@ class MainActivity : ComponentActivity() {
                                 mainViewModel.updateSettings(AppSettings())
                             },
                             onBack = { currentScreen = Screen.Main },
-                            cacheSizeMB = cacheSizeMB
+                            cacheSizeMB = cacheSizeMB,
+                            featureFlags = featureFlags
                         )
                     }
                     

@@ -23,11 +23,17 @@ fun QuadPlayerLayout(
     playerConfigs: List<PlayerConfig>,
     modifier: Modifier = Modifier,
     settings: AppSettings = AppSettings(),
+    showPlayerIndex: Boolean = true,
     onPlayerClick: ((Int) -> Unit)? = null,
     onPlayerLongClick: ((Int) -> Unit)? = null
 ) {
     val backgroundColor = remember(settings.backgroundColor) { 
         Color(settings.backgroundColor) 
+    }
+    
+    // 合并 settings 和 featureFlags 的 showPlayerIndex
+    val effectiveSettings = remember(settings, showPlayerIndex) {
+        settings.copy(showPlayerIndex = settings.showPlayerIndex && showPlayerIndex)
     }
     
     Box(
@@ -36,15 +42,15 @@ fun QuadPlayerLayout(
             .background(backgroundColor)
     ) {
         when (settings.layoutMode) {
-            LayoutMode.SINGLE -> SingleLayout(playerConfigs, settings, onPlayerClick, onPlayerLongClick)
-            LayoutMode.GRID_1X2 -> Grid1x2Layout(playerConfigs, settings, onPlayerClick, onPlayerLongClick)
-            LayoutMode.GRID_2X1 -> Grid2x1Layout(playerConfigs, settings, onPlayerClick, onPlayerLongClick)
-            LayoutMode.GRID_2X2 -> Grid2x2Layout(playerConfigs, settings, onPlayerClick, onPlayerLongClick)
-            LayoutMode.GRID_1X3 -> Grid1x3Layout(playerConfigs, settings, onPlayerClick, onPlayerLongClick)
-            LayoutMode.GRID_3X1 -> Grid3x1Layout(playerConfigs, settings, onPlayerClick, onPlayerLongClick)
-            LayoutMode.ROW_1X4 -> Row1x4Layout(playerConfigs, settings, onPlayerClick, onPlayerLongClick)
-            LayoutMode.COLUMN_4X1 -> Column4x1Layout(playerConfigs, settings, onPlayerClick, onPlayerLongClick)
-            LayoutMode.PIP -> PipLayout(playerConfigs, settings, onPlayerClick, onPlayerLongClick)
+            LayoutMode.SINGLE -> SingleLayout(playerConfigs, effectiveSettings, onPlayerClick, onPlayerLongClick)
+            LayoutMode.GRID_1X2 -> Grid1x2Layout(playerConfigs, effectiveSettings, onPlayerClick, onPlayerLongClick)
+            LayoutMode.GRID_2X1 -> Grid2x1Layout(playerConfigs, effectiveSettings, onPlayerClick, onPlayerLongClick)
+            LayoutMode.GRID_2X2 -> Grid2x2Layout(playerConfigs, effectiveSettings, onPlayerClick, onPlayerLongClick)
+            LayoutMode.GRID_1X3 -> Grid1x3Layout(playerConfigs, effectiveSettings, onPlayerClick, onPlayerLongClick)
+            LayoutMode.GRID_3X1 -> Grid3x1Layout(playerConfigs, effectiveSettings, onPlayerClick, onPlayerLongClick)
+            LayoutMode.ROW_1X4 -> Row1x4Layout(playerConfigs, effectiveSettings, onPlayerClick, onPlayerLongClick)
+            LayoutMode.COLUMN_4X1 -> Column4x1Layout(playerConfigs, effectiveSettings, onPlayerClick, onPlayerLongClick)
+            LayoutMode.PIP -> PipLayout(playerConfigs, effectiveSettings, onPlayerClick, onPlayerLongClick)
         }
     }
 }

@@ -15,10 +15,11 @@ object FeatureManager {
     private const val TAG = "FeatureManager"
 
     // 是否为Debug版本
-    private var isDebugBuild: Boolean = true
+    private var isDebugBuild: Boolean = false
 
-    // 功能开关状态
-    private val _featureFlags = MutableStateFlow(FeatureFlags.debugDefaults())
+    // 功能开关状态 - 初始化为 release 默认值，确保安全
+    // 注意：init() 会根据实际 build type 重新设置正确的值
+    private val _featureFlags = MutableStateFlow(FeatureFlags.releaseDefaults())
     val featureFlags: StateFlow<FeatureFlags> = _featureFlags.asStateFlow()
 
     // 当前加载的U盘配置
@@ -26,14 +27,18 @@ object FeatureManager {
 
     /**
      * 初始化 - 在Application中调用
-     * @param isDebug 是否为Debug版本
+     * @param isDebug 是否为Debug版本（已忽略，强制使用Release配置）
      */
     fun init(isDebug: Boolean) {
-        isDebugBuild = isDebug
-        Log.i(TAG, "FeatureManager initialized, isDebug=$isDebug")
+        // 【重要】强制使用 Release 配置，不管是 Debug 还是 Release 构建
+        // 如需测试 Debug 全功能模式，将下面的 false 改为 true
+        val forceDebugMode = false
+        
+        isDebugBuild = forceDebugMode
+        Log.i(TAG, "FeatureManager initialized, forceDebugMode=$forceDebugMode (buildConfig.isDebug=$isDebug)")
 
         // 设置默认值
-        _featureFlags.value = if (isDebug) {
+        _featureFlags.value = if (forceDebugMode) {
             FeatureFlags.debugDefaults()
         } else {
             FeatureFlags.releaseDefaults()

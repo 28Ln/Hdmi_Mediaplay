@@ -83,7 +83,7 @@ data class AppSettings(
     // 视频设置
     val defaultVolume: Int = 100,                   // 默认音量 0-100
     val defaultMuted: Boolean = false,              // 默认静音
-    val videoScaleMode: VideoScaleMode = VideoScaleMode.FIT,
+    val videoScaleMode: VideoScaleMode = VideoScaleMode.STRETCH,  // 默认拉伸填满
     val useHardwareDecode: Boolean = true,          // 硬件解码
     
     // 音频设置

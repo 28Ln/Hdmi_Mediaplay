@@ -63,6 +63,7 @@ fun MainScreen(
         QuadPlayerLayout(
             playerConfigs = playerConfigs,
             settings = settings,
+            showPlayerIndex = featureFlags.showPlayerIndex,
             modifier = Modifier.fillMaxSize(),
             onPlayerClick = { index ->
                 if (featureFlags.allowPlayPauseControl) {
@@ -323,10 +324,15 @@ private fun BottomControlBar(
                 ControlButton(icon = "▶", text = StringResources.playAll, onClick = onPlayAllClick)
                 ControlButton(icon = "⏸", text = StringResources.pauseAll, onClick = onPauseAllClick)
             }
-            ControlButton(icon = "🔍", text = StringResources.scanUsb, onClick = onScanUsbClick)
-            // 图片裁剪工具按钮
-            if (featureFlags.showSettingsButton) {
+            // 扫描U盘按钮 - 根据功能开关显示
+            if (featureFlags.showScanUsbButton) {
+                ControlButton(icon = "🔍", text = StringResources.scanUsb, onClick = onScanUsbClick)
+            }
+            // 图片裁剪工具按钮 - 根据功能开关显示
+            if (featureFlags.showImageSplitTool) {
                 ControlButton(icon = "✂️", text = "裁剪", onClick = onImageSplitClick)
+            }
+            if (featureFlags.showSettingsButton) {
                 ControlButton(icon = "⚙", text = StringResources.settings, onClick = onSettingsClick)
             }
             

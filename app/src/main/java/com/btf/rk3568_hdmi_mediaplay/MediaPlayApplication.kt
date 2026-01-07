@@ -51,10 +51,10 @@ class MediaPlayApplication : Application(), ImageLoaderFactory {
         // 设置全局未捕获异常处理
         setupUncaughtExceptionHandler()
         
-        // 初始化功能管理器
-        FeatureManager.init(BuildConfig.DEBUG)
+        // 初始化功能管理器 - 使用自定义的 IS_DEBUG_BUILD 标识
+        FeatureManager.init(BuildConfig.IS_DEBUG_BUILD)
         
-        Log.i(TAG, "Application initialized, isDebug=${BuildConfig.DEBUG}")
+        Log.i(TAG, "Application initialized, isDebug=${BuildConfig.IS_DEBUG_BUILD}, buildType=${if (BuildConfig.IS_DEBUG_BUILD) "DEBUG" else "RELEASE"}")
     }
     
     /**

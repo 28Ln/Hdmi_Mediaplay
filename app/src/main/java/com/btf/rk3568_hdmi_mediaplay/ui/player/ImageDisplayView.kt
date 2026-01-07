@@ -39,7 +39,7 @@ fun ImageDisplayView(
     modifier: Modifier = Modifier,
     intervalSeconds: Int = 5,
     transition: ImageTransition = ImageTransition.FADE,
-    scaleMode: VideoScaleMode = VideoScaleMode.FIT,
+    scaleMode: VideoScaleMode = VideoScaleMode.STRETCH,  // 默认拉伸填满
     isPlaying: Boolean = true,
     onImageChanged: ((Int) -> Unit)? = null,
     onError: ((String) -> Unit)? = null

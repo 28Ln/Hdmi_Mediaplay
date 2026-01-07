@@ -35,6 +35,7 @@ android {
             isMinifyEnabled = false
             // Debug版本标识
             buildConfigField("boolean", "IS_DEBUG_BUILD", "true")
+            buildConfigField("int", "MIN_SDK_VERSION", "30")
         }
         release {
             isMinifyEnabled = false
@@ -45,6 +46,7 @@ android {
             signingConfig = signingConfigs.getByName("release")
             // Release版本标识
             buildConfigField("boolean", "IS_DEBUG_BUILD", "false")
+            buildConfigField("int", "MIN_SDK_VERSION", "30")
         }
     }
     

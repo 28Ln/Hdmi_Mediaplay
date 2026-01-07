@@ -76,7 +76,7 @@ class SettingsRepository(private val context: Context) {
                     
                     defaultVolume = preferences[DEFAULT_VOLUME] ?: 100,
                     defaultMuted = preferences[DEFAULT_MUTED] ?: false,
-                    videoScaleMode = safeEnumValueOf(preferences[VIDEO_SCALE_MODE], VideoScaleMode.FIT),
+                    videoScaleMode = safeEnumValueOf(preferences[VIDEO_SCALE_MODE], VideoScaleMode.STRETCH),
                     useHardwareDecode = preferences[USE_HARDWARE_DECODE] ?: true,
                     
                     audioOutput = safeEnumValueOf(preferences[AUDIO_OUTPUT], AudioOutput.AUTO),
