@@ -80,6 +80,16 @@
             </intent-filter>
         </receiver>
         
+        <!-- 远程控制命令接收器 -->
+        <receiver
+            android:name=".receiver.PlayerCommandReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.btf.player.action.COMMAND" />
+            </intent-filter>
+        </receiver>
+        
         <!-- U盘监听服务 -->
         <service
             android:name=".service.UsbMonitorService"

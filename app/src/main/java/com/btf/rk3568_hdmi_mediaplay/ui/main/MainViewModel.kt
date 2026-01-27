@@ -9,6 +9,9 @@ import com.btf.rk3568_hdmi_mediaplay.FeatureManager
 import com.btf.rk3568_hdmi_mediaplay.data.local.LocalStorageManager
 import com.btf.rk3568_hdmi_mediaplay.data.model.*
 import com.btf.rk3568_hdmi_mediaplay.data.repository.SettingsRepository
+import com.btf.rk3568_hdmi_mediaplay.remote.PlayerCommandHandler
+import com.btf.rk3568_hdmi_mediaplay.remote.PlayerStatusBroadcaster
+import com.btf.rk3568_hdmi_mediaplay.remote.PlayerStatusInfo
 import com.btf.rk3568_hdmi_mediaplay.ui.components.MessageType
 import com.btf.rk3568_hdmi_mediaplay.ui.components.ToastData
 import com.btf.rk3568_hdmi_mediaplay.util.FileUtils
@@ -21,7 +24,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-class MainViewModel(application: Application) : AndroidViewModel(application) {
+class MainViewModel(application: Application) : AndroidViewModel(application), PlayerCommandHandler.ViewModelCallback {
     
     companion object {
         private const val TAG = "MainViewModel"
@@ -73,6 +76,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
     
     init {
+        // 注册远程控制回调
+        PlayerCommandHandler.setCallback(this)
+        
         // 监听设置变化，更新存储管理器
         viewModelScope.launch {
             settings.collect { s ->
@@ -85,6 +91,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         
         // 启动时检查U盘状态
         checkUsbOnStartup()
+        
+        // 发送应用启动广播
+        PlayerStatusBroadcaster.sendAppStarted(getApplication())
+    }
+    
+    override fun onCleared() {
+        super.onCleared()
+        // 清除远程控制回调
+        PlayerCommandHandler.setCallback(null)
+        // 发送应用停止广播
+        PlayerStatusBroadcaster.sendAppStopping(getApplication())
     }
     
     /**
@@ -703,5 +720,186 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: Exception) {
             // 忽略
         }
+    }
+    
+    // ==================== 远程控制接口实现 ====================
+    
+    override fun playAll() {
+        var playCount = 0
+        _playerConfigs.update { configs ->
+            configs.map { config ->
+                if (config.mediaItems.isNotEmpty()) {
+                    playCount++
+                    config.copy(state = PlayerState.PLAYING)
+                } else config
+            }
+        }
+        log("远程控制: 播放全部 ($playCount 个)")
+    }
+    
+    override fun pauseAll() {
+        _playerConfigs.update { configs ->
+            configs.map { config ->
+                if (config.state == PlayerState.PLAYING) {
+                    config.copy(state = PlayerState.PAUSED)
+                } else config
+            }
+        }
+        log("远程控制: 暂停全部")
+    }
+    
+    override fun stopAll() {
+        _playerConfigs.update { configs ->
+            configs.map { config ->
+                config.copy(state = PlayerState.IDLE, currentIndex = 0)
+            }
+        }
+        log("远程控制: 停止全部")
+    }
+    
+    override fun play(playerIndex: Int) {
+        _playerConfigs.update { configs ->
+            configs.mapIndexed { index, config ->
+                if (index == playerIndex && config.mediaItems.isNotEmpty()) {
+                    config.copy(state = PlayerState.PLAYING)
+                } else config
+            }
+        }
+        log("远程控制: 播放播放器 $playerIndex")
+    }
+    
+    override fun pause(playerIndex: Int) {
+        _playerConfigs.update { configs ->
+            configs.mapIndexed { index, config ->
+                if (index == playerIndex) {
+                    config.copy(state = PlayerState.PAUSED)
+                } else config
+            }
+        }
+        log("远程控制: 暂停播放器 $playerIndex")
+    }
+    
+    override fun stop(playerIndex: Int) {
+        _playerConfigs.update { configs ->
+            configs.mapIndexed { index, config ->
+                if (index == playerIndex) {
+                    config.copy(state = PlayerState.IDLE, currentIndex = 0)
+                } else config
+            }
+        }
+        log("远程控制: 停止播放器 $playerIndex")
+    }
+    
+    override fun setLayout(layoutMode: LayoutMode) {
+        safeLaunch {
+            val newSettings = settings.value.copy(layoutMode = layoutMode)
+            updateSettings(newSettings)
+            log("远程控制: 设置布局 $layoutMode")
+        }
+    }
+    
+    override fun setMedia(playerIndex: Int, mediaItems: List<MediaItem>) {
+        _playerConfigs.update { configs ->
+            configs.mapIndexed { index, config ->
+                if (index == playerIndex) {
+                    config.copy(
+                        mediaItems = mediaItems,
+                        currentIndex = 0,
+                        state = if (mediaItems.isNotEmpty()) PlayerState.PLAYING else PlayerState.IDLE
+                    )
+                } else config
+            }
+        }
+        log("远程控制: 设置播放器 $playerIndex 媒体 (${mediaItems.size} 个文件)")
+    }
+    
+    override fun clearMedia(playerIndex: Int) {
+        _playerConfigs.update { configs ->
+            configs.mapIndexed { index, config ->
+                if (index == playerIndex) {
+                    config.copy(mediaItems = emptyList(), state = PlayerState.IDLE, currentIndex = 0)
+                } else config
+            }
+        }
+        log("远程控制: 清空播放器 $playerIndex")
+    }
+    
+    override fun clearAllMedia() {
+        _playerConfigs.update { configs ->
+            configs.map { config ->
+                config.copy(mediaItems = emptyList(), state = PlayerState.IDLE, currentIndex = 0)
+            }
+        }
+        log("远程控制: 清空所有播放器")
+    }
+    
+    override fun setInterval(seconds: Int) {
+        safeLaunch {
+            val newSettings = settings.value.copy(imageIntervalSeconds = seconds.coerceIn(1, 60))
+            updateSettings(newSettings)
+            log("远程控制: 设置轮播间隔 ${seconds}秒")
+        }
+    }
+    
+    override fun setVolume(playerIndex: Int, volume: Int) {
+        _playerConfigs.update { configs ->
+            configs.mapIndexed { index, config ->
+                if (index == playerIndex) {
+                    config.copy(volume = volume / 100f)
+                } else config
+            }
+        }
+        log("远程控制: 设置播放器 $playerIndex 音量 $volume")
+    }
+    
+    override fun setMute(playerIndex: Int, mute: Boolean) {
+        _playerConfigs.update { configs ->
+            configs.mapIndexed { index, config ->
+                if (index == playerIndex) {
+                    config.copy(isMuted = mute)
+                } else config
+            }
+        }
+        log("远程控制: 设置播放器 $playerIndex 静音 $mute")
+    }
+    
+    override fun setLoopMode(loopMode: LoopMode) {
+        safeLaunch {
+            val newSettings = settings.value.copy(loopMode = loopMode)
+            updateSettings(newSettings)
+            log("远程控制: 设置循环模式 $loopMode")
+        }
+    }
+    
+    override fun getStatus(): PlayerCommandHandler.StatusData {
+        val currentSettings = settings.value
+        val configs = _playerConfigs.value
+        
+        val players = configs.map { config ->
+            val firstMedia = config.mediaItems.firstOrNull()
+            PlayerStatusInfo(
+                index = config.index,
+                state = when (config.state) {
+                    PlayerState.PLAYING -> "playing"
+                    PlayerState.PAUSED -> "paused"
+                    PlayerState.IDLE -> "idle"
+                    PlayerState.LOADING -> "loading"
+                    PlayerState.ERROR -> "error"
+                },
+                mediaType = firstMedia?.type?.name?.lowercase(),
+                mediaPath = firstMedia?.path,
+                mediaCount = config.mediaItems.size,
+                currentIndex = config.currentIndex,
+                volume = (config.volume * 100).toInt(),
+                muted = config.isMuted
+            )
+        }
+        
+        return PlayerCommandHandler.StatusData(
+            layoutMode = currentSettings.layoutMode.name,
+            intervalSeconds = currentSettings.imageIntervalSeconds,
+            loopMode = currentSettings.loopMode.name,
+            players = players
+        )
     }
 }
