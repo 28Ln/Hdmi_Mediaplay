@@ -15,7 +15,7 @@ object FeatureManager {
     private const val TAG = "FeatureManager"
 
     // 是否为Debug版本
-    private var isDebugBuild: Boolean = false
+    private var isDebugBuild: Boolean = true
 
     // 功能开关状态 - 初始化为 release 默认值，确保安全
     // 注意：init() 会根据实际 build type 重新设置正确的值
@@ -32,7 +32,7 @@ object FeatureManager {
     fun init(isDebug: Boolean) {
         // 【重要】强制使用 Release 配置，不管是 Debug 还是 Release 构建
         // 如需测试 Debug 全功能模式，将下面的 false 改为 true
-        val forceDebugMode = false
+        val forceDebugMode = true
         
         isDebugBuild = forceDebugMode
         Log.i(TAG, "FeatureManager initialized, forceDebugMode=$forceDebugMode (buildConfig.isDebug=$isDebug)")
