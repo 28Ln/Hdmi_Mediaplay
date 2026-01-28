@@ -429,39 +429,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     }
     
     /**
-     * 播放全部
-     */
-    fun playAll() {
-        var playCount = 0
-        _playerConfigs.update { configs ->
-            configs.map { config ->
-                if (config.mediaItems.isNotEmpty()) {
-                    playCount++
-                    config.copy(state = PlayerState.PLAYING)
-                } else config
-            }
-        }
-        
-        if (playCount > 0) {
-            showToast("播放 $playCount 个", MessageType.SUCCESS)
-        } else {
-            showToast("无可播放内容", MessageType.WARNING)
-        }
-    }
-    
-    /**
-     * 暂停全部
-     */
-    fun pauseAll() {
-        _playerConfigs.update { configs ->
-            configs.map { config ->
-                config.copy(state = PlayerState.PAUSED)
-            }
-        }
-        showToast("已暂停", MessageType.INFO)
-    }
-    
-    /**
      * 更新设置
      */
     fun updateSettings(newSettings: AppSettings) {
@@ -735,6 +702,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             }
         }
         log("远程控制: 播放全部 ($playCount 个)")
+        if (playCount > 0) {
+            showToast("播放 $playCount 个", MessageType.SUCCESS)
+        } else {
+            showToast("无可播放内容", MessageType.WARNING)
+        }
     }
     
     override fun pauseAll() {
@@ -746,6 +718,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             }
         }
         log("远程控制: 暂停全部")
+        showToast("已暂停", MessageType.INFO)
     }
     
     override fun stopAll() {

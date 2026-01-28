@@ -1,6 +1,5 @@
 package com.btf.rk3568_hdmi_mediaplay.remote
 
-import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.util.Log
@@ -8,8 +7,8 @@ import com.btf.rk3568_hdmi_mediaplay.MainActivity
 import com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode
 import com.btf.rk3568_hdmi_mediaplay.data.model.LoopMode
 import com.btf.rk3568_hdmi_mediaplay.data.model.MediaItem
+import com.btf.rk3568_hdmi_mediaplay.data.model.MediaSource
 import com.btf.rk3568_hdmi_mediaplay.data.model.MediaType
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
@@ -333,8 +332,11 @@ object PlayerCommandHandler {
     
     private fun handleHide(context: Context) {
         try {
-            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-            am.moveTaskToBack(true)
+            // 发送广播让 Activity 自己处理后台
+            val intent = Intent("com.btf.player.internal.MOVE_TO_BACK").apply {
+                setPackage(context.packageName)
+            }
+            context.sendBroadcast(intent)
             PlayerStatusBroadcaster.sendCommandSuccess(context, "hide")
         } catch (e: Exception) {
             Log.e(TAG, "隐藏应用失败", e)
@@ -434,6 +436,7 @@ object PlayerCommandHandler {
             path = path,
             name = file.name,
             type = type,
+            source = MediaSource.MANUAL,
             size = file.length()
         )
     }

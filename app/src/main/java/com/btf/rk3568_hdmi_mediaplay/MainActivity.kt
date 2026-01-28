@@ -1,9 +1,11 @@
 package com.btf.rk3568_hdmi_mediaplay
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -44,6 +46,7 @@ class MainActivity : ComponentActivity() {
     
     companion object {
         private const val TAG = "MainActivity"
+        const val ACTION_MOVE_TO_BACK = "com.btf.player.internal.MOVE_TO_BACK"
     }
     
     private var usbMonitorService: UsbMonitorService? = null
@@ -52,6 +55,16 @@ class MainActivity : ComponentActivity() {
     
     // 保存 ViewModel 引用，用于服务回调
     private var mainViewModelRef: MainViewModel? = null
+    
+    // 内部广播接收器 - 处理 hide 命令
+    private val internalReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == ACTION_MOVE_TO_BACK) {
+                Log.d(TAG, "收到 MOVE_TO_BACK 广播")
+                moveTaskToBack(true)
+            }
+        }
+    }
     
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -103,6 +116,18 @@ class MainActivity : ComponentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // 注册内部广播接收器
+        try {
+            val filter = IntentFilter(ACTION_MOVE_TO_BACK)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(internalReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(internalReceiver, filter)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "注册内部广播接收器失败", e)
+        }
         
         try {
             localStorageManager = LocalStorageManager(this)
@@ -273,6 +298,14 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "onDestroy")
+        
+        // 注销内部广播接收器
+        try {
+            unregisterReceiver(internalReceiver)
+        } catch (e: Exception) {
+            Log.e(TAG, "注销内部广播接收器失败", e)
+        }
+        
         if (serviceBound) {
             try {
                 usbMonitorService?.onUsbConnected = null
