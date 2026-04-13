@@ -73,18 +73,22 @@ object PlayerCommandHandler {
      * 处理命令
      */
     fun handleCommand(context: Context, commandJson: String) {
+        handleCommandInternal(context, commandJson)
+    }
+
+    private fun handleCommandInternal(context: Context, commandJson: String): Boolean {
         try {
             val json = JSONObject(commandJson)
             val action = json.optString("action", "")
             
             if (action.isBlank()) {
                 sendError(context, ErrorCode.JSON_PARSE_ERROR, "缺少 action 字段")
-                return
+                return false
             }
             
             Log.d(TAG, "处理命令: $action")
             
-            when (action) {
+            return when (action) {
                 // 播放控制
                 "play_all" -> handlePlayAll(context)
                 "pause_all" -> handlePauseAll(context)
@@ -118,75 +122,92 @@ object PlayerCommandHandler {
                 
                 else -> {
                     sendError(context, ErrorCode.UNKNOWN_ACTION, "未知命令: $action")
+                    false
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "命令解析失败", e)
             sendError(context, ErrorCode.JSON_PARSE_ERROR, "JSON解析失败: ${e.message}")
+            return false
         }
     }
     
     // ==================== 播放控制 ====================
     
-    private fun handlePlayAll(context: Context) {
-        viewModelCallback?.playAll()
+    private fun handlePlayAll(context: Context): Boolean {
+        val callback = requireCallback(context) ?: return false
+        callback.playAll()
         PlayerStatusBroadcaster.sendCommandSuccess(context, "play_all")
+        return true
     }
     
-    private fun handlePauseAll(context: Context) {
-        viewModelCallback?.pauseAll()
+    private fun handlePauseAll(context: Context): Boolean {
+        val callback = requireCallback(context) ?: return false
+        callback.pauseAll()
         PlayerStatusBroadcaster.sendCommandSuccess(context, "pause_all")
+        return true
     }
     
-    private fun handleStopAll(context: Context) {
-        viewModelCallback?.stopAll()
+    private fun handleStopAll(context: Context): Boolean {
+        val callback = requireCallback(context) ?: return false
+        callback.stopAll()
         PlayerStatusBroadcaster.sendCommandSuccess(context, "stop_all")
+        return true
     }
     
-    private fun handlePlay(context: Context, json: JSONObject) {
+    private fun handlePlay(context: Context, json: JSONObject): Boolean {
         val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return
+        if (!validatePlayerIndex(context, playerIndex)) return false
+        val callback = requireCallback(context) ?: return false
         
-        viewModelCallback?.play(playerIndex)
+        callback.play(playerIndex)
         PlayerStatusBroadcaster.sendPlaybackChanged(context, playerIndex, "playing")
+        return true
     }
     
-    private fun handlePause(context: Context, json: JSONObject) {
+    private fun handlePause(context: Context, json: JSONObject): Boolean {
         val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return
+        if (!validatePlayerIndex(context, playerIndex)) return false
+        val callback = requireCallback(context) ?: return false
         
-        viewModelCallback?.pause(playerIndex)
+        callback.pause(playerIndex)
         PlayerStatusBroadcaster.sendPlaybackChanged(context, playerIndex, "paused")
+        return true
     }
     
-    private fun handleStop(context: Context, json: JSONObject) {
+    private fun handleStop(context: Context, json: JSONObject): Boolean {
         val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return
+        if (!validatePlayerIndex(context, playerIndex)) return false
+        val callback = requireCallback(context) ?: return false
         
-        viewModelCallback?.stop(playerIndex)
+        callback.stop(playerIndex)
         PlayerStatusBroadcaster.sendPlaybackChanged(context, playerIndex, "stopped")
+        return true
     }
     
     // ==================== 布局控制 ====================
     
-    private fun handleSetLayout(context: Context, json: JSONObject) {
+    private fun handleSetLayout(context: Context, json: JSONObject): Boolean {
         val layoutModeStr = json.optString("layout_mode", "")
         
         val layoutMode = parseLayoutMode(layoutModeStr)
         if (layoutMode == null) {
             sendError(context, ErrorCode.INVALID_LAYOUT_MODE, "无效的布局模式: $layoutModeStr")
-            return
+            return false
         }
+        val callback = requireCallback(context) ?: return false
         
-        viewModelCallback?.setLayout(layoutMode)
+        callback.setLayout(layoutMode)
         PlayerStatusBroadcaster.sendLayoutChanged(context, layoutMode.name)
+        return true
     }
     
     // ==================== 媒体设置 ====================
     
-    private fun handleSetMedia(context: Context, json: JSONObject) {
+    private fun handleSetMedia(context: Context, json: JSONObject): Boolean {
         val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return
+        if (!validatePlayerIndex(context, playerIndex)) return false
+        val callback = requireCallback(context) ?: return false
         
         val mediaItems = mutableListOf<MediaItem>()
         
@@ -198,7 +219,7 @@ object PlayerCommandHandler {
                 mediaItems.add(item)
             } else {
                 sendError(context, ErrorCode.MEDIA_NOT_FOUND, "文件不存在: $mediaPath")
-                return
+                return false
             }
         }
         
@@ -220,89 +241,103 @@ object PlayerCommandHandler {
         
         if (mediaItems.isEmpty()) {
             sendError(context, ErrorCode.MEDIA_NOT_FOUND, "没有有效的媒体文件")
-            return
+            return false
         }
         
-        viewModelCallback?.setMedia(playerIndex, mediaItems)
+        callback.setMedia(playerIndex, mediaItems)
         PlayerStatusBroadcaster.sendMediaLoaded(
             context, 
             playerIndex, 
             mediaItems.firstOrNull()?.path,
             mediaItems.size
         )
+        return true
     }
     
-    private fun handleSetMediaDir(context: Context, json: JSONObject) {
+    private fun handleSetMediaDir(context: Context, json: JSONObject): Boolean {
         val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return
+        if (!validatePlayerIndex(context, playerIndex)) return false
+        val callback = requireCallback(context) ?: return false
         
         val dirPath = json.optString("directory_path", "")
         if (dirPath.isBlank()) {
             sendError(context, ErrorCode.MEDIA_NOT_FOUND, "目录路径为空")
-            return
+            return false
         }
         
         val dir = File(dirPath)
         if (!dir.exists() || !dir.isDirectory) {
             sendError(context, ErrorCode.MEDIA_NOT_FOUND, "目录不存在: $dirPath")
-            return
+            return false
         }
         
         val mediaItems = scanDirectory(dir)
         if (mediaItems.isEmpty()) {
             sendError(context, ErrorCode.MEDIA_NOT_FOUND, "目录中没有媒体文件")
-            return
+            return false
         }
         
-        viewModelCallback?.setMedia(playerIndex, mediaItems)
+        callback.setMedia(playerIndex, mediaItems)
         PlayerStatusBroadcaster.sendMediaLoaded(
             context,
             playerIndex,
             mediaItems.firstOrNull()?.path,
             mediaItems.size
         )
+        return true
     }
     
-    private fun handleClear(context: Context, json: JSONObject) {
+    private fun handleClear(context: Context, json: JSONObject): Boolean {
         val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return
+        if (!validatePlayerIndex(context, playerIndex)) return false
+        val callback = requireCallback(context) ?: return false
         
-        viewModelCallback?.clearMedia(playerIndex)
+        callback.clearMedia(playerIndex)
         PlayerStatusBroadcaster.sendCommandSuccess(context, "clear", "已清空播放器 $playerIndex")
+        return true
     }
     
-    private fun handleClearAll(context: Context) {
-        viewModelCallback?.clearAllMedia()
+    private fun handleClearAll(context: Context): Boolean {
+        val callback = requireCallback(context) ?: return false
+        callback.clearAllMedia()
         PlayerStatusBroadcaster.sendCommandSuccess(context, "clear_all", "已清空所有播放器")
+        return true
     }
     
     // ==================== 参数设置 ====================
     
-    private fun handleSetInterval(context: Context, json: JSONObject) {
+    private fun handleSetInterval(context: Context, json: JSONObject): Boolean {
+        val callback = requireCallback(context) ?: return false
         val interval = json.optInt("interval", 5)
-        viewModelCallback?.setInterval(interval.coerceIn(1, 60))
+        callback.setInterval(interval.coerceIn(1, 60))
         PlayerStatusBroadcaster.sendCommandSuccess(context, "set_interval", "间隔设置为 ${interval}秒")
+        return true
     }
     
-    private fun handleSetVolume(context: Context, json: JSONObject) {
+    private fun handleSetVolume(context: Context, json: JSONObject): Boolean {
         val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return
+        if (!validatePlayerIndex(context, playerIndex)) return false
+        val callback = requireCallback(context) ?: return false
         
         val volume = json.optInt("volume", 100)
-        viewModelCallback?.setVolume(playerIndex, volume.coerceIn(0, 100))
+        callback.setVolume(playerIndex, volume.coerceIn(0, 100))
         PlayerStatusBroadcaster.sendCommandSuccess(context, "set_volume")
+        return true
     }
     
-    private fun handleSetMute(context: Context, json: JSONObject) {
+    private fun handleSetMute(context: Context, json: JSONObject): Boolean {
         val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return
+        if (!validatePlayerIndex(context, playerIndex)) return false
+        val callback = requireCallback(context) ?: return false
         
         val mute = json.optBoolean("mute", false)
-        viewModelCallback?.setMute(playerIndex, mute)
+        callback.setMute(playerIndex, mute)
         PlayerStatusBroadcaster.sendCommandSuccess(context, "set_mute")
+        return true
     }
     
-    private fun handleSetLoopMode(context: Context, json: JSONObject) {
+    private fun handleSetLoopMode(context: Context, json: JSONObject): Boolean {
+        val callback = requireCallback(context) ?: return false
         val loopModeStr = json.optString("loop_mode", "ALL")
         val loopMode = try {
             LoopMode.valueOf(loopModeStr.uppercase())
@@ -310,13 +345,14 @@ object PlayerCommandHandler {
             LoopMode.LIST
         }
         
-        viewModelCallback?.setLoopMode(loopMode)
+        callback.setLoopMode(loopMode)
         PlayerStatusBroadcaster.sendCommandSuccess(context, "set_loop_mode")
+        return true
     }
     
     // ==================== 应用控制 ====================
     
-    private fun handleShow(context: Context) {
+    private fun handleShow(context: Context): Boolean {
         try {
             val intent = Intent(context, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -324,30 +360,34 @@ object PlayerCommandHandler {
             }
             context.startActivity(intent)
             PlayerStatusBroadcaster.sendCommandSuccess(context, "show")
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "显示应用失败", e)
             sendError(context, ErrorCode.MEDIA_LOAD_FAILED, "显示应用失败: ${e.message}")
+            return false
         }
     }
     
-    private fun handleHide(context: Context) {
+    private fun handleHide(context: Context): Boolean {
         try {
             // 发送广播让 Activity 自己处理后台
-            val intent = Intent("com.btf.player.internal.MOVE_TO_BACK").apply {
+            val intent = Intent(PlayerBroadcastContract.ACTION_MOVE_TO_BACK).apply {
                 setPackage(context.packageName)
             }
             context.sendBroadcast(intent)
             PlayerStatusBroadcaster.sendCommandSuccess(context, "hide")
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "隐藏应用失败", e)
+            return false
         }
     }
     
-    private fun handleGetStatus(context: Context) {
+    private fun handleGetStatus(context: Context): Boolean {
         val callback = viewModelCallback
         if (callback == null) {
             sendError(context, ErrorCode.MEDIA_LOAD_FAILED, "播放器未就绪")
-            return
+            return false
         }
         
         val status = callback.getStatus()
@@ -358,15 +398,16 @@ object PlayerCommandHandler {
             status.loopMode,
             status.players
         )
+        return true
     }
     
     // ==================== 批量命令 ====================
     
-    private fun handleBatch(context: Context, json: JSONObject) {
+    private fun handleBatch(context: Context, json: JSONObject): Boolean {
         val commands = json.optJSONArray("commands")
         if (commands == null || commands.length() == 0) {
             sendError(context, ErrorCode.JSON_PARSE_ERROR, "批量命令为空")
-            return
+            return false
         }
         
         var successCount = 0
@@ -374,8 +415,9 @@ object PlayerCommandHandler {
             val cmd = commands.optJSONObject(i)
             if (cmd != null) {
                 try {
-                    handleCommand(context, cmd.toString())
-                    successCount++
+                    if (handleCommandInternal(context, cmd.toString())) {
+                        successCount++
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "批量命令第 $i 个执行失败", e)
                 }
@@ -383,6 +425,7 @@ object PlayerCommandHandler {
         }
         
         PlayerStatusBroadcaster.sendCommandSuccess(context, "batch", "执行了 $successCount 个命令")
+        return successCount > 0
     }
     
     // ==================== 辅助方法 ====================
@@ -393,6 +436,13 @@ object PlayerCommandHandler {
             return false
         }
         return true
+    }
+
+    private fun requireCallback(context: Context): ViewModelCallback? {
+        return viewModelCallback ?: run {
+            sendError(context, ErrorCode.MEDIA_LOAD_FAILED, "播放器未就绪")
+            null
+        }
     }
     
     private fun sendError(context: Context, code: Int, message: String) {

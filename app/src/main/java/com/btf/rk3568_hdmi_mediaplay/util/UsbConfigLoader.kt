@@ -31,11 +31,14 @@ object UsbConfigLoader {
             }
 
             val jsonString = configFile.readText(Charsets.UTF_8)
-            Log.d(TAG, "Config file content: $jsonString")
+            Log.d(TAG, "Config file found: path=${configFile.absolutePath}, size=${jsonString.length}")
 
             val config = UsbConfig.fromJson(jsonString)
             if (config != null) {
                 Log.i(TAG, "Config loaded successfully: version=${config.version}")
+                config.validationWarnings.forEach { warning ->
+                    Log.w(TAG, "Config warning: $warning")
+                }
             } else {
                 Log.w(TAG, "Failed to parse config file")
             }

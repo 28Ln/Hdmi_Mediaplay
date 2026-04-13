@@ -23,6 +23,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -37,6 +38,7 @@ private const val TAG = "VideoPlayerView"
  * 视频播放器组件
  * 优化: 内存管理、低内存缓冲配置
  */
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 @Composable
 fun VideoPlayerView(
     mediaPath: String,
@@ -279,6 +281,7 @@ fun VideoPlayerView(
  * 创建低内存配置的 ExoPlayer
  * 针对4路同时播放优化缓冲区，不限制分辨率
  */
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 private fun createLowMemoryExoPlayer(context: android.content.Context): ExoPlayer {
     // 低内存缓冲配置 - 关键优化点
     // 规则: minBufferMs >= bufferForPlaybackAfterRebufferMs
@@ -315,6 +318,7 @@ private fun getErrorMessage(error: PlaybackException): String {
     }
 }
 
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 private fun getResizeMode(scaleMode: VideoScaleMode): Int {
     return when (scaleMode) {
         VideoScaleMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT

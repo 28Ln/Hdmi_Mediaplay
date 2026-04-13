@@ -31,6 +31,8 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.btf.rk3568_hdmi_mediaplay.data.local.LocalStorageManager
 import com.btf.rk3568_hdmi_mediaplay.data.model.AppSettings
+import com.btf.rk3568_hdmi_mediaplay.data.model.UsbRuntimeState
+import com.btf.rk3568_hdmi_mediaplay.remote.PlayerBroadcastContract
 import com.btf.rk3568_hdmi_mediaplay.service.UsbMonitorService
 import com.btf.rk3568_hdmi_mediaplay.ui.main.MainScreen
 import com.btf.rk3568_hdmi_mediaplay.ui.main.MainViewModel
@@ -46,7 +48,6 @@ class MainActivity : ComponentActivity() {
     
     companion object {
         private const val TAG = "MainActivity"
-        const val ACTION_MOVE_TO_BACK = "com.btf.player.internal.MOVE_TO_BACK"
     }
     
     private var usbMonitorService: UsbMonitorService? = null
@@ -59,7 +60,7 @@ class MainActivity : ComponentActivity() {
     // 内部广播接收器 - 处理 hide 命令
     private val internalReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == ACTION_MOVE_TO_BACK) {
+            if (intent.action == PlayerBroadcastContract.ACTION_MOVE_TO_BACK) {
                 Log.d(TAG, "收到 MOVE_TO_BACK 广播")
                 moveTaskToBack(true)
             }
@@ -94,11 +95,30 @@ class MainActivity : ComponentActivity() {
         usbMonitorService?.let { service ->
             service.onUsbConnected = { path: File, hasMedia: Boolean ->
                 Log.i(TAG, "USB connected callback received: $path, hasMedia=$hasMedia")
-                mainViewModelRef?.onUsbConnected(path, hasMedia)
+                mainViewModelRef?.onUsbConnected(path, hasMedia, service.getCurrentConfig() != null)
             }
             service.onUsbDisconnected = {
                 Log.i(TAG, "USB disconnected callback received")
                 mainViewModelRef?.onUsbDisconnected()
+            }
+
+            when (val currentState = service.getCurrentUsbState()) {
+                is UsbRuntimeState.Connected -> {
+                    mainViewModelRef?.syncUsbConnected(
+                        currentState.path,
+                        currentState.hasMediaContent,
+                        currentState.hasConfig
+                    )
+                }
+                is UsbRuntimeState.Scanning -> {
+                    mainViewModelRef?.syncUsbScanning(currentState.path)
+                }
+                is UsbRuntimeState.Disconnected -> {
+                    mainViewModelRef?.syncUsbDisconnected()
+                }
+                is UsbRuntimeState.Error -> {
+                    mainViewModelRef?.syncUsbDisconnected()
+                }
             }
         }
     }
@@ -119,12 +139,13 @@ class MainActivity : ComponentActivity() {
         
         // 注册内部广播接收器
         try {
-            val filter = IntentFilter(ACTION_MOVE_TO_BACK)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(internalReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            } else {
-                registerReceiver(internalReceiver, filter)
-            }
+            val filter = IntentFilter(PlayerBroadcastContract.ACTION_MOVE_TO_BACK)
+            ContextCompat.registerReceiver(
+                this,
+                internalReceiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
         } catch (e: Exception) {
             Log.e(TAG, "注册内部广播接收器失败", e)
         }
@@ -224,6 +245,13 @@ class MainActivity : ComponentActivity() {
                             viewModel = mainViewModel,
                             onNavigateToSettings = { currentScreen = Screen.Settings },
                             onNavigateToImageSplit = { currentScreen = Screen.ImageSplit },
+                            onScanUsb = {
+                                if (serviceBound) {
+                                    usbMonitorService?.triggerScan()
+                                } else {
+                                    mainViewModel.scanUsb()
+                                }
+                            },
                             onSelectFile = { playerIndex ->
                                 selectingPlayerIndex = playerIndex
                                 try {

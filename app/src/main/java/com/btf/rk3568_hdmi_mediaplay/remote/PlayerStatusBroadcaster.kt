@@ -16,8 +16,6 @@ import org.json.JSONObject
 object PlayerStatusBroadcaster {
     
     private const val TAG = "PlayerStatusBroadcaster"
-    const val ACTION_STATUS_CALLBACK = "com.btf.player.status.CALLBACK"
-    const val EXTRA_STATUS_JSON = "status_json"
     
     /**
      * 发送状态广播
@@ -27,12 +25,11 @@ object PlayerStatusBroadcaster {
             // 添加时间戳
             json.put("timestamp", System.currentTimeMillis())
             
-            val intent = Intent(ACTION_STATUS_CALLBACK).apply {
-                putExtra(EXTRA_STATUS_JSON, json.toString())
-                // 不设置 package，允许任何应用接收
+            val intent = Intent(PlayerBroadcastContract.ACTION_STATUS_CALLBACK).apply {
+                putExtra(PlayerBroadcastContract.EXTRA_STATUS_JSON, json.toString())
             }
-            context.sendBroadcast(intent)
-            Log.d(TAG, "发送状态: ${json.toString().take(200)}")
+            context.sendBroadcast(intent, PlayerBroadcastContract.PERMISSION_RECEIVE_PLAYER_STATUS)
+            Log.d(TAG, "发送状态: type=${json.optString("type")}, payloadSize=${json.toString().length}")
         } catch (e: Exception) {
             Log.e(TAG, "发送状态失败", e)
         }

@@ -27,18 +27,14 @@ object FeatureManager {
 
     /**
      * 初始化 - 在Application中调用
-     * @param isDebug 是否为Debug版本（已忽略，强制使用Release配置）
+     * @param isDebug 是否为Debug版本
      */
     fun init(isDebug: Boolean) {
-        // 【重要】强制使用 Release 配置，不管是 Debug 还是 Release 构建
-        // 如需测试 Debug 全功能模式，将下面的 false 改为 true
-        val forceDebugMode = true
-        
-        isDebugBuild = forceDebugMode
-        Log.i(TAG, "FeatureManager initialized, forceDebugMode=$forceDebugMode (buildConfig.isDebug=$isDebug)")
+        isDebugBuild = isDebug
+        Log.i(TAG, "FeatureManager initialized, isDebugBuild=$isDebugBuild")
 
         // 设置默认值
-        _featureFlags.value = if (forceDebugMode) {
+        _featureFlags.value = if (isDebugBuild) {
             FeatureFlags.debugDefaults()
         } else {
             FeatureFlags.releaseDefaults()

@@ -28,6 +28,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     
     companion object {
         private const val TAG = "MainViewModel"
+        private const val PLAYBACK_ERROR_CODE = 5001
     }
     
     private val settingsRepository: SettingsRepository = SettingsRepository(application)
@@ -44,8 +45,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     val playerConfigs: StateFlow<List<PlayerConfig>> = _playerConfigs.asStateFlow()
     
     // U盘状态
-    private val _usbState = MutableStateFlow<UsbState>(UsbState.Disconnected)
-    val usbState: StateFlow<UsbState> = _usbState.asStateFlow()
+    private val _usbState = MutableStateFlow<UsbRuntimeState>(UsbRuntimeState.Disconnected)
+    val usbState: StateFlow<UsbRuntimeState> = _usbState.asStateFlow()
     
     // 拷贝进度
     private val _copyProgress = MutableStateFlow<CopyProgress?>(null)
@@ -61,12 +62,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     
     // 待处理的U盘路径
     private var pendingUsbPath: File? = null
-    
-    sealed class UsbState {
-        object Disconnected : UsbState()
-        data class Connected(val path: File, val hasMediaContent: Boolean) : UsbState()
-        data class Error(val message: String) : UsbState()
-    }
     
     data class CopyProgress(
         val playerIndex: Int,
@@ -88,10 +83,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
         
         // 启动时加载本地内容
         loadLocalContent()
-        
-        // 启动时检查U盘状态
-        checkUsbOnStartup()
-        
+
         // 发送应用启动广播
         PlayerStatusBroadcaster.sendAppStarted(getApplication())
     }
@@ -102,29 +94,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
         PlayerCommandHandler.setCallback(null)
         // 发送应用停止广播
         PlayerStatusBroadcaster.sendAppStopping(getApplication())
-    }
-    
-    /**
-     * 启动时检查U盘状态
-     */
-    private fun checkUsbOnStartup() {
-        safeLaunch {
-            delay(1000) // 等待服务启动
-            val context = getApplication<Application>()
-            val usbPaths = withContext(Dispatchers.IO) {
-                UsbUtils.getMountedUsbPaths(context)
-            }
-            
-            if (usbPaths.isNotEmpty()) {
-                val usbPath = usbPaths.first()
-                val folderName = settings.value.usbScanFolderName
-                val hasMedia = withContext(Dispatchers.IO) {
-                    UsbUtils.hasValidMediaStructure(usbPath, folderName)
-                }
-                log("启动时检测到U盘: ${usbPath.absolutePath}, 有媒体: $hasMedia")
-                _usbState.value = UsbState.Connected(usbPath, hasMedia)
-            }
-        }
     }
     
     /**
@@ -203,10 +172,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     /**
      * U盘连接
      */
-    fun onUsbConnected(path: File, hasMediaContent: Boolean) {
+    fun onUsbConnected(path: File, hasMediaContent: Boolean, hasConfig: Boolean = FeatureManager.hasUsbConfig()) {
         safeLaunch {
             log("U盘已连接: ${path.absolutePath}, 有媒体内容: $hasMediaContent")
-            _usbState.value = UsbState.Connected(path, hasMediaContent)
+            _usbState.value = UsbRuntimeState.Connected(path, hasMediaContent, hasConfig)
             
             // 检查并应用U盘配置
             applyUsbConfigSettings()
@@ -231,7 +200,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
                 val required = FileUtils.formatFileSize(requiredSpace)
                 val available = FileUtils.formatFileSize(availableSpace)
                 showToast("存储空间不足！需要 $required，可用 $available", MessageType.ERROR)
-                _usbState.value = UsbState.Error("存储空间不足")
+                _usbState.value = UsbRuntimeState.Error("存储空间不足")
                 return@safeLaunch
             }
             
@@ -254,8 +223,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
      */
     fun onUsbDisconnected() {
         log("U盘已断开")
-        _usbState.value = UsbState.Disconnected
+        _usbState.value = UsbRuntimeState.Disconnected
         showToast(StringResources.usbDisconnected, MessageType.INFO)
+    }
+
+    fun syncUsbScanning(path: File) {
+        _usbState.value = UsbRuntimeState.Scanning(path)
+    }
+
+    fun syncUsbConnected(path: File, hasMediaContent: Boolean, hasConfig: Boolean) {
+        _usbState.value = UsbRuntimeState.Connected(path, hasMediaContent, hasConfig)
+    }
+
+    fun syncUsbDisconnected() {
+        _usbState.value = UsbRuntimeState.Disconnected
     }
     
     /**
@@ -301,7 +282,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
                 showToast(StringResources.copyComplete, MessageType.SUCCESS)
                 
                 // 更新U盘状态为已连接且有内容
-                _usbState.value = UsbState.Connected(usbPath, true)
+                _usbState.value = UsbRuntimeState.Connected(usbPath, true, FeatureManager.hasUsbConfig())
             } else {
                 _copyProgress.value = CopyProgress(0, 0f, error = StringResources.copyFailed)
                 log("拷贝失败")
@@ -480,7 +461,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             
             if (usbPaths.isEmpty()) {
                 showToast("未检测到U盘", MessageType.WARNING)
-                _usbState.value = UsbState.Disconnected
+                _usbState.value = UsbRuntimeState.Disconnected
                 return@safeLaunch
             }
             
@@ -494,7 +475,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             
             if (!hasMedia) {
                 showToast("未找到 /$folderName/player1~4", MessageType.WARNING)
-                _usbState.value = UsbState.Connected(usbPath, false)
+                _usbState.value = UsbRuntimeState.Connected(usbPath, false, FeatureManager.hasUsbConfig())
             } else {
                 onUsbConnected(usbPath, hasMedia)
             }
@@ -513,6 +494,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
                 } else config
             }
         }
+        PlayerStatusBroadcaster.sendError(
+            getApplication(),
+            PLAYBACK_ERROR_CODE,
+            "player=$playerIndex,error=$errorMessage"
+        )
+    }
+
+    fun updatePlayerCurrentIndex(playerIndex: Int, currentIndex: Int) {
+        _playerConfigs.update { configs ->
+            configs.mapIndexed { index, config ->
+                if (index == playerIndex && config.mediaItems.isNotEmpty()) {
+                    val safeIndex = currentIndex.coerceIn(0, config.mediaItems.lastIndex)
+                    config.copy(currentIndex = safeIndex)
+                } else config
+            }
+        }
+    }
+
+    fun onPlayerPlaybackCompleted(playerIndex: Int, mediaPath: String?, nextIndex: Int?) {
+        _playerConfigs.update { configs ->
+            configs.mapIndexed { index, config ->
+                if (index != playerIndex) {
+                    config
+                } else if (nextIndex != null && config.mediaItems.isNotEmpty()) {
+                    val safeIndex = nextIndex.coerceIn(0, config.mediaItems.lastIndex)
+                    config.copy(currentIndex = safeIndex, state = PlayerState.PLAYING)
+                } else {
+                    config.copy(state = PlayerState.IDLE)
+                }
+            }
+        }
+        PlayerStatusBroadcaster.sendPlaybackCompleted(getApplication(), playerIndex, mediaPath)
     }
     
     /**
@@ -849,7 +862,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
         val configs = _playerConfigs.value
         
         val players = configs.map { config ->
-            val firstMedia = config.mediaItems.firstOrNull()
+            val currentMedia = config.mediaItems.getOrNull(config.currentIndex) ?: config.mediaItems.firstOrNull()
             PlayerStatusInfo(
                 index = config.index,
                 state = when (config.state) {
@@ -859,8 +872,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
                     PlayerState.LOADING -> "loading"
                     PlayerState.ERROR -> "error"
                 },
-                mediaType = firstMedia?.type?.name?.lowercase(),
-                mediaPath = firstMedia?.path,
+                mediaType = currentMedia?.type?.name?.lowercase(),
+                mediaPath = currentMedia?.path,
                 mediaCount = config.mediaItems.size,
                 currentIndex = config.currentIndex,
                 volume = (config.volume * 100).toInt(),

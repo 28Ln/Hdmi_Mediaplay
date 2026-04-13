@@ -169,8 +169,8 @@ data class FeatureFlags(
         fun releaseDefaults() = FeatureFlags(
             // 底部控制栏 - 保留基本控制
             showBottomControlBar = true,
-            showSettingsButton = true,
-            showImageSplitTool = true,
+            showSettingsButton = false,
+            showImageSplitTool = false,
             allowPlayPauseControl = true,
             // 播放器交互 - 限制手动操作
             allowManualFileSelect = false,
@@ -195,7 +195,7 @@ data class FeatureFlags(
             showAdvancedSettings = false,
             // 其他控制 - 精简
             showStorageSettings = false,
-            showHdmiControl = true,  // HDMI控制保留
+            showHdmiControl = false,
             showHelpSection = false,
             showScanUsbButton = true  // 扫描U盘保留
         )

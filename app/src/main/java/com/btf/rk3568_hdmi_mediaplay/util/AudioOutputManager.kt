@@ -35,7 +35,7 @@ object AudioOutputManager {
         return getAvailableOutputs(context).any { device ->
             device.type == AudioDeviceInfo.TYPE_HDMI ||
             device.type == AudioDeviceInfo.TYPE_HDMI_ARC ||
-            device.type == AudioDeviceInfo.TYPE_HDMI_EARC
+            isHdmiEarcType(device.type)
         }
     }
     
@@ -63,7 +63,7 @@ object AudioOutputManager {
             when (output) {
                 AudioOutput.AUTO -> {
                     // 自动模式 - 使用系统默认
-                    audioManager.isSpeakerphoneOn = false
+                    setSpeakerphoneEnabled(audioManager, false)
                     Log.i(TAG, "Audio output set to AUTO")
                     true
                 }
@@ -72,14 +72,14 @@ object AudioOutputManager {
                     // HDMI 输出
                     // 注意: 标准 Android API 不支持直接路由到 HDMI
                     // RK3568 可能需要使用 Rockchip 特定 API
-                    audioManager.isSpeakerphoneOn = false
+                    setSpeakerphoneEnabled(audioManager, false)
                     Log.i(TAG, "Audio output set to HDMI (may require system API)")
                     true
                 }
                 
                 AudioOutput.SPEAKER -> {
                     // 扬声器输出
-                    audioManager.isSpeakerphoneOn = true
+                    setSpeakerphoneEnabled(audioManager, true)
                     Log.i(TAG, "Audio output set to SPEAKER")
                     true
                 }
@@ -119,7 +119,7 @@ object AudioOutputManager {
             AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Wired Headset"
             AudioDeviceInfo.TYPE_HDMI -> "HDMI"
             AudioDeviceInfo.TYPE_HDMI_ARC -> "HDMI ARC"
-            AudioDeviceInfo.TYPE_HDMI_EARC -> "HDMI eARC"
+            in hdmiEarcTypes() -> "HDMI eARC"
             AudioDeviceInfo.TYPE_LINE_ANALOG -> "Line Out"
             AudioDeviceInfo.TYPE_LINE_DIGITAL -> "Digital Out"
             AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "Bluetooth A2DP"
@@ -128,5 +128,22 @@ object AudioOutputManager {
             AudioDeviceInfo.TYPE_USB_HEADSET -> "USB Headset"
             else -> "Unknown ($type)"
         }
+    }
+
+    private fun isHdmiEarcType(type: Int): Boolean {
+        return type in hdmiEarcTypes()
+    }
+
+    private fun hdmiEarcTypes(): Set<Int> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            setOf(AudioDeviceInfo.TYPE_HDMI_EARC)
+        } else {
+            emptySet()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun setSpeakerphoneEnabled(audioManager: AudioManager, enabled: Boolean) {
+        audioManager.isSpeakerphoneOn = enabled
     }
 }

@@ -1,6 +1,38 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+}
+
+val signingProperties = Properties().apply {
+    val propsFile = rootProject.file("signing.properties")
+    if (propsFile.exists()) {
+        propsFile.inputStream().use(::load)
+    }
+}
+
+fun resolveSigningValue(key: String): String? {
+    return providers.gradleProperty(key).orNull
+        ?: System.getenv(key)
+        ?: signingProperties.getProperty(key)
+}
+
+val releaseStoreFilePath = resolveSigningValue("BTF_RELEASE_STORE_FILE")
+val releaseStorePassword = resolveSigningValue("BTF_RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = resolveSigningValue("BTF_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = resolveSigningValue("BTF_RELEASE_KEY_PASSWORD")
+val hasReleaseSigning =
+    !releaseStoreFilePath.isNullOrBlank() &&
+    !releaseStorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank() &&
+    rootProject.file(releaseStoreFilePath).exists()
+
+if (!hasReleaseSigning) {
+    logger.warn(
+        "Release signing is not configured. Define BTF_RELEASE_* env vars or signing.properties for signed release builds."
+    )
 }
 
 android {
@@ -20,13 +52,14 @@ android {
         }
     }
 
-    // 签名配置
     signingConfigs {
         create("release") {
-            storeFile = file("../app.jks")
-            storePassword = "byteflyer"
-            keyAlias = "byteflyer"
-            keyPassword = "byteflyer"
+            if (hasReleaseSigning) {
+                storeFile = rootProject.file(releaseStoreFilePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
         }
     }
 
@@ -43,7 +76,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             // Release版本标识
             buildConfigField("boolean", "IS_DEBUG_BUILD", "false")
             buildConfigField("int", "MIN_SDK_VERSION", "30")
@@ -63,6 +98,11 @@ android {
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.1"
+    }
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
     }
     packaging {
         resources {

@@ -7,7 +7,7 @@
     <string name="close">关闭</string>
     <string name="back">返回</string>
     <string name="settings">设置</string>
-    <string name="loading">加载中...</string>
+    <string name="loading">加载中…</string>
     <string name="error">错误</string>
     
     <!-- 播放器状态 -->
@@ -53,5 +53,5 @@
     <!-- 通知 -->
     <string name="notification_channel_name">U盘监听服务</string>
     <string name="notification_title">媒体播放器</string>
-    <string name="notification_text">正在监听U盘...</string>
+    <string name="notification_text">正在监听U盘…</string>
 </resources>

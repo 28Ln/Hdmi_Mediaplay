@@ -40,6 +40,7 @@ fun ImageDisplayView(
     intervalSeconds: Int = 5,
     transition: ImageTransition = ImageTransition.FADE,
     scaleMode: VideoScaleMode = VideoScaleMode.STRETCH,  // 默认拉伸填满
+    initialIndex: Int = 0,
     isPlaying: Boolean = true,
     onImageChanged: ((Int) -> Unit)? = null,
     onError: ((String) -> Unit)? = null
@@ -65,7 +66,9 @@ fun ImageDisplayView(
         return
     }
     
-    var currentIndex by remember { mutableIntStateOf(0) }
+    var currentIndex by remember(validPaths, initialIndex) {
+        mutableIntStateOf(initialIndex.coerceIn(0, validPaths.lastIndex))
+    }
     
     // 图片轮播逻辑 - 使用 LaunchedEffect 的 key 控制重启
     LaunchedEffect(validPaths.size, intervalSeconds, isPlaying) {

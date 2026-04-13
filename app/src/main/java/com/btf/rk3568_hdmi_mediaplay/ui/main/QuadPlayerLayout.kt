@@ -29,7 +29,10 @@ fun QuadPlayerLayout(
     settings: AppSettings = AppSettings(),
     showPlayerIndex: Boolean = true,
     onPlayerClick: ((Int) -> Unit)? = null,
-    onPlayerLongClick: ((Int) -> Unit)? = null
+    onPlayerLongClick: ((Int) -> Unit)? = null,
+    onPlaybackCompleted: ((Int, String?, Int?) -> Unit)? = null,
+    onPlaybackError: ((Int, String) -> Unit)? = null,
+    onCurrentIndexChanged: ((Int, Int) -> Unit)? = null
 ) {
     val backgroundColor = remember(settings.backgroundColor) { 
         Color(settings.backgroundColor) 
@@ -67,7 +70,16 @@ fun QuadPlayerLayout(
                     modifier = Modifier,  // 大小由 Layout 控制
                     onClick = { if (isVisible) onPlayerClick?.invoke(i) },
                     onLongClick = { if (isVisible) onPlayerLongClick?.invoke(i) },
-                    isVisible = isVisible
+                    isVisible = isVisible,
+                    onPlaybackCompleted = { mediaPath, nextIndex ->
+                        if (isVisible) onPlaybackCompleted?.invoke(i, mediaPath, nextIndex)
+                    },
+                    onPlaybackError = { message ->
+                        if (isVisible) onPlaybackError?.invoke(i, message)
+                    },
+                    onCurrentIndexChanged = { currentIndex ->
+                        if (isVisible) onCurrentIndexChanged?.invoke(i, currentIndex)
+                    }
                 )
             }
         }
@@ -246,7 +258,10 @@ private fun PlayerCell(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    isVisible: Boolean = true
+    isVisible: Boolean = true,
+    onPlaybackCompleted: ((String?, Int?) -> Unit)? = null,
+    onPlaybackError: ((String) -> Unit)? = null,
+    onCurrentIndexChanged: ((Int) -> Unit)? = null
 ) {
     // 不可见时返回空 Box，但组件仍然存在于树中
     if (!isVisible) {
@@ -265,7 +280,10 @@ private fun PlayerCell(
             settings = settings,
             modifier = Modifier.fillMaxSize(),
             onClick = onClick,
-            onLongClick = onLongClick
+            onLongClick = onLongClick,
+            onPlaybackCompleted = onPlaybackCompleted,
+            onError = onPlaybackError,
+            onCurrentIndexChanged = onCurrentIndexChanged
         )
     }
 }

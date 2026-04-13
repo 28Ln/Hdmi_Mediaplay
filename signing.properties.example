@@ -1,0 +1,4 @@
+BTF_RELEASE_STORE_FILE=.local/signing/app-release.jks
+BTF_RELEASE_STORE_PASSWORD=change_me
+BTF_RELEASE_KEY_ALIAS=change_me
+BTF_RELEASE_KEY_PASSWORD=change_me

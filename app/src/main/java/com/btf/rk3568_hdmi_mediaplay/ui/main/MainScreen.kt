@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.btf.rk3568_hdmi_mediaplay.FeatureManager
+import com.btf.rk3568_hdmi_mediaplay.data.model.UsbRuntimeState
 import com.btf.rk3568_hdmi_mediaplay.ui.components.ToastMessage
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.OverwriteDialog
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.PlayerMenuDialog
@@ -28,7 +29,8 @@ fun MainScreen(
     viewModel: MainViewModel = viewModel(),
     onNavigateToSettings: () -> Unit = {},
     onNavigateToImageSplit: () -> Unit = {},
-    onSelectFile: ((Int) -> Unit)? = null
+    onSelectFile: ((Int) -> Unit)? = null,
+    onScanUsb: (() -> Unit)? = null
 ) {
     val settings by viewModel.settings.collectAsState()
     val playerConfigs by viewModel.playerConfigs.collectAsState()
@@ -70,7 +72,16 @@ fun MainScreen(
                     viewModel.togglePlayPause(index)
                 }
             },
-            onPlayerLongClick = { index -> selectedPlayerIndex = index }
+            onPlayerLongClick = { index -> selectedPlayerIndex = index },
+            onPlaybackCompleted = { playerIndex, mediaPath, nextIndex ->
+                viewModel.onPlayerPlaybackCompleted(playerIndex, mediaPath, nextIndex)
+            },
+            onPlaybackError = { playerIndex, errorMessage ->
+                viewModel.setPlayerError(playerIndex, errorMessage)
+            },
+            onCurrentIndexChanged = { playerIndex, currentIndex ->
+                viewModel.updatePlayerCurrentIndex(playerIndex, currentIndex)
+            }
         )
         
         // 底部触发区域 - 根据功能开关决定是否显示
@@ -99,7 +110,7 @@ fun MainScreen(
         ) {
             // 帮助提示 - 根据功能开关
             if (featureFlags.showHelpTip) {
-                HelpTip(onShowBottomBar = { showBottomBar = true })
+                HelpTip()
             } else {
                 Spacer(modifier = Modifier.width(1.dp))
             }
@@ -139,7 +150,7 @@ fun MainScreen(
                     onImageSplitClick = onNavigateToImageSplit,
                     onPlayAllClick = { viewModel.playAll() },
                     onPauseAllClick = { viewModel.pauseAll() },
-                    onScanUsbClick = { viewModel.scanUsb() },
+                    onScanUsbClick = { onScanUsb?.invoke() ?: viewModel.scanUsb() },
                     onHide = { showBottomBar = false },
                     modifier = Modifier.padding(16.dp)
                 )
@@ -176,7 +187,7 @@ fun MainScreen(
  * 帮助提示 - 支持中英文
  */
 @Composable
-private fun HelpTip(onShowBottomBar: () -> Unit = {}) {
+private fun HelpTip() {
     var showHelp by remember { mutableStateOf(true) }
     
     if (showHelp) {
@@ -206,11 +217,11 @@ private fun HelpTip(onShowBottomBar: () -> Unit = {}) {
  */
 @Composable
 private fun UsbStatusIndicator(
-    usbState: MainViewModel.UsbState,
+    usbState: UsbRuntimeState,
     modifier: Modifier = Modifier
 ) {
     // 简化显示，只在有内容时显示绿色
-    val hasContent = usbState is MainViewModel.UsbState.Connected && usbState.hasMediaContent
+    val hasContent = usbState is UsbRuntimeState.Connected && usbState.hasMediaContent
     
     if (hasContent) {
         Surface(

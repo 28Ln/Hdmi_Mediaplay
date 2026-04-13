@@ -44,6 +44,7 @@ object LocalMediaScanner {
     /**
      * 扫描外部存储中的媒体文件
      */
+    @Suppress("UNUSED_PARAMETER")
     suspend fun scanExternalStorage(context: Context): List<MediaItem> = withContext(Dispatchers.IO) {
         val mediaItems = mutableListOf<MediaItem>()
         

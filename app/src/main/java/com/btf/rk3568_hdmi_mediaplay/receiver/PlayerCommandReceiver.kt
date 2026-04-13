@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.btf.rk3568_hdmi_mediaplay.remote.PlayerBroadcastContract
 import com.btf.rk3568_hdmi_mediaplay.remote.PlayerCommandHandler
 
 /**
@@ -17,22 +18,20 @@ class PlayerCommandReceiver : BroadcastReceiver() {
     
     companion object {
         private const val TAG = "PlayerCommandReceiver"
-        const val ACTION_COMMAND = "com.btf.player.action.COMMAND"
-        const val EXTRA_COMMAND_JSON = "command_json"
     }
     
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ACTION_COMMAND) {
+        if (intent.action != PlayerBroadcastContract.ACTION_COMMAND) {
             return
         }
         
-        val commandJson = intent.getStringExtra(EXTRA_COMMAND_JSON)
+        val commandJson = intent.getStringExtra(PlayerBroadcastContract.EXTRA_COMMAND_JSON)
         if (commandJson.isNullOrBlank()) {
             Log.w(TAG, "收到空命令")
             return
         }
         
-        Log.d(TAG, "收到命令: $commandJson")
+        Log.i(TAG, "收到远程命令，action=${intent.action}, length=${commandJson.length}")
         
         // 交给命令处理器处理
         PlayerCommandHandler.handleCommand(context, commandJson)

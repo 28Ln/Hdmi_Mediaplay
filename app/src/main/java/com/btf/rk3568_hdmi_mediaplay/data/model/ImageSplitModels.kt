@@ -2,6 +2,7 @@ package com.btf.rk3568_hdmi_mediaplay.data.model
 
 import android.graphics.Bitmap
 import android.graphics.Rect
+import java.util.Locale
 
 /**
  * 裁剪布局类型
@@ -166,9 +167,9 @@ data class ImageInfo(
         get() {
             val kb = sizeBytes / 1024f
             return if (kb >= 1024) {
-                String.format("%.1f MB", kb / 1024)
+                String.format(Locale.ROOT, "%.1f MB", kb / 1024)
             } else {
-                String.format("%.0f KB", kb)
+                String.format(Locale.ROOT, "%.0f KB", kb)
             }
         }
 

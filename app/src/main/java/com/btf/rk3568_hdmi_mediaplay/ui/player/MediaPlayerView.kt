@@ -14,6 +14,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.media3.common.util.UnstableApi
 import com.btf.rk3568_hdmi_mediaplay.data.model.*
 import com.btf.rk3568_hdmi_mediaplay.util.StringResources
 
@@ -22,6 +23,7 @@ private const val TAG = "MediaPlayerView"
 /**
  * 统一媒体播放器组件 - 支持中英文
  */
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 @Composable
 fun MediaPlayerView(
     playerConfig: PlayerConfig,
@@ -31,8 +33,10 @@ fun MediaPlayerView(
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     onPlaybackEnded: (() -> Unit)? = null,
+    onPlaybackCompleted: ((String?, Int?) -> Unit)? = null,
     onError: ((String) -> Unit)? = null,
-    onNextVideo: ((Int) -> Unit)? = null
+    onNextVideo: ((Int) -> Unit)? = null,
+    onCurrentIndexChanged: ((Int) -> Unit)? = null
 ) {
     val mediaItems = playerConfig.mediaItems
     
@@ -43,11 +47,20 @@ fun MediaPlayerView(
         videos to images
     }
     
-    // 使用 mediaItems 的 hashCode 作为 key，确保列表变化时重置索引
-    var currentVideoIndex by remember(mediaItems.hashCode()) { mutableIntStateOf(0) }
-    
     val hasVideos = videoItems.isNotEmpty()
     val hasImages = imageItems.isNotEmpty()
+    val initialVideoIndex = remember(mediaItems.hashCode(), playerConfig.currentIndex, videoItems.size) {
+        if (videoItems.isNotEmpty()) {
+            playerConfig.currentIndex.coerceIn(0, videoItems.lastIndex)
+        } else {
+            0
+        }
+    }
+    
+    // 使用 mediaItems 的 hashCode 作为 key，确保列表变化时重置索引
+    var currentVideoIndex by remember(mediaItems.hashCode(), playerConfig.currentIndex) {
+        mutableIntStateOf(initialVideoIndex)
+    }
     
     val gestureModifier = remember(onClick, onLongClick) {
         Modifier.pointerInput(Unit) {
@@ -105,7 +118,9 @@ fun MediaPlayerView(
                                     }
                                     currentVideoIndex = nextIndex
                                     try { onNextVideo?.invoke(nextIndex) } catch (e: Exception) { Log.e(TAG, "onNextVideo error", e) }
+                                    try { onCurrentIndexChanged?.invoke(nextIndex) } catch (e: Exception) { Log.e(TAG, "onCurrentIndexChanged error", e) }
                                 }
+                                try { onPlaybackCompleted?.invoke(currentVideo.path, if (videoItems.size > 1) currentVideoIndex else null) } catch (e: Exception) { Log.e(TAG, "onPlaybackCompleted error", e) }
                                 try { onPlaybackEnded?.invoke() } catch (e: Exception) { Log.e(TAG, "onPlaybackEnded error", e) }
                             },
                             onError = { e ->
@@ -135,7 +150,11 @@ fun MediaPlayerView(
                         intervalSeconds = settings.imageIntervalSeconds,
                         transition = settings.imageTransition,
                         scaleMode = settings.videoScaleMode,
+                        initialIndex = playerConfig.currentIndex,
                         isPlaying = playerConfig.state == PlayerState.PLAYING,
+                        onImageChanged = { index ->
+                            try { onCurrentIndexChanged?.invoke(index) } catch (e: Exception) { Log.e(TAG, "onCurrentIndexChanged error", e) }
+                        },
                         onError = { msg ->
                             try { onError?.invoke(msg) } catch (e: Exception) { Log.e(TAG, "onError callback error", e) }
                         }

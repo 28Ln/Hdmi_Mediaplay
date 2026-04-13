@@ -11,6 +11,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.util.Locale
 
 object FileUtils {
     
@@ -266,7 +267,7 @@ object FileUtils {
             bytes < 1024 -> "$bytes B"
             bytes < 1024 * 1024 -> "${bytes / 1024} KB"
             bytes < 1024 * 1024 * 1024 -> "${bytes / (1024 * 1024)} MB"
-            else -> String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024))
+            else -> String.format(Locale.ROOT, "%.2f GB", bytes / (1024.0 * 1024 * 1024))
         }
     }
     
