@@ -24,17 +24,17 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 class MainViewModel(application: Application) : AndroidViewModel(application), PlayerCommandHandler.ViewModelCallback {
+
+    internal sealed interface UsbCopyDecision {
+        data object NoMediaContent : UsbCopyDecision
+        data class InsufficientSpace(val requiredBytes: Long, val availableBytes: Long) : UsbCopyDecision
+        data object RequireOverwriteConfirmation : UsbCopyDecision
+        data object CopyImmediately : UsbCopyDecision
+    }
     
     companion object {
         private const val TAG = "MainViewModel"
         private const val PLAYBACK_ERROR_CODE = 5001
-
-        internal sealed interface UsbCopyDecision {
-            data object NoMediaContent : UsbCopyDecision
-            data class InsufficientSpace(val requiredBytes: Long, val availableBytes: Long) : UsbCopyDecision
-            data object RequireOverwriteConfirmation : UsbCopyDecision
-            data object CopyImmediately : UsbCopyDecision
-        }
 
         internal fun decideUsbCopyDecision(
             hasMediaContent: Boolean,

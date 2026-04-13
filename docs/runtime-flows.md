@@ -12,7 +12,7 @@
 
 ## 2. USB Flow
 
-`UsbBroadcastReceiver / periodic scan / manual trigger -> UsbMonitorService.checkUsbContentAsync -> UsbConfigLoader -> FeatureManager.applyUsbConfig -> MainViewModel.onUsbConnected -> LocalStorageManager.copyAllFromUsb(staging/backup swap) -> loadLocalContent`
+`UsbBroadcastReceiver / periodic scan / manual trigger -> UsbMonitorService.checkUsbContentAsync -> emit UsbRuntimeState -> MainActivity sync -> UsbConfigLoader / FeatureManager.applyUsbConfig -> MainViewModel.onUsbConnected -> LocalStorageManager.copyAllFromUsb(staging/backup swap) -> loadLocalContent`
 
 关键文件：
 
