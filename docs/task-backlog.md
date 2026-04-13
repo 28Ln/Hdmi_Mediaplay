@@ -14,7 +14,7 @@
 ## P1
 
 - [x] 修复 `FeatureManager` 强制 debug 行为
-- [ ] 收敛 USB 状态源（已移除启动重复扫描，手动扫描优先经 Service；仍需统一 domain state）
+- [ ] 收敛 USB 状态源（已引入共享 `UsbRuntimeState`，移除启动重复扫描，手动扫描优先经 Service；仍存在 Service/ViewModel 双写）
 - [x] 将复制流程改为事务式
 - [x] 补齐播放完成 / 播放错误 / 当前索引的状态闭环（代码侧已打通，待真机回归）
 - [ ] 扩展 `UsbConfigFeatures` 覆盖面并建立 schema 校验（功能开关覆盖、未知字段/类型告警、部分枚举/范围校验已补齐，仍缺完整 migration 策略）
@@ -23,6 +23,6 @@
 
 - [x] 新增 `FeatureManager` / `UsbConfigFeatures` 基础单测
 - [x] 补充 `PlayerCommandHandler` 单测（当前为纯 JVM 可稳定执行的 helper/alias/文件判定测试）
-- [ ] 补充 USB / 复制 / 空间不足场景测试（已补复制成功/缓存保留测试，空间不足仍缺）
+- [ ] 补充 USB / 复制 / 空间不足场景测试（已补复制成功/缓存保留测试，仍缺低空间与更多异常边界）
 - [x] 接入 CI：build + test + lint（workflow 已落地，远端首次运行待观察）
 - [x] 建立发布与验收说明（README / checklist / SOP 已补）
