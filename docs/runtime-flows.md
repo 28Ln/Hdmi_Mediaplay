@@ -36,6 +36,6 @@
 
 ## 4. Known Broken / Weak Flows
 
-- USB 状态仍未完全统一到单一 domain state
+- 已引入共享 `UsbRuntimeState`，并由 Service 向 Activity / ViewModel 同步当前状态；但业务副作用仍存在少量 ViewModel 双写
 - 事务式复制已补，但仍缺真机异常回归验证
 - 播放事件已回写到 ViewModel，但仍缺真机播放异常/完成验证

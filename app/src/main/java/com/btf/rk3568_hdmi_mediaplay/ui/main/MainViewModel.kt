@@ -16,7 +16,6 @@ import com.btf.rk3568_hdmi_mediaplay.ui.components.MessageType
 import com.btf.rk3568_hdmi_mediaplay.ui.components.ToastData
 import com.btf.rk3568_hdmi_mediaplay.util.FileUtils
 import com.btf.rk3568_hdmi_mediaplay.util.StringResources
-import com.btf.rk3568_hdmi_mediaplay.util.UsbUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -238,6 +237,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     fun syncUsbDisconnected() {
         _usbState.value = UsbRuntimeState.Disconnected
     }
+
+    fun syncUsbState(state: UsbRuntimeState) {
+        _usbState.value = state
+    }
     
     /**
      * 确认覆盖
@@ -441,44 +444,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             }
             
             showToast("已清除 ${sizeBefore}MB", MessageType.SUCCESS)
-        }
-    }
-    
-    /**
-     * 手动扫描U盘
-     */
-    fun scanUsb() {
-        safeLaunch {
-            showToast("扫描中...", MessageType.INFO)
-            
-            val context = getApplication<Application>()
-            val usbPaths = withContext(Dispatchers.IO) {
-                UsbUtils.getMountedUsbPaths(context)
-            }
-            
-            log("扫描到 ${usbPaths.size} 个U盘路径")
-            usbPaths.forEach { log("  - ${it.absolutePath}") }
-            
-            if (usbPaths.isEmpty()) {
-                showToast("未检测到U盘", MessageType.WARNING)
-                _usbState.value = UsbRuntimeState.Disconnected
-                return@safeLaunch
-            }
-            
-            val usbPath = usbPaths.first()
-            val folderName = settings.value.usbScanFolderName
-            val hasMedia = withContext(Dispatchers.IO) {
-                UsbUtils.hasValidMediaStructure(usbPath, folderName)
-            }
-            
-            log("U盘路径: ${usbPath.absolutePath}, 有媒体: $hasMedia")
-            
-            if (!hasMedia) {
-                showToast("未找到 /$folderName/player1~4", MessageType.WARNING)
-                _usbState.value = UsbRuntimeState.Connected(usbPath, false, FeatureManager.hasUsbConfig())
-            } else {
-                onUsbConnected(usbPath, hasMedia)
-            }
         }
     }
     

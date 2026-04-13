@@ -30,7 +30,7 @@ fun MainScreen(
     onNavigateToSettings: () -> Unit = {},
     onNavigateToImageSplit: () -> Unit = {},
     onSelectFile: ((Int) -> Unit)? = null,
-    onScanUsb: (() -> Unit)? = null
+    onScanUsb: () -> Unit = {}
 ) {
     val settings by viewModel.settings.collectAsState()
     val playerConfigs by viewModel.playerConfigs.collectAsState()
@@ -150,7 +150,7 @@ fun MainScreen(
                     onImageSplitClick = onNavigateToImageSplit,
                     onPlayAllClick = { viewModel.playAll() },
                     onPauseAllClick = { viewModel.pauseAll() },
-                    onScanUsbClick = { onScanUsb?.invoke() ?: viewModel.scanUsb() },
+                    onScanUsbClick = onScanUsb,
                     onHide = { showBottomBar = false },
                     modifier = Modifier.padding(16.dp)
                 )

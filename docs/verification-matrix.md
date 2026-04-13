@@ -29,8 +29,8 @@ Planned workflow:
 - `FeatureManagerTest`: 3 tests, 0 failures
 - `LocalStorageManagerTest`: 2 tests, 0 failures
 - `PlayerCommandHandlerTest`: 4 tests, 0 failures
-- `lintRelease`: 0 errors, 76 warnings
-- `lintDebug`: 0 errors, 92 warnings
+- `lintRelease`: 0 errors, 79 warnings
+- `lintDebug`: 0 errors, 89 warnings
 - `assembleDebug` / `assembleRelease`: passed
 - `UsbConfigTest`: 2 tests, 0 failures
 - CI workflow file已创建，待远端仓库实际运行

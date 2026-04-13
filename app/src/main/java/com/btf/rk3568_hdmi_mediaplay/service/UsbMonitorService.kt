@@ -82,6 +82,9 @@ class UsbMonitorService : Service() {
     
     @Volatile
     var onUsbDisconnected: (() -> Unit)? = null
+
+    @Volatile
+    var onUsbStateChanged: ((UsbRuntimeState) -> Unit)? = null
     
     // U盘配置加载回调
     @Volatile
@@ -222,7 +225,7 @@ class UsbMonitorService : Service() {
                 Log.i(TAG, "Broadcast: USB unmounted from $path")
                 lastDetectedUsb = null
                 lastLoadedConfig = null
-                _usbState.value = UsbRuntimeState.Disconnected
+                emitUsbState(UsbRuntimeState.Disconnected)
                 // 清除U盘配置
                 FeatureManager.applyUsbConfig(null)
                 notifyUsbDisconnected()
@@ -269,7 +272,7 @@ class UsbMonitorService : Service() {
                     Log.i(TAG, "No USB detected, setting disconnected")
                     lastDetectedUsb = null
                     lastLoadedConfig = null
-                    _usbState.value = UsbRuntimeState.Disconnected
+                    emitUsbState(UsbRuntimeState.Disconnected)
                     // 清除U盘配置
                     FeatureManager.applyUsbConfig(null)
                     notifyUsbDisconnected()
@@ -302,7 +305,7 @@ class UsbMonitorService : Service() {
     
     private suspend fun checkUsbContentAsync(usbPath: File) {
         Log.i(TAG, "Checking USB content: ${usbPath.absolutePath}")
-        _usbState.value = UsbRuntimeState.Scanning(usbPath)
+        emitUsbState(UsbRuntimeState.Scanning(usbPath))
         
         try {
             val folderName = try {
@@ -338,14 +341,14 @@ class UsbMonitorService : Service() {
             
             // 更新状态
             lastDetectedUsb = Pair(usbPath, hasMediaContent)
-            _usbState.value = UsbRuntimeState.Connected(usbPath, hasMediaContent, hasConfig)
+            emitUsbState(UsbRuntimeState.Connected(usbPath, hasMediaContent, hasConfig))
             
             // 通知回调
             notifyUsbConnected(usbPath, hasMediaContent)
             
         } catch (e: Exception) {
             Log.e(TAG, "Error checking USB content: ${e.message}")
-            _usbState.value = UsbRuntimeState.Disconnected
+            emitUsbState(UsbRuntimeState.Disconnected)
         }
     }
     
@@ -391,7 +394,7 @@ class UsbMonitorService : Service() {
             } else {
                 lastDetectedUsb = null
                 lastLoadedConfig = null
-                _usbState.value = UsbRuntimeState.Disconnected
+                emitUsbState(UsbRuntimeState.Disconnected)
                 FeatureManager.applyUsbConfig(null)
                 notifyUsbDisconnected()
             }
@@ -407,4 +410,17 @@ class UsbMonitorService : Service() {
      * 获取当前加载的U盘配置
      */
     fun getCurrentConfig(): UsbConfig? = lastLoadedConfig
+
+    private fun emitUsbState(state: UsbRuntimeState) {
+        _usbState.value = state
+        onUsbStateChanged?.let { callback ->
+            mainHandler.post {
+                try {
+                    callback.invoke(state)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in onUsbStateChanged callback: ${e.message}")
+                }
+            }
+        }
+    }
 }

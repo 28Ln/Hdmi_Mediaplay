@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
     private var usbMonitorService: UsbMonitorService? = null
     private var serviceBound = false
     private var localStorageManager: LocalStorageManager? = null
+    private var pendingManualUsbScan = false
     
     // 保存 ViewModel 引用，用于服务回调
     private var mainViewModelRef: MainViewModel? = null
@@ -77,6 +78,11 @@ class MainActivity : ComponentActivity() {
                 
                 // 立即设置回调
                 setupServiceCallbacks()
+
+                if (pendingManualUsbScan) {
+                    usbMonitorService?.triggerScan()
+                    pendingManualUsbScan = false
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Service connection error: ${e.message}")
                 e.printStackTrace()
@@ -93,6 +99,9 @@ class MainActivity : ComponentActivity() {
     private fun setupServiceCallbacks() {
         Log.i(TAG, "Setting up service callbacks, viewModel=${mainViewModelRef != null}")
         usbMonitorService?.let { service ->
+            service.onUsbStateChanged = { state ->
+                mainViewModelRef?.syncUsbState(state)
+            }
             service.onUsbConnected = { path: File, hasMedia: Boolean ->
                 Log.i(TAG, "USB connected callback received: $path, hasMedia=$hasMedia")
                 mainViewModelRef?.onUsbConnected(path, hasMedia, service.getCurrentConfig() != null)
@@ -249,7 +258,11 @@ class MainActivity : ComponentActivity() {
                                 if (serviceBound) {
                                     usbMonitorService?.triggerScan()
                                 } else {
-                                    mainViewModel.scanUsb()
+                                    pendingManualUsbScan = true
+                                    startUsbMonitorService()
+                                    Intent(this@MainActivity, UsbMonitorService::class.java).also { intent ->
+                                        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+                                    }
                                 }
                             },
                             onSelectFile = { playerIndex ->
@@ -336,6 +349,7 @@ class MainActivity : ComponentActivity() {
         
         if (serviceBound) {
             try {
+                usbMonitorService?.onUsbStateChanged = null
                 usbMonitorService?.onUsbConnected = null
                 usbMonitorService?.onUsbDisconnected = null
                 unbindService(serviceConnection)
