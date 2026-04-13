@@ -23,6 +23,6 @@
 
 - [x] 新增 `FeatureManager` / `UsbConfigFeatures` 基础单测
 - [x] 补充 `PlayerCommandHandler` 单测（当前为纯 JVM 可稳定执行的 helper/alias/文件判定测试）
-- [ ] 补充 USB / 复制 / 空间不足场景测试（已补复制成功/缓存保留测试，仍缺低空间与更多异常边界）
+- [ ] 补充 USB / 复制 / 空间不足场景测试（已补复制成功/缓存保留与低空间决策测试，仍缺更深异常边界）
 - [x] 接入 CI：build + test + lint（workflow 已落地，远端首次运行待观察）
 - [x] 建立发布与验收说明（README / checklist / SOP 已补）

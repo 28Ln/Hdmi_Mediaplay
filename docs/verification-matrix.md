@@ -28,6 +28,7 @@ Planned workflow:
 
 - `FeatureManagerTest`: 3 tests, 0 failures
 - `LocalStorageManagerTest`: 2 tests, 0 failures
+- `MainViewModelDecisionTest`: 4 tests, 0 failures
 - `PlayerCommandHandlerTest`: 4 tests, 0 failures
 - `lintRelease`: 0 errors, 79 warnings
 - `lintDebug`: 0 errors, 89 warnings

@@ -129,6 +129,8 @@
 - `docs/usb-config-schema.md`
 - `docs/release-checklist.md`
 - `docs/release-sop.md`
+- `docs/device-verification.md`
+- `docs/acceptance-evidence-template.md`
 - `docs/verification-matrix.md`
 
 ---
@@ -149,3 +151,4 @@
 
 - `docs/release-checklist.md`
 - `docs/release-sop.md`
+- `docs/device-verification.md`

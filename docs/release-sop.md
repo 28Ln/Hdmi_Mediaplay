@@ -93,6 +93,7 @@
    - U 盘插拔
    - 远控命令
    - 播放完成 / 播放错误
+   - 记录到 `docs/acceptance-evidence-template.md`
 5. 导出 release 包并记录：
    - git revision
    - 构建时间
@@ -114,3 +115,8 @@
 1. 真机 USB / 异常链路回归证据
 2. 更完整的 schema 校验
 3. 更系统的场景测试
+
+真机执行建议配合：
+
+- `docs/device-verification.md`
+- `docs/acceptance-evidence-template.md`

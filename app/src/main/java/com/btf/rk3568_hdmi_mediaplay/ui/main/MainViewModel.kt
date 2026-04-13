@@ -28,6 +28,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     companion object {
         private const val TAG = "MainViewModel"
         private const val PLAYBACK_ERROR_CODE = 5001
+
+        internal sealed interface UsbCopyDecision {
+            data object NoMediaContent : UsbCopyDecision
+            data class InsufficientSpace(val requiredBytes: Long, val availableBytes: Long) : UsbCopyDecision
+            data object RequireOverwriteConfirmation : UsbCopyDecision
+            data object CopyImmediately : UsbCopyDecision
+        }
+
+        internal fun decideUsbCopyDecision(
+            hasMediaContent: Boolean,
+            requiredBytes: Long,
+            availableBytes: Long,
+            hasLocalContent: Boolean,
+            showOverwriteConfirm: Boolean
+        ): UsbCopyDecision {
+            if (!hasMediaContent) return UsbCopyDecision.NoMediaContent
+            if (requiredBytes > availableBytes) {
+                return UsbCopyDecision.InsufficientSpace(requiredBytes, availableBytes)
+            }
+            if (showOverwriteConfirm && hasLocalContent) {
+                return UsbCopyDecision.RequireOverwriteConfirmation
+            }
+            return UsbCopyDecision.CopyImmediately
+        }
     }
     
     private val settingsRepository: SettingsRepository = SettingsRepository(application)
@@ -178,15 +202,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             
             // 检查并应用U盘配置
             applyUsbConfigSettings()
-            
-            if (!hasMediaContent) {
-                val folderName = settings.value.usbScanFolderName
-                showToast("U盘已连接，未找到 /$folderName 目录", MessageType.WARNING)
-                return@safeLaunch
-            }
-            
-            showToast(StringResources.usbConnected, MessageType.SUCCESS)
-            
+
             // 检查存储空间
             val requiredSpace = withContext(Dispatchers.IO) {
                 calculateRequiredSpace(path)
@@ -194,25 +210,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             val availableSpace = withContext(Dispatchers.IO) {
                 localStorageManager.getAvailableSpaceMB() * 1024 * 1024
             }
-            
-            if (requiredSpace > availableSpace) {
-                val required = FileUtils.formatFileSize(requiredSpace)
-                val available = FileUtils.formatFileSize(availableSpace)
-                showToast("存储空间不足！需要 $required，可用 $available", MessageType.ERROR)
-                _usbState.value = UsbRuntimeState.Error("存储空间不足")
-                return@safeLaunch
-            }
-            
+
             // 检查是否需要确认覆盖
             val hasLocal = withContext(Dispatchers.IO) {
                 localStorageManager.hasLocalContent()
             }
-            
-            if (settings.value.showOverwriteConfirm && hasLocal) {
-                pendingUsbPath = path
-                _showOverwriteDialog.value = true
-            } else {
-                copyFromUsb(path, settings.value.usbScanFolderName)
+
+            when (
+                val decision = decideUsbCopyDecision(
+                    hasMediaContent = hasMediaContent,
+                    requiredBytes = requiredSpace,
+                    availableBytes = availableSpace,
+                    hasLocalContent = hasLocal,
+                    showOverwriteConfirm = settings.value.showOverwriteConfirm
+                )
+            ) {
+                UsbCopyDecision.NoMediaContent -> {
+                    val folderName = settings.value.usbScanFolderName
+                    showToast("U盘已连接，未找到 /$folderName 目录", MessageType.WARNING)
+                }
+
+                is UsbCopyDecision.InsufficientSpace -> {
+                    val required = FileUtils.formatFileSize(decision.requiredBytes)
+                    val available = FileUtils.formatFileSize(decision.availableBytes)
+                    showToast("存储空间不足！需要 $required，可用 $available", MessageType.ERROR)
+                    _usbState.value = UsbRuntimeState.Error("存储空间不足")
+                }
+
+                UsbCopyDecision.RequireOverwriteConfirmation -> {
+                    showToast(StringResources.usbConnected, MessageType.SUCCESS)
+                    pendingUsbPath = path
+                    _showOverwriteDialog.value = true
+                }
+
+                UsbCopyDecision.CopyImmediately -> {
+                    showToast(StringResources.usbConnected, MessageType.SUCCESS)
+                    copyFromUsb(path, settings.value.usbScanFolderName)
+                }
             }
         }
     }
