@@ -44,7 +44,7 @@ data class FeatureFlags(
     // ============ 播放器交互相关 ============
     
     /** 允许手动选择文件 - 长按播放器弹出菜单中的"选择文件"选项 */
-    val allowManualFileSelect: Boolean = false,  // Release默认关闭
+    val allowManualFileSelect: Boolean = true,
     
     /** 允许扫描本地媒体 - 长按播放器弹出菜单中的"扫描本地"选项 */
     val allowLocalMediaScan: Boolean = false,  // Release默认关闭
@@ -53,7 +53,7 @@ data class FeatureFlags(
     val allowVolumeControl: Boolean = true,
     
     /** 允许切换布局 - 设置页面中的布局模式选项(单屏/双屏/四屏等) */
-    val allowLayoutChange: Boolean = false,  // Release默认关闭
+    val allowLayoutChange: Boolean = true,
     
     // ============ 界面显示相关 ============
     
@@ -101,7 +101,10 @@ data class FeatureFlags(
     val showAdvancedSettings: Boolean = false,  // Release默认关闭
     
     // ============ 其他控制 ============
-    
+
+    /** 竖屏墙模式自动请求系统旋转 - 选中模式3/4时旋转到竖屏，切回横屏模式时恢复 */
+    val allowOrientationAutoSwitch: Boolean = true,  // Debug/Release 均默认开启
+
     /** 显示存储设置区块 */
     val showStorageSettings: Boolean = false,  // Release默认关闭
     
@@ -152,6 +155,7 @@ data class FeatureFlags(
             showDisplaySettings = true,
             showAdvancedSettings = true,
             // 其他控制 - 全部显示
+            allowOrientationAutoSwitch = true,
             showStorageSettings = true,
             showHdmiControl = true,
             showHelpSection = true,
@@ -169,14 +173,14 @@ data class FeatureFlags(
         fun releaseDefaults() = FeatureFlags(
             // 底部控制栏 - 保留基本控制
             showBottomControlBar = true,
-            showSettingsButton = false,
-            showImageSplitTool = false,
+            showSettingsButton = true,
+            showImageSplitTool = true,
             allowPlayPauseControl = true,
             // 播放器交互 - 限制手动操作
-            allowManualFileSelect = false,
+            allowManualFileSelect = true,
             allowLocalMediaScan = false,
             allowVolumeControl = true,
-            allowLayoutChange = false,
+            allowLayoutChange = true,
             // 界面显示 - 精简
             showHelpTip = false,
             showPlayerIndex = true,
@@ -189,11 +193,12 @@ data class FeatureFlags(
             showAudioOutputSetting = false,
             showPlaybackSettings = false,
             showVideoSettings = false,
-            showImageSettings = true,
-            showUsbSettings = true,
-            showDisplaySettings = true,
+            showImageSettings = false,
+            showUsbSettings = false,
+            showDisplaySettings = false,
             showAdvancedSettings = false,
             // 其他控制 - 精简
+            allowOrientationAutoSwitch = true,  // 竖屏模式旋转是核心行为，默认开启
             showStorageSettings = false,
             showHdmiControl = false,
             showHelpSection = false,

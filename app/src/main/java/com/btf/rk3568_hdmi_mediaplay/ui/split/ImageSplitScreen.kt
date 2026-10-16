@@ -1,5 +1,6 @@
 package com.btf.rk3568_hdmi_mediaplay.ui.split
 
+import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,6 +26,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.btf.rk3568_hdmi_mediaplay.data.model.SplitLayout
+import com.btf.rk3568_hdmi_mediaplay.ui.components.mouseDragScroll
 
 // 统一配色
 private val BgColor = Color(0xFF1A1A1A)
@@ -87,10 +89,12 @@ fun ImageSplitScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            val scrollState = rememberScrollState()
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scrollState)
+                    .mouseDragScroll(scrollState)
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {

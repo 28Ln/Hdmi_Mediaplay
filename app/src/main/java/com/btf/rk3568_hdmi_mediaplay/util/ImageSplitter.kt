@@ -62,17 +62,68 @@ object ImageSplitter {
     }
 
     /**
-     * 加载图片（完整加载，用于裁剪）
+     * 加载图片（用于裁剪），按目标总尺寸降采样以避免 OOM。
+     *
+     * 此前直接 `BitmapFactory.decodeStream` 全尺寸解码：一张 8K 图（约 132MB ARGB_8888）
+     * 再加各分块的中间位图，会直接 OOM（`largeHeap` 只是把崩溃点往后推）。
+     * 这里先读边界算出所需 `inSampleSize`，使解码后的像素量不超过
+     * 「分块数 × 目标分辨率」的量级。
+     *
+     * @param minWidth  期望的解码最小宽度（通常 = cols × targetWidth）
+     * @param minHeight 期望的解码最小高度（通常 = rows × targetHeight）
      */
-    suspend fun loadBitmap(context: Context, uri: Uri): Bitmap? = withContext(Dispatchers.IO) {
+    suspend fun loadBitmap(
+        context: Context,
+        uri: Uri,
+        minWidth: Int = 0,
+        minHeight: Int = 0
+    ): Bitmap? = withContext(Dispatchers.IO) {
         try {
+            // 第一步：只读边界，不解码像素
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             context.contentResolver.openInputStream(uri)?.use { input ->
-                BitmapFactory.decodeStream(input)
+                BitmapFactory.decodeStream(input, null, bounds)
             }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                Log.e(TAG, "Invalid image bounds: ${bounds.outWidth}x${bounds.outHeight}")
+                return@withContext null
+            }
+
+            val sampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, minWidth, minHeight)
+            Log.d(TAG, "Decoding ${bounds.outWidth}x${bounds.outHeight} with inSampleSize=$sampleSize")
+
+            // 第二步：按采样率解码
+            val opts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                BitmapFactory.decodeStream(input, null, opts)
+            }
+        } catch (e: OutOfMemoryError) {
+            // OOM 是 Error 而非 Exception，必须单独捕获，否则进程直接崩溃
+            Log.e(TAG, "OutOfMemoryError decoding bitmap", e)
+            null
         } catch (e: Exception) {
             Log.e(TAG, "Error loading bitmap: ${e.message}", e)
             null
         }
+    }
+
+    /**
+     * 计算 2 的幂次采样率，使解码结果不小于 [minWidth]×[minHeight]，
+     * 同时尽量接近它（避免解码过大导致 OOM）。
+     */
+    private fun calculateInSampleSize(
+        width: Int,
+        height: Int,
+        minWidth: Int,
+        minHeight: Int
+    ): Int {
+        if (minWidth <= 0 || minHeight <= 0) return 1
+        var sampleSize = 1
+        // 每次放大 2 倍采样率，直到再放大就会小于所需尺寸
+        while (width / (sampleSize * 2) >= minWidth && height / (sampleSize * 2) >= minHeight) {
+            sampleSize *= 2
+        }
+        return sampleSize
     }
 
     /**
@@ -93,8 +144,15 @@ object ImageSplitter {
         try {
             Log.d(TAG, "Starting split: uri=$uri, layout=$layout, target=${targetWidth}x${targetHeight}")
 
-            // 加载图片
-            val sourceBitmap = loadBitmap(context, uri)
+            // 加载图片：按「分块数 × 目标分辨率」降采样，避免大图 OOM。
+            // 裁切区域按解码后的实际宽高计算，最终每块仍缩放到 targetWidth×targetHeight，
+            // 因此降采样不改变输出尺寸与裁切比例。
+            val sourceBitmap = loadBitmap(
+                context,
+                uri,
+                minWidth = layout.cols * targetWidth,
+                minHeight = layout.rows * targetHeight
+            )
             if (sourceBitmap == null) {
                 return@withContext SplitResult(
                     success = false,
@@ -152,6 +210,16 @@ object ImageSplitter {
                 success = parts.all { it.bitmap != null },
                 config = config,
                 parts = parts
+            )
+        } catch (e: OutOfMemoryError) {
+            // OOM 是 Error 而非 Exception：不单独捕获会直接崩溃进程。
+            // 降采样后仍 OOM 说明源图确实超出设备能力，返回可读的失败信息。
+            Log.e(TAG, "OutOfMemoryError splitting image", e)
+            SplitResult(
+                success = false,
+                config = SplitConfig(layout, 0, 0, targetWidth, targetHeight),
+                parts = emptyList(),
+                errorMessage = "图片过大，内存不足，裁剪失败"
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error splitting image: ${e.message}", e)

@@ -24,9 +24,19 @@ class FeatureManagerTest {
 
         val current = FeatureManager.getCurrentFlags()
         assertEquals(FeatureFlags.releaseDefaults(), current)
-        assertFalse(current.showSettingsButton)
-        assertFalse(current.allowManualFileSelect)
+        assertTrue(current.showSettingsButton)
+        assertTrue(current.allowManualFileSelect)
+        assertTrue(current.allowLayoutChange)
         assertFalse(FeatureManager.isDebug())
+    }
+
+    @Test
+    fun `orientation auto switch is enabled by default in both build types`() {
+        FeatureManager.init(true)
+        assertTrue(FeatureManager.getCurrentFlags().allowOrientationAutoSwitch)
+
+        FeatureManager.init(false)
+        assertTrue(FeatureManager.getCurrentFlags().allowOrientationAutoSwitch)
     }
 
     @Test

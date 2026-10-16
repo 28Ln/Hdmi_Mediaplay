@@ -174,6 +174,38 @@ object StringResources {
     
     // ========== 显示设置项 ==========
     val layoutMode: String get() = if (isEn) "Layout Mode" else "布局模式"
+    val hdmiEfull: String get() = if (isEn) "HDMI Fullscreen" else "HDMI全屏"
+    val hdmiEfullOn: String get() = if (isEn) "ON" else "开"
+    val hdmiEfullOff: String get() = if (isEn) "OFF" else "关"
+    /** 底部控制栏：切换拼接板模式（写 sysfs 控制节点） */
+    val switchMode: String get() = if (isEn) "Switch Mode" else "切换模式"
+    /** 底部控制栏：切换分辨率（写 sysfs 控制节点） */
+    val switchResolution: String get() = if (isEn) "Switch Resolution" else "切换分辨率"
+    /** 底部控制栏：HDMI 全屏开关（按钮文字，与 hdmiEfull 拼接使用） */
+    val hdmiFullscreen: String get() = if (isEn) "HDMI Fullscreen" else "HDMI全屏"
+    /** 图片裁剪入口 */
+    val imageSplit: String get() = if (isEn) "Image Split" else "裁剪"
+    /** 设置页「维护操作」区块标题 */
+    val maintenance: String get() = if (isEn) "Maintenance" else "维护操作"
+    val hdmiEfullDesc: String get() = if (isEn) {
+        "Toggles persist.sys.rotation.efull-1 for HDMI rotation fullscreen"
+    } else {
+        "控制 persist.sys.rotation.efull-1（HDMI 旋转全屏）"
+    }
+    val hdmiEfullFailed: String get() = if (isEn) {
+        "Failed to set HDMI fullscreen property"
+    } else {
+        "HDMI全屏属性设置失败"
+    }
+    /**
+     * 硬件按键（切换模式 / 切换分辨率）写入失败。
+     * 常见原因是控制节点仅 root 可写，普通应用无权限。
+     */
+    val hdmiKeyFailed: String get() = if (isEn) {
+        "Hardware key failed: no write permission to HDMI control node"
+    } else {
+        "硬件按键失败：无 HDMI 控制节点写入权限"
+    }
     val showPlayerIndex: String get() = if (isEn) "Show Player Index" else "显示播放器编号"
     val showPlayerIndexDesc: String get() = if (isEn) "Show index badge on player" else "在播放器左上角显示编号标识"
     val keepScreenOn: String get() = if (isEn) "Keep Screen On" else "屏幕常亮"
@@ -222,14 +254,44 @@ object StringResources {
     
     fun getLayoutModeText(mode: com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode): String = when (mode) {
         com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.SINGLE -> if (isEn) "Single (Fullscreen)" else "单屏 (全屏)"
-        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_1X2 -> if (isEn) "1×2 Side by Side" else "1×2 左右分屏"
-        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_2X1 -> if (isEn) "2×1 Top/Bottom" else "2×1 上下分屏"
-        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_2X2 -> if (isEn) "2×2 Grid" else "2×2 四宫格"
-        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_1X3 -> if (isEn) "1×3 Triple" else "1×3 三分屏"
-        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_3X1 -> if (isEn) "3×1 Triple" else "3×1 三分屏"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_1X2 -> if (isEn) "Landscape 1×2" else "横屏 1×2"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_1X3 -> if (isEn) "Landscape 1×3" else "横屏 1×3"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_1X2_PORTRAIT -> if (isEn) "Portrait 1×2" else "竖屏 1×2"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_1X3_PORTRAIT -> if (isEn) "Portrait 1×3" else "竖屏 1×3"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_2X1 -> if (isEn) "Landscape 2×1" else "横屏 2×1"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_3X1 -> if (isEn) "Landscape 3×1" else "横屏 3×1"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_2X2 -> if (isEn) "Landscape 2×2" else "横屏 2×2"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_2X2_SAME -> if (isEn) "2×2 Same Content" else "2×2 同画面"
         com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.ROW_1X4 -> if (isEn) "1×4 Horizontal" else "1×4 横向四分"
         com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.COLUMN_4X1 -> if (isEn) "4×1 Vertical" else "4×1 纵向四分"
         com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.PIP -> if (isEn) "PIP (1+3)" else "画中画 (1大3小)"
+    }
+
+    fun getLayoutModeDescription(mode: com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode): String = when (mode) {
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.SINGLE ->
+            if (isEn) "One player full screen" else "单一路径全屏播放"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_1X2 ->
+            if (isEn) "2 players side by side" else "2路左右并列"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_1X2_PORTRAIT ->
+            if (isEn) "2 players side by side (portrait output)" else "2路左右并列（竖屏）"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_1X3 ->
+            if (isEn) "3 players side by side" else "3路左右并列"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_1X3_PORTRAIT ->
+            if (isEn) "3 players side by side (portrait output)" else "3路左右并列（竖屏）"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_2X1 ->
+            if (isEn) "2 players stacked top to bottom" else "2路上下分屏"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_3X1 ->
+            if (isEn) "3 players stacked top to bottom" else "3路上下分布"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_2X2 ->
+            if (isEn) "4 players in 2×2 grid" else "4路2×2方阵"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.GRID_2X2_SAME ->
+            if (isEn) "4 panes play player 1 content" else "四格都播 P1 同一路内容"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.ROW_1X4 ->
+            if (isEn) "1×4 row split" else "1×4 横向四屏"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.COLUMN_4X1 ->
+            if (isEn) "4×1 column split" else "4×1 纵向四屏"
+        com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode.PIP ->
+            if (isEn) "1 big player with 3 small thumbnails" else "1大画面+3小画面"
     }
     
     fun getLanguageText(lang: AppLanguage): String = when (lang) {

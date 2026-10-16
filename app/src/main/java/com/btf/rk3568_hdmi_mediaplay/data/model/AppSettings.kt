@@ -29,18 +29,76 @@ enum class LoopMode {
 }
 
 /**
- * 布局模式
+ * 物理屏幕方向
  */
-enum class LayoutMode {
-    SINGLE,     // 单屏 (1个播放器全屏)
-    GRID_1X2,   // 1行2列
-    GRID_2X1,   // 2行1列
-    GRID_2X2,   // 2x2 网格
-    GRID_1X3,   // 1行3列
-    GRID_3X1,   // 3行1列
-    ROW_1X4,    // 1行4列
-    COLUMN_4X1, // 4行1列
-    PIP         // 画中画 (1大3小)
+enum class PanelOrientation {
+    LANDSCAPE,
+    PORTRAIT
+}
+
+/**
+ * 播放器布局模式。
+ *
+ * wallModeNumber 非空的项目与 HDMI 拼接板示意图中的模式 1~7 一一对应。
+ * 其余项目仅为旧配置和远程控制兼容保留，不在客户设置页面中显示。
+ */
+enum class LayoutMode(
+    val rows: Int,
+    val columns: Int,
+    val panelOrientation: PanelOrientation,
+    val wallModeNumber: Int? = null
+) {
+    SINGLE(1, 1, PanelOrientation.LANDSCAPE),
+    GRID_1X2(1, 2, PanelOrientation.LANDSCAPE, 1),
+    GRID_2X1(2, 1, PanelOrientation.LANDSCAPE, 5),
+    GRID_2X2(2, 2, PanelOrientation.LANDSCAPE, 7),
+    GRID_1X3(1, 3, PanelOrientation.LANDSCAPE, 2),
+    GRID_3X1(3, 1, PanelOrientation.LANDSCAPE, 6),
+    GRID_1X2_PORTRAIT(1, 2, PanelOrientation.PORTRAIT, 3),
+    GRID_1X3_PORTRAIT(1, 3, PanelOrientation.PORTRAIT, 4),
+    GRID_2X2_SAME(2, 2, PanelOrientation.LANDSCAPE),
+    ROW_1X4(1, 4, PanelOrientation.LANDSCAPE),
+    COLUMN_4X1(4, 1, PanelOrientation.LANDSCAPE),
+    PIP(2, 2, PanelOrientation.LANDSCAPE);
+
+    val visiblePlayerCount: Int
+        get() = when (this) {
+            SINGLE -> 1
+            PIP -> 4
+            else -> (rows * columns).coerceAtMost(4)
+        }
+
+    /**
+     * 是否为竖屏拼接墙模式。
+     * 竖屏模式（GRID_1X2_PORTRAIT / GRID_1X3_PORTRAIT）下，
+     * 由 MainActivity 请求系统旋转，使输出画面与面板朝向一致。
+     */
+    val isPortraitWall: Boolean
+        get() = panelOrientation == PanelOrientation.PORTRAIT
+
+    /**
+     * 四格都播同一路内容（P1 / player1）。用于 2×2 同画面，不占用拼接板编号。
+     */
+    val mirrorsPrimaryPlayer: Boolean
+        get() = this == GRID_2X2_SAME
+
+    fun sourcePlayerIndex(cellIndex: Int): Int =
+        if (mirrorsPrimaryPlayer) 0 else cellIndex
+
+    companion object {
+        /**
+         * 客户设置页面只展示拼接板实际支持的 7 种模式，并按示意图编号排序。
+         */
+        val wallModes: List<LayoutMode> =
+            entries.filter { it.wallModeNumber != null }.sortedBy { it.wallModeNumber }
+
+        /**
+         * 软件附加模式，不对应拼接板按键编号。
+         */
+        val softwareModes: List<LayoutMode> = listOf(GRID_2X2_SAME)
+
+        val customerModes: List<LayoutMode> = wallModes + softwareModes
+    }
 }
 
 /**
@@ -111,5 +169,16 @@ data class AppSettings(
     
     // 高级设置
     val maxCacheSizeMB: Int = 2048,                 // 最大缓存大小 MB
-    val enableDebugLog: Boolean = false             // 调试日志
+    val enableDebugLog: Boolean = false,            // 调试日志
+
+    /**
+     * 音频轨不受支持时，丢弃音频继续静音播视频。
+     *
+     * 现场场景：MP4 带 AC3 音轨，设备 ROM 声明支持 AC3 直通但实际建不出输出流，
+     * 导致整个播放器报错、该格黑屏。开启后改为静音播视频——
+     * 拼接墙场景下黑屏比无声严重。
+     *
+     * 关闭则维持原行为（整格报错），便于在"必须有声"的场合暴露问题。
+     */
+    val audioFallbackSilent: Boolean = true
 )

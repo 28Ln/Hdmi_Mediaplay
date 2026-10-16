@@ -453,11 +453,14 @@ object PlayerCommandHandler {
     private fun parseLayoutMode(str: String): LayoutMode? {
         return when (str.uppercase()) {
             "SINGLE" -> LayoutMode.SINGLE
-            "DUAL_HORIZONTAL", "GRID_1X2" -> LayoutMode.GRID_1X2
-            "DUAL_VERTICAL", "GRID_2X1" -> LayoutMode.GRID_2X1
-            "QUAD", "GRID_2X2" -> LayoutMode.GRID_2X2
-            "SPLIT_1X3", "GRID_1X3" -> LayoutMode.GRID_1X3
-            "SPLIT_3X1", "GRID_3X1" -> LayoutMode.GRID_3X1
+            "WALL_MODE_1", "LANDSCAPE_1X2", "DUAL_HORIZONTAL", "GRID_1X2" -> LayoutMode.GRID_1X2
+            "WALL_MODE_2", "LANDSCAPE_1X3", "SPLIT_1X3", "GRID_1X3" -> LayoutMode.GRID_1X3
+            "WALL_MODE_3", "PORTRAIT_1X2", "GRID_1X2_PORTRAIT" -> LayoutMode.GRID_1X2_PORTRAIT
+            "WALL_MODE_4", "PORTRAIT_1X3", "GRID_1X3_PORTRAIT" -> LayoutMode.GRID_1X3_PORTRAIT
+            "WALL_MODE_5", "LANDSCAPE_2X1", "DUAL_VERTICAL", "GRID_2X1" -> LayoutMode.GRID_2X1
+            "WALL_MODE_6", "LANDSCAPE_3X1", "SPLIT_3X1", "GRID_3X1" -> LayoutMode.GRID_3X1
+            "WALL_MODE_7", "LANDSCAPE_2X2", "QUAD", "GRID_2X2" -> LayoutMode.GRID_2X2
+            "WALL_MODE_8", "SAME_2X2", "MIRROR_2X2", "QUAD_SAME", "GRID_2X2_SAME" -> LayoutMode.GRID_2X2_SAME
             "SPLIT_1X4", "ROW_1X4" -> LayoutMode.ROW_1X4
             "SPLIT_4X1", "COLUMN_4X1" -> LayoutMode.COLUMN_4X1
             "PIP" -> LayoutMode.PIP

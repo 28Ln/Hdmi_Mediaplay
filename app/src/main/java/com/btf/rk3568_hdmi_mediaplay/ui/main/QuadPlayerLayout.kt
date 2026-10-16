@@ -13,6 +13,7 @@ import androidx.compose.ui.layout.Layout
 import com.btf.rk3568_hdmi_mediaplay.data.model.AppSettings
 import com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode
 import com.btf.rk3568_hdmi_mediaplay.data.model.PlayerConfig
+import com.btf.rk3568_hdmi_mediaplay.data.model.PlayerState
 import com.btf.rk3568_hdmi_mediaplay.ui.player.MediaPlayerView
 
 /**
@@ -32,6 +33,7 @@ fun QuadPlayerLayout(
     onPlayerLongClick: ((Int) -> Unit)? = null,
     onPlaybackCompleted: ((Int, String?, Int?) -> Unit)? = null,
     onPlaybackError: ((Int, String) -> Unit)? = null,
+    onPlayerRecovered: ((Int) -> Unit)? = null,
     onCurrentIndexChanged: ((Int, Int) -> Unit)? = null
 ) {
     val backgroundColor = remember(settings.backgroundColor) { 
@@ -45,12 +47,7 @@ fun QuadPlayerLayout(
     
     // 获取当前布局需要显示的播放器数量
     val visibleCount = remember(settings.layoutMode) {
-        when (settings.layoutMode) {
-            LayoutMode.SINGLE -> 1
-            LayoutMode.GRID_1X2, LayoutMode.GRID_2X1 -> 2
-            LayoutMode.GRID_1X3, LayoutMode.GRID_3X1 -> 3
-            else -> 4
-        }
+        settings.layoutMode.visiblePlayerCount
     }
     
     // 使用自定义 Layout，播放器组件始终存在，只是位置/大小变化
@@ -64,21 +61,28 @@ fun QuadPlayerLayout(
         for (i in 0 until 4) {
             key("player_$i") {  // 稳定的 key，布局切换不会导致重建
                 val isVisible = i < visibleCount
+                val config = displayedPlayerConfig(settings.layoutMode, playerConfigs, i)
+                val interactionIndex = settings.layoutMode.sourcePlayerIndex(i)
+                val reportEvents = !settings.layoutMode.mirrorsPrimaryPlayer || i == 0
                 PlayerCell(
-                    config = playerConfigs.getOrNull(i) ?: PlayerConfig(index = i),
+                    config = config,
+                    cellIndex = i,
                     settings = effectiveSettings,
                     modifier = Modifier,  // 大小由 Layout 控制
-                    onClick = { if (isVisible) onPlayerClick?.invoke(i) },
-                    onLongClick = { if (isVisible) onPlayerLongClick?.invoke(i) },
+                    onClick = { if (isVisible) onPlayerClick?.invoke(interactionIndex) },
+                    onLongClick = { if (isVisible) onPlayerLongClick?.invoke(interactionIndex) },
                     isVisible = isVisible,
                     onPlaybackCompleted = { mediaPath, nextIndex ->
-                        if (isVisible) onPlaybackCompleted?.invoke(i, mediaPath, nextIndex)
+                        if (isVisible && reportEvents) onPlaybackCompleted?.invoke(interactionIndex, mediaPath, nextIndex)
                     },
                     onPlaybackError = { message ->
-                        if (isVisible) onPlaybackError?.invoke(i, message)
+                        if (isVisible && reportEvents) onPlaybackError?.invoke(interactionIndex, message)
+                    },
+                    onRecovered = {
+                        if (isVisible && reportEvents) onPlayerRecovered?.invoke(interactionIndex)
                     },
                     onCurrentIndexChanged = { currentIndex ->
-                        if (isVisible) onCurrentIndexChanged?.invoke(i, currentIndex)
+                        if (isVisible && reportEvents) onCurrentIndexChanged?.invoke(interactionIndex, currentIndex)
                     }
                 )
             }
@@ -148,8 +152,12 @@ private data class PlayerPlacement(
  * 根据布局模式计算4个播放器的位置
  */
 private fun calculatePlacements(layoutMode: LayoutMode, totalWidth: Int, totalHeight: Int): List<PlayerPlacement> {
-    val gap = 2  // 间隙
-    
+    // 间隙单位为**像素**（非 dp）：本函数在 Layout 测量阶段直接产出 px 坐标，
+    // 无法使用 dp 单位。这与 PlayerCell 的 1.dp 内边距/边框单位不同，
+    // 属刻意为之——总宽高减去间隙后的余数会补给最后一格，
+    // 保证右/下边缘不留缝。改动此处需同步核对各模式边缘对齐。
+    val gap = 2
+
     return when (layoutMode) {
         LayoutMode.SINGLE -> {
             listOf(
@@ -160,7 +168,8 @@ private fun calculatePlacements(layoutMode: LayoutMode, totalWidth: Int, totalHe
             )
         }
         
-        LayoutMode.GRID_1X2 -> {
+        LayoutMode.GRID_1X2,
+        LayoutMode.GRID_1X2_PORTRAIT -> {
             val w = (totalWidth - gap) / 2
             listOf(
                 PlayerPlacement(0, 0, w, totalHeight),
@@ -180,7 +189,8 @@ private fun calculatePlacements(layoutMode: LayoutMode, totalWidth: Int, totalHe
             )
         }
         
-        LayoutMode.GRID_2X2 -> {
+        LayoutMode.GRID_2X2,
+        LayoutMode.GRID_2X2_SAME -> {
             val w = (totalWidth - gap) / 2
             val h = (totalHeight - gap) / 2
             listOf(
@@ -191,7 +201,8 @@ private fun calculatePlacements(layoutMode: LayoutMode, totalWidth: Int, totalHe
             )
         }
         
-        LayoutMode.GRID_1X3 -> {
+        LayoutMode.GRID_1X3,
+        LayoutMode.GRID_1X3_PORTRAIT -> {
             val w = (totalWidth - gap * 2) / 3
             listOf(
                 PlayerPlacement(0, 0, w, totalHeight),
@@ -246,6 +257,20 @@ private fun calculatePlacements(layoutMode: LayoutMode, totalWidth: Int, totalHe
     }
 }
 
+internal fun displayedPlayerConfig(
+    layoutMode: LayoutMode,
+    playerConfigs: List<PlayerConfig>,
+    cellIndex: Int
+): PlayerConfig {
+    val sourceIndex = layoutMode.sourcePlayerIndex(cellIndex)
+    val source = playerConfigs.getOrNull(sourceIndex) ?: PlayerConfig(index = sourceIndex)
+    return if (layoutMode.mirrorsPrimaryPlayer && cellIndex != 0) {
+        source.copy(index = cellIndex, isMuted = true)
+    } else {
+        source
+    }
+}
+
 /**
  * 单个播放器单元格
  * 
@@ -254,6 +279,7 @@ private fun calculatePlacements(layoutMode: LayoutMode, totalWidth: Int, totalHe
 @Composable
 private fun PlayerCell(
     config: PlayerConfig,
+    cellIndex: Int,
     settings: AppSettings,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
@@ -261,14 +287,21 @@ private fun PlayerCell(
     isVisible: Boolean = true,
     onPlaybackCompleted: ((String?, Int?) -> Unit)? = null,
     onPlaybackError: ((String) -> Unit)? = null,
+    onRecovered: (() -> Unit)? = null,
     onCurrentIndexChanged: ((Int) -> Unit)? = null
 ) {
-    // 不可见时返回空 Box，但组件仍然存在于树中
-    if (!isVisible) {
-        Box(modifier = modifier)
-        return
-    }
-    
+    // 不可见的格子**仍然组合** MediaPlayerView，只是由 FlexiblePlayerLayout
+    // 测量成 1x1 并移到屏幕外。原因：一旦此处提前 return，MediaPlayerView
+    // 会离开组合树，其 DisposableEffect.onDispose 会 stop()+release() 掉 ExoPlayer，
+    // 导致每次切换布局（如 SINGLE ↔ GRID_2X2）2/3/4 路被销毁重建、视频从头开始。
+    //
+    // 为避免隐藏的播放器继续出声，隐藏时把配置改为「暂停 + 静音」；
+    // ExoPlayer 实例与其播放进度因此得以保留，切回时无缝续播。
+    val effectiveConfig = if (isVisible) config else config.copy(
+        state = PlayerState.PAUSED,
+        isMuted = true
+    )
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -276,13 +309,15 @@ private fun PlayerCell(
             .border(1.dp, Color.DarkGray)
     ) {
         MediaPlayerView(
-            playerConfig = config,
+            playerConfig = effectiveConfig,
+            cellIndex = cellIndex,
             settings = settings,
             modifier = Modifier.fillMaxSize(),
             onClick = onClick,
             onLongClick = onLongClick,
             onPlaybackCompleted = onPlaybackCompleted,
             onError = onPlaybackError,
+            onRecovered = onRecovered,
             onCurrentIndexChanged = onCurrentIndexChanged
         )
     }

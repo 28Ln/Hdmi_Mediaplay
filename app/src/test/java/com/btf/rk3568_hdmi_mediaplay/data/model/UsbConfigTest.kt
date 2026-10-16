@@ -2,6 +2,7 @@ package com.btf.rk3568_hdmi_mediaplay.data.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -25,7 +26,7 @@ class UsbConfigTest {
         assertTrue(merged.showLanguageSetting)
         assertTrue(merged.showHdmiControl)
         assertEquals(base.showBottomControlBar, merged.showBottomControlBar)
-        assertFalse(base.showSettingsButton)
+        assertFalse(base.showLanguageSetting)
     }
 
     @Test
@@ -63,5 +64,88 @@ class UsbConfigTest {
         assertTrue(warnings.any { it.contains("Out of range for settings.defaultVolume") })
         assertTrue(warnings.any { it.contains("Out of range for settings.imageIntervalSeconds") })
         assertTrue(warnings.any { it.contains("Blank value is not allowed for settings.usbScanFolderName") })
+    }
+
+    @Test
+    fun `orientation auto switch feature parses from json without unknown key warning`() {
+        // 直接传 JSON 字符串（与 UsbConfigLoader.loadConfig 的生产路径一致）
+        val config = UsbConfig.fromJson("""{"features":{"allowOrientationAutoSwitch":false}}""")
+
+        assertNotNull(config)
+        val merged = config!!.features!!.applyTo(FeatureFlags.releaseDefaults())
+        assertFalse(merged.allowOrientationAutoSwitch)
+        assertTrue(config.validationWarnings.isEmpty())
+    }
+
+    @Test
+    fun `usb config accepts portrait wall modes`() {
+        val warnings = mutableListOf<String>()
+
+        val validatedMode = UsbConfig.validateEnumValue(
+            LayoutMode.GRID_1X3_PORTRAIT.name,
+            LayoutMode.entries.map { it.name }.toSet(),
+            warnings,
+            "settings",
+            "layoutMode"
+        )
+
+        assertEquals(LayoutMode.GRID_1X3_PORTRAIT.name, validatedMode)
+        assertTrue(warnings.isEmpty())
+    }
+
+    @Test
+    fun `usb config accepts same-content 2x2 mode`() {
+        val warnings = mutableListOf<String>()
+
+        val validatedMode = UsbConfig.validateEnumValue(
+            LayoutMode.GRID_2X2_SAME.name,
+            LayoutMode.entries.map { it.name }.toSet(),
+            warnings,
+            "settings",
+            "layoutMode"
+        )
+
+        assertEquals(LayoutMode.GRID_2X2_SAME.name, validatedMode)
+        assertTrue(warnings.isEmpty())
+    }
+
+    @Test
+    fun `audio fallback setting parses from json without unknown key warning`() {
+        // 关闭音频降级：音频轨不受支持时维持整格报错，而非静音播视频
+        val config = UsbConfig.fromJson("""{"settings":{"audioFallbackSilent":false}}""")
+
+        assertNotNull(config)
+        assertFalse(config!!.settings!!.audioFallbackSilent!!)
+        assertTrue(config.validationWarnings.isEmpty())
+    }
+
+    @Test
+    fun `audio fallback defaults to enabled when absent`() {
+        val config = UsbConfig.fromJson("""{"settings":{"layoutMode":"GRID_2X2"}}""")
+
+        assertNotNull(config)
+        assertNull(config!!.settings!!.audioFallbackSilent)
+        // 未在配置中指定时，AppSettings 的默认值为 true（静音降级）
+        assertTrue(AppSettings().audioFallbackSilent)
+        assertTrue(config.validationWarnings.isEmpty())
+    }
+
+    @Test
+    fun `usbScanFolderName rejects path traversal values`() {
+        // 该值会被 File(usbPath, folderName) 直接拼接；若放行会逃出 U 盘。
+        listOf("../..", "..", ".", "a/b", "a\\b", "/sdcard").forEach { evil ->
+            val warnings = mutableListOf<String>()
+            val result = UsbConfig.validateFolderName(evil, warnings, "settings", "usbScanFolderName")
+            assertNull("应拒绝路径穿越值: $evil", result)
+            assertTrue("应记录告警: $evil", warnings.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun `usbScanFolderName accepts a normal single directory name`() {
+        val warnings = mutableListOf<String>()
+        val result = UsbConfig.validateFolderName("btf_media", warnings, "settings", "usbScanFolderName")
+        assertEquals("btf_media", result)
+        assertTrue(warnings.isEmpty())
     }
 }

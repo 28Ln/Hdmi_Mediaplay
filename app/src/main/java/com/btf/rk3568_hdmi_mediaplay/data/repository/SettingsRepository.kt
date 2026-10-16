@@ -54,6 +54,7 @@ class SettingsRepository(private val context: Context) {
         // 高级设置
         private val MAX_CACHE_SIZE_MB = intPreferencesKey("max_cache_size_mb")
         private val ENABLE_DEBUG_LOG = booleanPreferencesKey("enable_debug_log")
+        private val AUDIO_FALLBACK_SILENT = booleanPreferencesKey("audio_fallback_silent")
     }
     
     val settingsFlow: Flow<AppSettings> = context.dataStore.data
@@ -98,7 +99,8 @@ class SettingsRepository(private val context: Context) {
                     backgroundColor = preferences[BACKGROUND_COLOR] ?: 0xFF000000,
                     
                     maxCacheSizeMB = preferences[MAX_CACHE_SIZE_MB] ?: 2048,
-                    enableDebugLog = preferences[ENABLE_DEBUG_LOG] ?: false
+                    enableDebugLog = preferences[ENABLE_DEBUG_LOG] ?: false,
+                    audioFallbackSilent = preferences[AUDIO_FALLBACK_SILENT] ?: true
                 )
             } catch (e: Exception) {
                 // 如果解析失败，返回默认设置
@@ -140,6 +142,7 @@ class SettingsRepository(private val context: Context) {
                 
                 preferences[MAX_CACHE_SIZE_MB] = settings.maxCacheSizeMB
                 preferences[ENABLE_DEBUG_LOG] = settings.enableDebugLog
+                preferences[AUDIO_FALLBACK_SILENT] = settings.audioFallbackSilent
             }
         } catch (e: Exception) {
             e.printStackTrace()

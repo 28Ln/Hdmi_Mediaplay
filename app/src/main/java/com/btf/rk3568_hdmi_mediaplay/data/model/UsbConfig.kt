@@ -180,6 +180,32 @@ data class UsbConfig(
             }
         }
 
+        /**
+         * 校验「U 盘内扫描目录名」，必须是不含路径分隔符的单段目录名。
+         *
+         * 该值会被 `File(usbPath, folderName)` 直接拼接（`UsbUtils.getUsbMediaDir`），
+         * 若允许 `..` 或 `/`，U 盘上的 btf_config.json 就能让扫描目录**逃出 U 盘**，
+         * 把设备上任意目录的媒体拷入缓存并持久化到设置中（路径穿越）。
+         */
+        internal fun validateFolderName(
+            value: String?,
+            warnings: MutableList<String>,
+            scope: String,
+            fieldName: String
+        ): String? {
+            val normalized = validateNonBlankString(value, warnings, scope, fieldName) ?: return null
+            val illegal = normalized == "." ||
+                normalized == ".." ||
+                normalized.contains('/') ||
+                normalized.contains('\\')
+            return if (illegal) {
+                warnings += "Illegal value for $scope.$fieldName: must be a single directory name"
+                null
+            } else {
+                normalized
+            }
+        }
+
         internal fun findUnknownKeys(
             json: JSONObject,
             allowedKeys: Set<String>,
@@ -215,7 +241,9 @@ data class UsbConfigSettings(
     val autoPlayAfterCopy: Boolean? = null,
     val keepScreenOn: Boolean? = null,
     val usbScanFolderName: String? = null,
-    val showOverwriteConfirm: Boolean? = null
+    val showOverwriteConfirm: Boolean? = null,
+    /** 音频轨不受支持时，丢弃音频继续静音播视频（false 则维持整格报错） */
+    val audioFallbackSilent: Boolean? = null
 ) {
     companion object {
         private val LAYOUT_MODE_VALUES = LayoutMode.entries.map { it.name }.toSet()
@@ -237,7 +265,8 @@ data class UsbConfigSettings(
             "autoPlayAfterCopy",
             "keepScreenOn",
             "usbScanFolderName",
-            "showOverwriteConfirm"
+            "showOverwriteConfirm",
+            "audioFallbackSilent"
         )
 
         fun fromJson(json: JSONObject, warnings: MutableList<String>): UsbConfigSettings {
@@ -304,13 +333,14 @@ data class UsbConfigSettings(
                 autoPlayOnStart = UsbConfig.parseOptionalBoolean(json, "autoPlayOnStart", warnings, "settings"),
                 autoPlayAfterCopy = UsbConfig.parseOptionalBoolean(json, "autoPlayAfterCopy", warnings, "settings"),
                 keepScreenOn = UsbConfig.parseOptionalBoolean(json, "keepScreenOn", warnings, "settings"),
-                usbScanFolderName = UsbConfig.validateNonBlankString(
+                usbScanFolderName = UsbConfig.validateFolderName(
                     UsbConfig.parseOptionalString(json, "usbScanFolderName", warnings, "settings"),
                     warnings,
                     "settings",
                     "usbScanFolderName"
                 ),
-                showOverwriteConfirm = UsbConfig.parseOptionalBoolean(json, "showOverwriteConfirm", warnings, "settings")
+                showOverwriteConfirm = UsbConfig.parseOptionalBoolean(json, "showOverwriteConfirm", warnings, "settings"),
+                audioFallbackSilent = UsbConfig.parseOptionalBoolean(json, "audioFallbackSilent", warnings, "settings")
             )
         }
     }
@@ -328,6 +358,7 @@ data class UsbConfigFeatures(
     val allowLocalMediaScan: Boolean? = null,
     val allowVolumeControl: Boolean? = null,
     val allowLayoutChange: Boolean? = null,
+    val allowOrientationAutoSwitch: Boolean? = null,
     val showHelpTip: Boolean? = null,
     val showPlayerIndex: Boolean? = null,
     val showUsbStatus: Boolean? = null,
@@ -369,6 +400,7 @@ data class UsbConfigFeatures(
         allowLocalMediaScan = allowLocalMediaScan,
         allowVolumeControl = allowVolumeControl,
         allowLayoutChange = allowLayoutChange,
+        allowOrientationAutoSwitch = null,
         showHelpTip = showHelpTip,
         showPlayerIndex = showPlayerIndex,
         showUsbStatus = showUsbStatus,
@@ -398,6 +430,7 @@ data class UsbConfigFeatures(
             "allowLocalMediaScan",
             "allowVolumeControl",
             "allowLayoutChange",
+            "allowOrientationAutoSwitch",
             "showHelpTip",
             "showPlayerIndex",
             "showUsbStatus",
@@ -428,6 +461,7 @@ data class UsbConfigFeatures(
                 allowLocalMediaScan = UsbConfig.parseOptionalBoolean(json, "allowLocalMediaScan", warnings, "features"),
                 allowVolumeControl = UsbConfig.parseOptionalBoolean(json, "allowVolumeControl", warnings, "features"),
                 allowLayoutChange = UsbConfig.parseOptionalBoolean(json, "allowLayoutChange", warnings, "features"),
+                allowOrientationAutoSwitch = UsbConfig.parseOptionalBoolean(json, "allowOrientationAutoSwitch", warnings, "features"),
                 showHelpTip = UsbConfig.parseOptionalBoolean(json, "showHelpTip", warnings, "features"),
                 showPlayerIndex = UsbConfig.parseOptionalBoolean(json, "showPlayerIndex", warnings, "features"),
                 showUsbStatus = UsbConfig.parseOptionalBoolean(json, "showUsbStatus", warnings, "features"),
@@ -462,6 +496,7 @@ data class UsbConfigFeatures(
             allowLocalMediaScan = allowLocalMediaScan ?: base.allowLocalMediaScan,
             allowVolumeControl = allowVolumeControl ?: base.allowVolumeControl,
             allowLayoutChange = allowLayoutChange ?: base.allowLayoutChange,
+            allowOrientationAutoSwitch = allowOrientationAutoSwitch ?: base.allowOrientationAutoSwitch,
             showHelpTip = showHelpTip ?: base.showHelpTip,
             showPlayerIndex = showPlayerIndex ?: base.showPlayerIndex,
             showUsbStatus = showUsbStatus ?: base.showUsbStatus,

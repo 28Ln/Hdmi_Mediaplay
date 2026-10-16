@@ -21,13 +21,19 @@ import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.request.CachePolicy
 import coil.request.ImageRequest
-import coil.size.Size
 import com.btf.rk3568_hdmi_mediaplay.data.model.ImageTransition
 import com.btf.rk3568_hdmi_mediaplay.data.model.VideoScaleMode
 import kotlinx.coroutines.delay
 import java.io.File
 
 private const val TAG = "ImageDisplayView"
+
+/**
+ * 单格图片解码上限。4 路分屏时单格不超过约 1920x1080；
+ * 按此上限请求可让 Coil 降采样，同时避免 Size.ORIGINAL 的全分辨率解码。
+ */
+private const val MAX_PANE_WIDTH = 1920
+private const val MAX_PANE_HEIGHT = 1080
 
 /**
  * 图片显示组件
@@ -171,14 +177,20 @@ private fun OptimizedImageContent(
     
     val context = LocalContext.current
     
-    // 构建优化的图片请求
+    // 构建图片请求。
+    // 不能用 Size.ORIGINAL——那会**关闭** Coil 的降采样，
+    // 一张 6000x4000 的照片按 ARGB_8888 解码约 96MB，4 路并行再叠加
+    // 淡入淡出的新旧两份驻留，峰值可达 700MB+。
+    // 但也不能完全省略 size：rememberAsyncImagePainter 不像 AsyncImage 那样
+    // 能从布局约束推断目标尺寸，省略后请求会一直停在 Loading。
+    // 因此显式给一个每格上限（4 路分屏时单格最大约 1920x1080）。
     val imageRequest = remember(path) {
         ImageRequest.Builder(context)
             .data(path)
             .crossfade(true)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
-            .size(Size.ORIGINAL) // 使用原始尺寸，让 Coil 自动优化
+            .size(MAX_PANE_WIDTH, MAX_PANE_HEIGHT)
             .build()
     }
     

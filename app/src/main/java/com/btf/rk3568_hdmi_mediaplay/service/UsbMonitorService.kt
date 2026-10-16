@@ -105,29 +105,36 @@ class UsbMonitorService : Service() {
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        try {
+        // startForegroundService 之后必须在 5 秒内调用 startForeground，
+        // 否则系统抛 RemoteServiceException 并杀掉进程——日志上表现为"随机崩溃"。
+        // 因此这里失败时必须主动 stopSelf，不能只记日志后继续运行。
+        val started = try {
             createNotificationChannel()
             startForeground(NOTIFICATION_ID, createNotification())
+            true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start foreground: ${e.message}")
+            Log.e(TAG, "startForeground failed, stopping service", e)
+            false
+        }
+        if (!started) {
+            stopSelf()
+            return START_NOT_STICKY
         }
         return START_STICKY
     }
-    
+
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "Service onCreate")
-        
+
         try {
             serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
             settingsRepository = SettingsRepository(this)
-            
+
             createNotificationChannel()
-            startForeground(NOTIFICATION_ID, createNotification())
-            
             registerUsbReceiver()
             startPeriodicScan()
-            
+
             Log.i(TAG, "Service created successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create service: ${e.message}")

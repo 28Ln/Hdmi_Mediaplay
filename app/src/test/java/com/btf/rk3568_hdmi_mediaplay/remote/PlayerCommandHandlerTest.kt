@@ -15,7 +15,12 @@ class PlayerCommandHandlerTest {
         assertEquals(LayoutMode.GRID_2X2, invokeParseLayoutMode("QUAD"))
         assertEquals(LayoutMode.GRID_1X2, invokeParseLayoutMode("DUAL_HORIZONTAL"))
         assertEquals(LayoutMode.GRID_2X1, invokeParseLayoutMode("DUAL_VERTICAL"))
+        assertEquals(LayoutMode.GRID_1X2_PORTRAIT, invokeParseLayoutMode("WALL_MODE_3"))
+        assertEquals(LayoutMode.GRID_1X3_PORTRAIT, invokeParseLayoutMode("PORTRAIT_1X3"))
         assertEquals(LayoutMode.PIP, invokeParseLayoutMode("PIP"))
+        assertEquals(LayoutMode.GRID_2X2_SAME, invokeParseLayoutMode("GRID_2X2_SAME"))
+        assertEquals(LayoutMode.GRID_2X2_SAME, invokeParseLayoutMode("SAME_2X2"))
+        assertEquals(LayoutMode.GRID_2X2_SAME, invokeParseLayoutMode("QUAD_SAME"))
     }
 
     @Test

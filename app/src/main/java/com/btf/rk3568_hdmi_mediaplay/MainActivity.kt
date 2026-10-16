@@ -7,7 +7,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -52,6 +54,13 @@ class MainActivity : ComponentActivity() {
     
     private var usbMonitorService: UsbMonitorService? = null
     private var serviceBound = false
+
+    /**
+     * 是否已发起过 bindService。
+     * 与 [serviceBound]（回调已到达）区分：onDestroy 必须依据本标志解绑，
+     * 否则在绑定完成前销毁会泄漏 ServiceConnection。
+     */
+    private var bindRequested = false
     private var localStorageManager: LocalStorageManager? = null
     private var pendingManualUsbScan = false
     
@@ -243,7 +252,28 @@ class MainActivity : ComponentActivity() {
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     }
                 }
-                
+
+                // 竖屏墙模式（模式3/4）自动请求系统旋转，使画面与面板朝向一致。
+                // 触发源：设置页按钮 / U盘配置 layoutMode 覆盖 / 远控 set_layout，
+                // 全部汇聚到 settingsFlow 后在此统一响应。
+                // 开关关闭或切回横屏模式时强制回横屏，避免方向残留。
+                LaunchedEffect(settings.layoutMode, featureFlags.allowOrientationAutoSwitch) {
+                    val target = if (featureFlags.allowOrientationAutoSwitch && settings.layoutMode.isPortraitWall) {
+                        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    } else {
+                        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    }
+                    // 相等守卫：USB 拔插/flag 翻转会重启本 effect，方向未变时避免冗余 WMS 请求
+                    if (this@MainActivity.requestedOrientation != target) {
+                        try {
+                            this@MainActivity.requestedOrientation = target
+                            Log.i(TAG, "Requested orientation: $target (mode=${settings.layoutMode})")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to request orientation $target", e)
+                        }
+                    }
+                }
+
                 LaunchedEffect(settings.language) {
                     StringResources.setLanguage(settings.language)
                 }
@@ -254,21 +284,15 @@ class MainActivity : ComponentActivity() {
                             viewModel = mainViewModel,
                             onNavigateToSettings = { currentScreen = Screen.Settings },
                             onNavigateToImageSplit = { currentScreen = Screen.ImageSplit },
-                            onScanUsb = {
-                                if (serviceBound) {
-                                    usbMonitorService?.triggerScan()
-                                } else {
-                                    pendingManualUsbScan = true
-                                    startUsbMonitorService()
-                                    Intent(this@MainActivity, UsbMonitorService::class.java).also { intent ->
-                                        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
-                                    }
-                                }
-                            },
+                            onScanUsb = { requestUsbScan() },
                             onSelectFile = { playerIndex ->
                                 selectingPlayerIndex = playerIndex
                                 try {
-                                    filePickerLauncher.launch(arrayOf("video/*", "image/*"))
+                                    // Some RK/embedded file pickers do not reliably map video
+                                    // extensions to video/* MIME types, which makes videos appear
+                                    // disabled. Open all files and let FilePickerHelper filter the
+                                    // selected items to supported image/video formats.
+                                    filePickerLauncher.launch(arrayOf("*/*"))
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                     showToast("无法打开文件选择器")
@@ -289,6 +313,8 @@ class MainActivity : ComponentActivity() {
                                 mainViewModel.updateSettings(AppSettings())
                             },
                             onBack = { currentScreen = Screen.Main },
+                            onScanUsb = { requestUsbScan() },
+                            onImageSplit = { currentScreen = Screen.ImageSplit },
                             cacheSizeMB = cacheSizeMB,
                             featureFlags = featureFlags
                         )
@@ -324,14 +350,17 @@ class MainActivity : ComponentActivity() {
     
     override fun onStart() {
         super.onStart()
-        Log.i(TAG, "onStart, serviceBound=$serviceBound")
-        if (!serviceBound) {
+        Log.i(TAG, "onStart, serviceBound=$serviceBound, bindRequested=$bindRequested")
+        // 依据 bindRequested 判断，避免回调未到达时重复 bind
+        if (!bindRequested) {
             try {
                 Intent(this, UsbMonitorService::class.java).also { intent ->
+                    bindRequested = true
                     bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                bindRequested = false
+                Log.e(TAG, "bindService in onStart failed", e)
             }
         }
     }
@@ -347,16 +376,21 @@ class MainActivity : ComponentActivity() {
             Log.e(TAG, "注销内部广播接收器失败", e)
         }
         
-        if (serviceBound) {
+        // 解绑必须依据「是否发起过绑定」，而不是「回调是否已到达」。
+        // 若 Activity 在 bindService 与 onServiceConnected 之间被销毁，
+        // serviceBound 仍为 false，只判断它会漏掉 unbind → Activity has leaked ServiceConnection。
+        if (bindRequested) {
             try {
                 usbMonitorService?.onUsbStateChanged = null
                 usbMonitorService?.onUsbConnected = null
                 usbMonitorService?.onUsbDisconnected = null
                 unbindService(serviceConnection)
-                serviceBound = false
             } catch (e: Exception) {
-                e.printStackTrace()
+                // 未真正绑定时 unbindService 会抛 IllegalArgumentException，视为已解绑
+                Log.d(TAG, "unbindService: ${e.message}")
             }
+            bindRequested = false
+            serviceBound = false
         }
         mainViewModelRef = null
     }
@@ -367,6 +401,13 @@ class MainActivity : ComponentActivity() {
         if (serviceBound && mainViewModelRef != null) {
             setupServiceCallbacks()
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // configChanges 路径下 Activity 不重建、onResume 不重跑，
+        // 部分 RK ROM 旋转后沉浸式标志复位，需重新施加全屏
+        setupFullscreen()
     }
     
     private var lastBackPressTime = 0L
@@ -453,6 +494,32 @@ class MainActivity : ComponentActivity() {
             }
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    /**
+     * 绑定 U 盘监听服务。
+     *
+     * 统一在此设置 [bindRequested]，确保 onDestroy 一定会解绑
+     * （即便回调还没到达就销毁了 Activity）。
+     */
+    private fun requestUsbScan() {
+        if (serviceBound) {
+            usbMonitorService?.triggerScan()
+            return
+        }
+        // 已发起过绑定、只是回调未到：避免重复 bind
+        if (bindRequested) return
+        pendingManualUsbScan = true
+        startUsbMonitorService()
+        try {
+            Intent(this, UsbMonitorService::class.java).also { intent ->
+                bindRequested = true
+                bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+            }
+        } catch (e: Exception) {
+            bindRequested = false
+            Log.e(TAG, "bindService failed", e)
         }
     }
     

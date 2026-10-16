@@ -2,7 +2,9 @@ package com.btf.rk3568_hdmi_mediaplay.ui.settings
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,8 +16,12 @@ import androidx.compose.ui.unit.sp
 import com.btf.rk3568_hdmi_mediaplay.BuildConfig
 import com.btf.rk3568_hdmi_mediaplay.FeatureManager
 import com.btf.rk3568_hdmi_mediaplay.data.model.*
+import com.btf.rk3568_hdmi_mediaplay.ui.components.mouseDragScroll
+import com.btf.rk3568_hdmi_mediaplay.ui.customerUiMode
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.ClearCacheDialog
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.ResetSettingsDialog
+import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiGpioController
+import com.btf.rk3568_hdmi_mediaplay.ui.components.rememberHdmiEfullUiState
 import com.btf.rk3568_hdmi_mediaplay.util.StringResources
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -32,6 +38,8 @@ fun SettingsScreen(
     onClearCache: () -> Unit,
     onResetSettings: () -> Unit,
     onBack: () -> Unit,
+    onScanUsb: () -> Unit = {},
+    onImageSplit: () -> Unit = {},
     cacheSizeMB: Long = 0,
     featureFlags: FeatureFlags = FeatureFlags.releaseDefaults()
 ) {
@@ -44,47 +52,73 @@ fun SettingsScreen(
     }
     
     val scrollState = rememberScrollState()
+    val customerMode = customerUiMode
+    // 不按 customerMode 替换成 releaseDefaults()：那会丢弃 U 盘配置的 features 覆盖。
+    // 客户版默认矩阵已由 FeatureManager.init(!customerUiMode) 决定。
+    val effectiveFeatureFlags = featureFlags
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showResetDialog by remember { mutableStateOf(false) }
-    
+
+
     // 使用 key 强制在语言变化时重组整个界面
     key(lang) {
+        Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color(0xFF1A1A1A))
         ) {
             TopAppBar(
-                title = { Text("⚙ ${StringResources.settings}", color = Color.White) },
+                title = {
+                    Column {
+                        Text(
+                            "⚙ ${StringResources.settings}",
+                            color = Color.White,
+                            fontSize = if (customerMode) 22.sp else 18.sp
+                        )
+                        // 版本与构建类型常驻顶部：现场排查第一步就是确认装的是哪个包，
+                        // 放在「关于」区块需要滚动才能看到，容易漏。
+                        Text(
+                            text = "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · " +
+                                if (BuildConfig.IS_DEBUG_BUILD) "DEBUG" else "RELEASE",
+                            color = if (BuildConfig.IS_DEBUG_BUILD) Color(0xFFFFD54F) else Color(0xFF81C784),
+                            fontSize = if (customerMode) 13.sp else 11.sp
+                        )
+                    }
+                },
                 navigationIcon = {
                     TextButton(onClick = onBack) {
-                        Text("← ${StringResources.back}", color = Color.White)
+                        Text("← ${StringResources.back}", color = Color.White, fontSize = if (customerMode) 18.sp else 14.sp)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF2A2A2A))
             )
-            
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(scrollState)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                    .mouseDragScroll(scrollState)
+                    .padding(if (customerMode) 20.dp else 16.dp),
+                verticalArrangement = Arrangement.spacedBy(if (customerMode) 20.dp else 16.dp)
             ) {
-                // ========== HDMI 控制 (放最顶部) ==========
-                if (featureFlags.showHdmiControl) {
-                    HdmiControlSection()
-                }
-                
-                // ========== 核心设置 ==========
+                // ========== 核心设置（布局模式在最前） ==========
                 // 只有当核心设置中有可显示的内容时才显示区块
-                val showCoreSettings = featureFlags.showLanguageSetting || 
-                                       featureFlags.allowLayoutChange || 
-                                       featureFlags.showAudioOutputSetting
+                val showCoreSettings = effectiveFeatureFlags.showLanguageSetting ||
+                                       effectiveFeatureFlags.allowLayoutChange ||
+                                       effectiveFeatureFlags.showAudioOutputSetting
                 if (showCoreSettings) {
                     SettingsSection(title = "⭐ ${StringResources.coreSettings}") {
+                    // 布局模式（核心设置的第一项：现场最常调整的就是拼接模式）
+                    if (effectiveFeatureFlags.allowLayoutChange) {
+                        WallLayoutModeSetting(
+                            selectedMode = settings.layoutMode,
+                            onModeSelected = { onSettingsChange(settings.copy(layoutMode = it)) }
+                        )
+                    }
+
                     // 语言设置
-                    if (featureFlags.showLanguageSetting) {
+                    if (effectiveFeatureFlags.showLanguageSetting) {
                         DropdownSetting(
                             title = "🌐 ${StringResources.language}",
                             options = listOf(
@@ -92,26 +126,16 @@ fun SettingsScreen(
                                 AppLanguage.ENGLISH.name to "English"
                             ),
                             selectedValue = settings.language.name,
-                            onValueChange = { 
+                            onValueChange = {
                                 val newLang = AppLanguage.valueOf(it)
                                 StringResources.setLanguage(newLang)
-                                onSettingsChange(settings.copy(language = newLang)) 
+                                onSettingsChange(settings.copy(language = newLang))
                             }
                         )
                     }
-                    
-                    // 布局模式
-                    if (featureFlags.allowLayoutChange) {
-                        DropdownSetting(
-                            title = "📐 ${StringResources.layoutMode}",
-                            options = LayoutMode.entries.map { it.name to StringResources.getLayoutModeText(it) },
-                            selectedValue = settings.layoutMode.name,
-                            onValueChange = { onSettingsChange(settings.copy(layoutMode = LayoutMode.valueOf(it))) }
-                        )
-                    }
-                    
+
                     // 音频输出
-                    if (featureFlags.showAudioOutputSetting) {
+                    if (effectiveFeatureFlags.showAudioOutputSetting) {
                         DropdownSetting(
                             title = "🔊 ${StringResources.audioOutput}",
                             options = AudioOutput.entries.map { it.name to StringResources.getAudioOutputText(it) },
@@ -121,14 +145,20 @@ fun SettingsScreen(
                     }
                     }
                 }
-                
+
+                // ========== HDMI 控制（核心设置之后） ==========
+                HdmiEfullSection()
+                if (!customerMode && effectiveFeatureFlags.showHdmiControl) {
+                    HdmiControlSection()
+                }
+
                 // ========== 使用说明 ==========
-                if (featureFlags.showHelpSection) {
+                if (effectiveFeatureFlags.showHelpSection) {
                     HelpSection()
                 }
                 
                 // ========== 播放设置 ==========
-                if (featureFlags.showPlaybackSettings) {
+                if (effectiveFeatureFlags.showPlaybackSettings) {
                     SettingsSection(title = "▶️ ${StringResources.playbackSettings}") {
                         SwitchSetting(
                             title = StringResources.autoPlayOnStart,
@@ -162,7 +192,7 @@ fun SettingsScreen(
                 }
                 
                 // ========== 视频设置 ==========
-                if (featureFlags.showVideoSettings) {
+                if (effectiveFeatureFlags.showVideoSettings) {
                     SettingsSection(title = "🎬 ${StringResources.videoSettings}") {
                         DropdownSetting(
                             title = StringResources.videoScaleMode,
@@ -181,7 +211,7 @@ fun SettingsScreen(
                 }
                 
                 // ========== 图片设置 ==========
-                if (featureFlags.showImageSettings) {
+                if (effectiveFeatureFlags.showImageSettings) {
                     SettingsSection(title = "🖼 ${StringResources.imageSettings}") {
                         SliderSetting(
                             title = StringResources.slideInterval,
@@ -201,7 +231,7 @@ fun SettingsScreen(
                 }
                 
                 // ========== 存储设置 ==========
-                if (featureFlags.showStorageSettings) {
+                if (effectiveFeatureFlags.showStorageSettings) {
                     SettingsSection(title = "💿 ${StringResources.storageSettings}") {
                         DropdownSetting(
                             title = StringResources.storageLocation,
@@ -216,7 +246,7 @@ fun SettingsScreen(
                 }
                 
                 // ========== U盘设置 ==========
-                if (featureFlags.showUsbSettings) {
+                if (effectiveFeatureFlags.showUsbSettings) {
                     SettingsSection(title = "💾 ${StringResources.usbSettings}") {
                         SwitchSetting(
                             title = StringResources.usbDetection,
@@ -251,7 +281,7 @@ fun SettingsScreen(
                 }
                 
                 // ========== 显示设置 ==========
-                if (featureFlags.showDisplaySettings) {
+                if (effectiveFeatureFlags.showDisplaySettings) {
                     SettingsSection(title = "🖥 ${StringResources.displaySettings}") {
                         SwitchSetting(
                             title = StringResources.showPlayerIndex,
@@ -277,7 +307,7 @@ fun SettingsScreen(
                 }
                 
                 // ========== 高级设置 ==========
-                if (featureFlags.showAdvancedSettings) {
+                if (effectiveFeatureFlags.showAdvancedSettings) {
                     SettingsSection(title = "🔧 ${StringResources.advancedSettings}") {
                         SliderSetting(
                             title = StringResources.maxCacheSize,
@@ -321,9 +351,28 @@ fun SettingsScreen(
                 
                 // ========== 关于 ==========
                 AboutSection()
+
+                // ========== 维护操作（客户页面最后一项） ==========
+                if (customerMode) {
+                    CustomerMaintenanceSection(
+                        showScanUsb = effectiveFeatureFlags.showScanUsbButton,
+                        showImageSplit = effectiveFeatureFlags.showImageSplitTool,
+                        onScanUsb = onScanUsb,
+                        onImageSplit = onImageSplit
+                    )
+                }
                 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(if (customerMode) 96.dp else 32.dp))
             }
+        }
+
+        // 右侧上下滚动按钮（滚轮/拖动之外的兜底，仅依赖点击）
+        ScrollButtons(
+            scrollState = scrollState,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = if (customerMode) 8.dp else 6.dp)
+        )
         }
     }
     
@@ -343,6 +392,43 @@ fun SettingsScreen(
     }
 }
 
+/**
+ * 右侧上下滚动按钮（无滚轮时的兜底）。走 animateScrollTo 正常通道，仅依赖点击。
+ */
+@Composable
+private fun ScrollButtons(scrollState: ScrollState, modifier: Modifier = Modifier) {
+    val scope = rememberCoroutineScope()
+    val step = 260
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        FloatingScrollButton("▲") {
+            scope.launch { scrollState.animateScrollTo((scrollState.value - step).coerceAtLeast(0)) }
+        }
+        FloatingScrollButton("▼") {
+            scope.launch { scrollState.animateScrollTo((scrollState.value + step).coerceAtMost(scrollState.maxValue)) }
+        }
+    }
+}
+
+@Composable
+private fun FloatingScrollButton(label: String, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        shape = CircleShape,
+        contentPadding = PaddingValues(0.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color(0xFF3A3A3A).copy(alpha = 0.9f),
+            contentColor = Color.White
+        ),
+        modifier = Modifier.size(44.dp)
+    ) {
+        Text(text = label, fontSize = 15.sp)
+    }
+}
+
 @Composable
 private fun HelpSection() {
     Surface(color = Color(0xFF1E3A5F), shape = MaterialTheme.shapes.medium) {
@@ -350,6 +436,92 @@ private fun HelpSection() {
             Text(text = "💡 ${StringResources.usageTitle}", color = Color.Cyan, fontSize = 16.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Text(text = StringResources.usageSteps, color = Color.LightGray, fontSize = 12.sp, lineHeight = 18.sp)
+        }
+    }
+}
+
+
+@Composable
+private fun CustomerMaintenanceSection(
+    showScanUsb: Boolean,
+    showImageSplit: Boolean,
+    onScanUsb: () -> Unit,
+    onImageSplit: () -> Unit
+) {
+    if (!showScanUsb && !showImageSplit) return
+
+    SettingsSection(title = "🛠 ${StringResources.maintenance}") {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            if (showScanUsb) {
+                Button(
+                    onClick = onScanUsb,
+                    modifier = Modifier.weight(1f).height(60.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
+                ) {
+                    Text(StringResources.scanUsb, fontSize = 16.sp)
+                }
+            }
+            if (showImageSplit) {
+                Button(
+                    onClick = onImageSplit,
+                    modifier = Modifier.weight(1f).height(60.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF455A64))
+                ) {
+                    Text(StringResources.imageSplit, fontSize = 16.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HdmiEfullSection() {
+    val customerMode = customerUiMode
+    val isEn = StringResources.getLanguage() == AppLanguage.ENGLISH
+    val state = rememberHdmiEfullUiState()
+
+    SettingsSection(title = "🖥 ${StringResources.hdmiEfull}") {
+        Text(
+            text = StringResources.hdmiEfullDesc,
+            color = Color.Gray,
+            fontSize = if (customerMode) 14.sp else 11.sp
+        )
+        Spacer(modifier = Modifier.height(if (customerMode) 12.dp else 8.dp))
+        Button(
+            onClick = state.toggle,
+            enabled = !state.busy,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (customerMode) 64.dp else 52.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (state.enabled) Color(0xFF00838F) else Color(0xFF455A64)
+            )
+        ) {
+            Text(
+                text = if (state.enabled) {
+                    if (isEn) "HDMI Fullscreen: ON" else "HDMI全屏：开"
+                } else {
+                    if (isEn) "HDMI Fullscreen: OFF" else "HDMI全屏：关"
+                },
+                fontSize = if (customerMode) 18.sp else 14.sp
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = if (isEn) {
+                "Writes persist.sys.rotation.efull-1 = ${if (state.enabled) "true" else "false"}"
+            } else {
+                "当前属性 persist.sys.rotation.efull-1 = ${if (state.enabled) "true" else "false"}"
+            },
+            color = Color(0xFFB0BEC5),
+            fontSize = if (customerMode) 12.sp else 10.sp
+        )
+        state.message?.let { error ->
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(text = error, color = Color(0xFFFF8A80), fontSize = 12.sp)
         }
     }
 }
@@ -376,7 +548,7 @@ private fun HdmiControlSection() {
                     if (now - lastClickTime > 500) {
                         lastClickTime = now
                         scope.launch(Dispatchers.IO) {
-                            val success = simulateHdmiKeyPress("/sys/devices/platform/hdmi-control/hdmi_b2")
+                            val success = HdmiGpioController.press(HdmiGpioController.MODE_KEY)
                             clickResult = if (success) "✓" else "✗"
                         }
                     }
@@ -393,7 +565,7 @@ private fun HdmiControlSection() {
                     if (now - lastClickTime > 500) {
                         lastClickTime = now
                         scope.launch(Dispatchers.IO) {
-                            val success = simulateHdmiKeyPress("/sys/devices/platform/hdmi-control/hdmi_b3")
+                            val success = HdmiGpioController.press(HdmiGpioController.RESOLUTION_KEY)
                             clickResult = if (success) "✓" else "✗"
                         }
                     }
@@ -416,38 +588,6 @@ private fun HdmiControlSection() {
     }
 }
 
-/**
- * 模拟 HDMI 按键按下
- */
-private fun simulateHdmiKeyPress(filePath: String): Boolean {
-    return try {
-        val command = "echo 0 > $filePath; sleep 0.05; echo 1 > $filePath"
-        executeRootCommand(command)
-        true
-    } catch (e: Exception) {
-        e.printStackTrace()
-        false
-    }
-}
-
-/**
- * 执行 root 命令
- */
-private fun executeRootCommand(command: String) {
-    try {
-        val process = Runtime.getRuntime().exec("su")
-        java.io.DataOutputStream(process.outputStream).use { os ->
-            os.writeBytes("$command\n")
-            os.writeBytes("exit\n")
-            os.flush()
-        }
-        process.waitFor()
-    } catch (e: java.io.IOException) {
-        e.printStackTrace()
-    } catch (e: InterruptedException) {
-        e.printStackTrace()
-    }
-}
 
 @Composable
 private fun StoragePathInfo(storageLocation: StorageLocation) {
@@ -491,24 +631,26 @@ private fun UsbStructureHelp(folderName: String) {
 
 @Composable
 private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    val customerMode = customerUiMode
     Column(
-        modifier = Modifier.fillMaxWidth().background(Color(0xFF2A2A2A), MaterialTheme.shapes.medium).padding(16.dp)
+        modifier = Modifier.fillMaxWidth().background(Color(0xFF2A2A2A), MaterialTheme.shapes.medium).padding(if (customerMode) 20.dp else 16.dp)
     ) {
-        Text(text = title, color = Color.Cyan, fontSize = 16.sp, modifier = Modifier.padding(bottom = 12.dp))
+        Text(text = title, color = Color.Cyan, fontSize = if (customerMode) 20.sp else 16.sp, modifier = Modifier.padding(bottom = if (customerMode) 16.dp else 12.dp))
         content()
     }
 }
 
 @Composable
 private fun SwitchSetting(title: String, subtitle: String? = null, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    val customerMode = customerUiMode
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = if (customerMode) 12.dp else 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, color = Color.White, fontSize = 14.sp)
-            subtitle?.let { Text(text = it, color = Color.Gray, fontSize = 11.sp) }
+            Text(text = title, color = Color.White, fontSize = if (customerMode) 18.sp else 14.sp)
+            subtitle?.let { Text(text = it, color = Color.Gray, fontSize = if (customerMode) 14.sp else 11.sp) }
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange, colors = SwitchDefaults.colors(checkedThumbColor = Color.Cyan, checkedTrackColor = Color.Cyan.copy(alpha = 0.5f)))
     }
@@ -516,24 +658,123 @@ private fun SwitchSetting(title: String, subtitle: String? = null, checked: Bool
 
 @Composable
 private fun SliderSetting(title: String, value: Float, valueRange: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit, valueText: String) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    val customerMode = customerUiMode
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = if (customerMode) 12.dp else 8.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(text = title, color = Color.White, fontSize = 14.sp)
-            Text(text = valueText, color = Color.Cyan, fontSize = 14.sp)
+            Text(text = title, color = Color.White, fontSize = if (customerMode) 18.sp else 14.sp)
+            Text(text = valueText, color = Color.Cyan, fontSize = if (customerMode) 18.sp else 14.sp)
         }
         Slider(value = value, onValueChange = onValueChange, valueRange = valueRange, colors = SliderDefaults.colors(thumbColor = Color.Cyan, activeTrackColor = Color.Cyan))
+    }
+}
+
+@Composable
+private fun WallLayoutModeSetting(
+    selectedMode: LayoutMode,
+    onModeSelected: (LayoutMode) -> Unit
+) {
+    val customerMode = customerUiMode
+    val isEn = StringResources.getLanguage() == AppLanguage.ENGLISH
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = if (customerMode) 12.dp else 8.dp)
+    ) {
+        Text(
+            text = "📐 ${StringResources.layoutMode}",
+            color = Color.White,
+            fontSize = if (customerMode) 18.sp else 14.sp
+        )
+        Text(
+            text = if (isEn) {
+                "Select the mode number shown on the HDMI wall diagram"
+            } else {
+                "请选择与 HDMI 拼接示意图一致的模式编号"
+            },
+            color = Color.Gray,
+            fontSize = if (customerMode) 14.sp else 11.sp
+        )
+
+        Spacer(modifier = Modifier.height(if (customerMode) 12.dp else 8.dp))
+
+        LayoutMode.customerModes.chunked(2).forEach { rowModes ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                rowModes.forEach { mode ->
+                    val selected = mode == selectedMode
+                    Button(
+                        onClick = { onModeSelected(mode) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(if (customerMode) 82.dp else 68.dp),
+                        colors = ButtonDefaults.buttonColors(
+                        containerColor = if (selected) Color(0xFF00838F) else Color(0xFF3A3A3A),
+                        contentColor = Color.White
+                    ),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = mode.wallModeNumber?.let { number ->
+                                    if (isEn) "Mode $number" else "模式 $number"
+                                } ?: if (isEn) "Software" else "软件模式",
+                                color = if (selected) Color.White else Color.Cyan,
+                                fontSize = if (customerMode) 17.sp else 13.sp
+                            )
+                            Text(
+                                text = StringResources.getLayoutModeText(mode),
+                                fontSize = if (customerMode) 13.sp else 11.sp,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = StringResources.getLayoutModeDescription(mode),
+                                color = Color(0xFFB0BEC5),
+                                fontSize = if (customerMode) 11.sp else 9.sp,
+                                maxLines = 2
+                            )
+                            if (selected) {
+                                Text(
+                                    text = if (isEn) "✓ Selected" else "✓ 当前",
+                                    color = Color(0xFFA7FFEB),
+                                    fontSize = if (customerMode) 11.sp else 9.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (rowModes.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+        }
+
+        Text(
+            text = if (isEn) {
+                "This sets the player layout. The HDMI wall hardware is still controlled by its mode key."
+            } else {
+                "此处设置播放器画面布局；HDMI 拼接板仍由“切换模式”按键控制。"
+            },
+            color = Color(0xFFFFCC80),
+            fontSize = if (customerMode) 13.sp else 10.sp
+        )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DropdownSetting(title: String, options: List<Pair<String, String>>, selectedValue: String, onValueChange: (String) -> Unit) {
+    val customerMode = customerUiMode
     var expanded by remember { mutableStateOf(false) }
     val selectedText = options.find { it.first == selectedValue }?.second ?: ""
     
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Text(text = title, color = Color.White, fontSize = 14.sp)
-        Spacer(modifier = Modifier.height(4.dp))
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = if (customerMode) 12.dp else 8.dp)) {
+        Text(text = title, color = Color.White, fontSize = if (customerMode) 18.sp else 14.sp)
+        Spacer(modifier = Modifier.height(if (customerMode) 8.dp else 4.dp))
         
         ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
             OutlinedTextField(
@@ -541,13 +782,14 @@ private fun DropdownSetting(title: String, options: List<Pair<String, String>>, 
                 onValueChange = {},
                 readOnly = true,
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                modifier = Modifier.fillMaxWidth().menuAnchor(),
+                modifier = Modifier.fillMaxWidth().heightIn(min = if (customerMode) 60.dp else 48.dp).menuAnchor(),
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = if (customerMode) 18.sp else 14.sp),
                 colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color.Cyan, unfocusedBorderColor = Color.Gray)
             )
             
             ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 options.forEach { (value, displayText) ->
-                    DropdownMenuItem(text = { Text(displayText) }, onClick = { onValueChange(value); expanded = false }, contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding)
+                    DropdownMenuItem(text = { Text(displayText, fontSize = if (customerMode) 18.sp else 14.sp) }, onClick = { onValueChange(value); expanded = false }, contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding)
                 }
             }
         }
@@ -556,14 +798,16 @@ private fun DropdownSetting(title: String, options: List<Pair<String, String>>, 
 
 @Composable
 private fun TextInputSetting(title: String, subtitle: String? = null, value: String, onValueChange: (String) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Text(text = title, color = Color.White, fontSize = 14.sp)
-        subtitle?.let { Text(text = it, color = Color.Gray, fontSize = 11.sp) }
-        Spacer(modifier = Modifier.height(4.dp))
+    val customerMode = customerUiMode
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = if (customerMode) 12.dp else 8.dp)) {
+        Text(text = title, color = Color.White, fontSize = if (customerMode) 18.sp else 14.sp)
+        subtitle?.let { Text(text = it, color = Color.Gray, fontSize = if (customerMode) 14.sp else 11.sp) }
+        Spacer(modifier = Modifier.height(if (customerMode) 8.dp else 4.dp))
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().heightIn(min = if (customerMode) 60.dp else 48.dp),
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = if (customerMode) 18.sp else 14.sp),
             colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color.Cyan, unfocusedBorderColor = Color.Gray),
             singleLine = true
         )
@@ -576,6 +820,8 @@ private fun TextInputSetting(title: String, subtitle: String? = null, value: Str
 @Composable
 private fun AboutSection() {
     val isEn = StringResources.getLanguage() == AppLanguage.ENGLISH
+    // 构建类型直读 BuildConfig，不经过 customerUiMode。
+    // customerUiMode 还受 FORCE_CUSTOMER_UI_PREVIEW 影响，用它推导会把 Debug 包显示成 Release。
     val buildType = if (BuildConfig.IS_DEBUG_BUILD) "Debug" else "Release"
     val buildTypeColor = if (BuildConfig.IS_DEBUG_BUILD) Color.Yellow else Color.Green
     
@@ -646,7 +892,7 @@ private fun AboutSection() {
         )
         
         // 功能模式提示
-        if (!BuildConfig.IS_DEBUG_BUILD) {
+        if (customerUiMode) {
             Spacer(modifier = Modifier.height(8.dp))
             Surface(
                 color = Color(0xFF1B5E20),
@@ -663,3 +909,4 @@ private fun AboutSection() {
         }
     }
 }
+

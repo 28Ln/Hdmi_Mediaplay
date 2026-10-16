@@ -51,7 +51,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:theme="@style/Theme.Rk3568_hdmi_mediaplay.Fullscreen"
-            android:screenOrientation="landscape"
+            android:screenOrientation="unspecified"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:launchMode="singleTask">
             <intent-filter>
@@ -104,7 +104,6 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
-            
     </application>
 
 </manifest>

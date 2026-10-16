@@ -222,7 +222,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
                     requiredBytes = requiredSpace,
                     availableBytes = availableSpace,
                     hasLocalContent = hasLocal,
-                    showOverwriteConfirm = settings.value.showOverwriteConfirm
+                    // USB hot-plug should always remind before overwriting existing local cache.
+                    // Even if a USB config tries to disable overwrite confirmation, keep the
+                    // prompt so the operator can choose overwrite vs keep-local.
+                    showOverwriteConfirm = hasLocal || settings.value.showOverwriteConfirm
                 )
             ) {
                 UsbCopyDecision.NoMediaContent -> {
@@ -500,6 +503,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
         )
     }
 
+    /**
+     * 清除播放器的错误状态（播放恢复正常时由播放器组件回调）。
+     *
+     * ERROR 状态没有其他出口：`togglePlayPause` 对 ERROR 原样保留，
+     * `updatePlayerCurrentIndex` 只改索引。若不提供这个恢复入口，
+     * 一次瞬时错误会让该格永久卡在报错，即使播放器已经能正常播放。
+     */
+    fun clearPlayerError(playerIndex: Int) {
+        _playerConfigs.update { configs ->
+            configs.mapIndexed { index, config ->
+                if (index == playerIndex && config.state == PlayerState.ERROR) {
+                    log("播放器 $playerIndex 恢复正常")
+                    config.copy(
+                        state = if (config.mediaItems.isNotEmpty()) {
+                            PlayerState.PLAYING
+                        } else {
+                            PlayerState.IDLE
+                        }
+                    )
+                } else config
+            }
+        }
+    }
+
     fun updatePlayerCurrentIndex(playerIndex: Int, currentIndex: Int) {
         _playerConfigs.update { configs ->
             configs.mapIndexed { index, config ->
@@ -679,6 +706,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
         configSettings.showOverwriteConfirm?.let { show ->
             newSettings = newSettings.copy(showOverwriteConfirm = show)
             log("  覆盖确认: $show")
+        }
+
+        configSettings.audioFallbackSilent?.let { fallback ->
+            newSettings = newSettings.copy(audioFallbackSilent = fallback)
+            log("  音频不支持时静音播放: $fallback")
         }
 
         // 如果有变化，更新设置

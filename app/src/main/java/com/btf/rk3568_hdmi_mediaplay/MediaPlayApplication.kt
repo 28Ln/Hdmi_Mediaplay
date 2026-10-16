@@ -6,6 +6,7 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.btf.rk3568_hdmi_mediaplay.ui.customerUiMode
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,10 +52,13 @@ class MediaPlayApplication : Application(), ImageLoaderFactory {
         // 设置全局未捕获异常处理
         setupUncaughtExceptionHandler()
         
-        // 初始化功能管理器 - 使用自定义的 IS_DEBUG_BUILD 标识
-        FeatureManager.init(BuildConfig.IS_DEBUG_BUILD)
-        
-        Log.i(TAG, "Application initialized, isDebug=${BuildConfig.IS_DEBUG_BUILD}, buildType=${if (BuildConfig.IS_DEBUG_BUILD) "DEBUG" else "RELEASE"}")
+        // 初始化功能管理器。
+        // 用 customerUiMode 而非裸 IS_DEBUG_BUILD，使「客户版」与「开发版」的判定
+        // 与 UI 层（ui/UiMode.kt）完全一致——包括 FORCE_CUSTOMER_UI_PREVIEW 预览开关。
+        // 否则 Preview 开启时，UI 按客户版渲染、但默认功能矩阵仍是 Debug 的，两者不一致。
+        FeatureManager.init(!customerUiMode)
+
+        Log.i(TAG, "Application initialized, isDebug=${BuildConfig.IS_DEBUG_BUILD}, buildType=${if (BuildConfig.IS_DEBUG_BUILD) "DEBUG" else "RELEASE"}, customerUiMode=$customerUiMode")
     }
     
     /**

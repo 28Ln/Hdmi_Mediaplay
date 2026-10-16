@@ -8,18 +8,29 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.btf.rk3568_hdmi_mediaplay.FeatureManager
+import com.btf.rk3568_hdmi_mediaplay.data.model.AppLanguage
 import com.btf.rk3568_hdmi_mediaplay.data.model.UsbRuntimeState
+import com.btf.rk3568_hdmi_mediaplay.ui.customerUiMode
+import android.util.Log
+import com.btf.rk3568_hdmi_mediaplay.ui.components.MessageType
+import com.btf.rk3568_hdmi_mediaplay.ui.player.PlaybackSync
 import com.btf.rk3568_hdmi_mediaplay.ui.components.ToastMessage
+import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiGpioController
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.OverwriteDialog
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.PlayerMenuDialog
 import com.btf.rk3568_hdmi_mediaplay.util.StringResources
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+private const val BOTTOM_BAR_VISIBLE_MS = 15_000L
 
 /**
  * 主界面 - 支持中英文
@@ -39,20 +50,47 @@ fun MainScreen(
     val showOverwriteDialog by viewModel.showOverwriteDialog.collectAsState()
     val toastMessage by viewModel.toastMessage.collectAsState()
     
-    // 功能开关
+    // 功能开关。
+    // 注意：这里**不能**按 customerUiMode 替换成 releaseDefaults()——那会丢弃
+    // FeatureManager 中已应用的 U 盘 btf_config.json features 覆盖，
+    // 导致「文档承诺可用 U 盘配置开启功能」在 Release 包中失效。
+    // 客户版与开发版的默认差异已由 FeatureManager.init(!customerUiMode) 决定。
     val featureFlags by FeatureManager.featureFlags.collectAsState()
     
     // 确保语言同步
     LaunchedEffect(settings.language) {
         StringResources.setLanguage(settings.language)
     }
+
+    // 「2×2 同画面」多路同步：四格是独立播放器，会各自漂移导致越播越不同步。
+    // 以 P1 为主时钟，每 5 秒检查一次，偏差超过 1.5 秒才 seek 对齐（见 PlaybackSync）。
+    LaunchedEffect(settings.layoutMode) {
+        PlaybackSync.enabled = settings.layoutMode.mirrorsPrimaryPlayer
+        if (!PlaybackSync.enabled) {
+            PlaybackSync.clear()
+            return@LaunchedEffect
+        }
+        while (true) {
+            delay(PlaybackSync.CHECK_INTERVAL_MS)
+            val corrected = PlaybackSync.syncOnce()
+            if (corrected > 0) {
+                Log.d("MainScreen", "同画面同步：纠正 $corrected 路")
+            }
+        }
+    }
     
+    val scope = rememberCoroutineScope()
     var selectedPlayerIndex by remember { mutableStateOf<Int?>(null) }
     var showBottomBar by remember { mutableStateOf(false) }
+    var bottomBarInteractionTick by remember { mutableLongStateOf(0L) }
+    val keepBottomBarVisible = {
+        showBottomBar = true
+        bottomBarInteractionTick++
+    }
     
-    LaunchedEffect(showBottomBar) {
+    LaunchedEffect(showBottomBar, bottomBarInteractionTick) {
         if (showBottomBar) {
-            delay(5000)
+            delay(BOTTOM_BAR_VISIBLE_MS)
             showBottomBar = false
         }
     }
@@ -79,6 +117,9 @@ fun MainScreen(
             onPlaybackError = { playerIndex, errorMessage ->
                 viewModel.setPlayerError(playerIndex, errorMessage)
             },
+            onPlayerRecovered = { playerIndex ->
+                viewModel.clearPlayerError(playerIndex)
+            },
             onCurrentIndexChanged = { playerIndex, currentIndex ->
                 viewModel.updatePlayerCurrentIndex(playerIndex, currentIndex)
             }
@@ -89,12 +130,12 @@ fun MainScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(60.dp)
+                    .height(if (!customerUiMode) 60.dp else 96.dp)
                     .align(Alignment.BottomCenter)
                     .pointerInput(Unit) {
                         detectTapGestures(
-                            onTap = { showBottomBar = true },
-                            onPress = { showBottomBar = true }
+                            onTap = { keepBottomBarVisible() },
+                            onPress = { keepBottomBarVisible() }
                         )
                     }
             )
@@ -110,7 +151,7 @@ fun MainScreen(
         ) {
             // 帮助提示 - 根据功能开关
             if (featureFlags.showHelpTip) {
-                HelpTip()
+                HelpTip(lang = settings.language)
             } else {
                 Spacer(modifier = Modifier.width(1.dp))
             }
@@ -120,7 +161,7 @@ fun MainScreen(
                 UsbStatusIndicator(usbState = usbState)
             }
         }
-        
+
         ToastMessage(
             toastData = toastMessage,
             onDismiss = { viewModel.dismissToast() },
@@ -144,16 +185,51 @@ fun MainScreen(
                 exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
                 modifier = Modifier.align(Alignment.BottomCenter)
             ) {
-                BottomControlBar(
-                    featureFlags = featureFlags,
-                    onSettingsClick = onNavigateToSettings,
-                    onImageSplitClick = onNavigateToImageSplit,
-                    onPlayAllClick = { viewModel.playAll() },
-                    onPauseAllClick = { viewModel.pauseAll() },
-                    onScanUsbClick = onScanUsb,
-                    onHide = { showBottomBar = false },
-                    modifier = Modifier.padding(16.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = if (customerUiMode) 0.18f else 0.12f),
+                                    Color.Black.copy(alpha = if (customerUiMode) 0.34f else 0.22f)
+                                )
+                            )
+                        )
+                        .padding(top = if (customerUiMode) 34.dp else 16.dp)
+                ) {
+                    BottomControlBar(
+                        featureFlags = featureFlags,
+                        onSettingsClick = { keepBottomBarVisible(); onNavigateToSettings() },
+                        onImageSplitClick = { keepBottomBarVisible(); onNavigateToImageSplit() },
+                        onPlayAllClick = { keepBottomBarVisible(); viewModel.playAll() },
+                        onPauseAllClick = { keepBottomBarVisible(); viewModel.pauseAll() },
+                        onScanUsbClick = { keepBottomBarVisible(); onScanUsb() },
+                        onSwitchModeClick = {
+                            keepBottomBarVisible()
+                            scope.launch(Dispatchers.IO) {
+                                val ok = HdmiGpioController.press(HdmiGpioController.MODE_KEY)
+                                // 硬件控制节点可能仅 root 可写，失败时必须让用户看到，
+                                // 否则按钮"按了没反应"，无法区分是坏了还是没生效
+                                if (!ok) {
+                                    viewModel.showToast(StringResources.hdmiKeyFailed, MessageType.ERROR)
+                                }
+                            }
+                        },
+                        onSwitchResolutionClick = {
+                            keepBottomBarVisible()
+                            scope.launch(Dispatchers.IO) {
+                                val ok = HdmiGpioController.press(HdmiGpioController.RESOLUTION_KEY)
+                                if (!ok) {
+                                    viewModel.showToast(StringResources.hdmiKeyFailed, MessageType.ERROR)
+                                }
+                            }
+                        },
+                        onHide = { showBottomBar = false },
+                        modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = if (customerUiMode) 34.dp else 16.dp, top = 8.dp)
+                    )
+                }
             }
         }
     }
@@ -187,7 +263,7 @@ fun MainScreen(
  * 帮助提示 - 支持中英文
  */
 @Composable
-private fun HelpTip() {
+private fun HelpTip(lang: AppLanguage) {
     var showHelp by remember { mutableStateOf(true) }
     
     if (showHelp) {
@@ -318,41 +394,85 @@ private fun BottomControlBar(
     onPlayAllClick: () -> Unit,
     onPauseAllClick: () -> Unit,
     onScanUsbClick: () -> Unit,
+    onSwitchModeClick: () -> Unit,
+    onSwitchResolutionClick: () -> Unit,
     onHide: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val customerMode = customerUiMode
+
     Surface(
-        modifier = modifier,
-        color = Color.Black.copy(alpha = 0.8f),
+        modifier = modifier.fillMaxWidth(),
+        color = Color.Black.copy(alpha = if (customerMode) 0.88f else 0.8f),
         shape = MaterialTheme.shapes.medium
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (featureFlags.allowPlayPauseControl) {
-                ControlButton(icon = "▶", text = StringResources.playAll, onClick = onPlayAllClick)
-                ControlButton(icon = "⏸", text = StringResources.pauseAll, onClick = onPauseAllClick)
-            }
-            // 扫描U盘按钮 - 根据功能开关显示
-            if (featureFlags.showScanUsbButton) {
-                ControlButton(icon = "🔍", text = StringResources.scanUsb, onClick = onScanUsbClick)
-            }
-            // 图片裁剪工具按钮 - 根据功能开关显示
-            if (featureFlags.showImageSplitTool) {
-                ControlButton(icon = "✂️", text = "裁剪", onClick = onImageSplitClick)
-            }
-            if (featureFlags.showSettingsButton) {
-                ControlButton(icon = "⚙", text = StringResources.settings, onClick = onSettingsClick)
-            }
-            
-            TextButton(
-                onClick = onHide,
-                colors = ButtonDefaults.textButtonColors(contentColor = Color.Gray)
+        if (customerMode) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "✕", fontSize = 16.sp)
+                if (featureFlags.allowPlayPauseControl) {
+                    CustomerControlButton("▶", StringResources.playAll, onPlayAllClick, Modifier.weight(1f))
+                    CustomerControlButton("⏸", StringResources.pauseAll, onPauseAllClick, Modifier.weight(1f))
+                }
+                CustomerControlButton("🔁", StringResources.switchMode, onSwitchModeClick, Modifier.weight(1f))
+                CustomerControlButton("🖥", StringResources.switchResolution, onSwitchResolutionClick, Modifier.weight(1.2f))
+                // HDMI 全屏开关已移除：低频设置项不该占主页控制栏（设置页仍可操作）
+                CustomerControlButton("⚙", StringResources.settings, onSettingsClick, Modifier.weight(0.9f))
             }
+        } else {
+            Row(
+                // 必须 fillMaxWidth 才能让 SpaceEvenly 生效；
+                // 否则 Row 按内容宽度收缩并靠左堆叠（按钮会挤在左侧）
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (featureFlags.allowPlayPauseControl) {
+                    ControlButton(icon = "▶", text = StringResources.playAll, onClick = onPlayAllClick)
+                    ControlButton(icon = "⏸", text = StringResources.pauseAll, onClick = onPauseAllClick)
+                }
+                if (featureFlags.showScanUsbButton) {
+                    ControlButton(icon = "🔍", text = StringResources.scanUsb, onClick = onScanUsbClick)
+                }
+                if (featureFlags.showImageSplitTool) {
+                    ControlButton(icon = "✂️", text = StringResources.imageSplit, onClick = onImageSplitClick)
+                }
+                if (featureFlags.showSettingsButton) {
+                    ControlButton(icon = "⚙", text = StringResources.settings, onClick = onSettingsClick)
+                }
+
+                TextButton(
+                    onClick = onHide,
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color.Gray)
+                ) {
+                    Text(text = "✕", fontSize = 16.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomerControlButton(
+    icon: String,
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(68.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF263238))
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(text = icon, fontSize = 20.sp)
+            Text(text = text, color = Color.White, fontSize = 14.sp, maxLines = 1)
         }
     }
 }
@@ -370,3 +490,5 @@ private fun ControlButton(
         Text(text = "$icon $text", fontSize = 13.sp)
     }
 }
+
+

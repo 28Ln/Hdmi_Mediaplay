@@ -63,9 +63,29 @@ object UsbUtils {
     
     /**
      * 获取U盘中的媒体扫描目录
+     *
+     * 兜底防止路径穿越：folderName 可能来自 U 盘 btf_config.json 或设置页输入，
+     * 若含 `..`/路径分隔符，解析结果会逃出 U 盘。此处做规范化校验，
+     * 越界时回退到 U 盘根目录（安全但不越权）。
      */
     fun getUsbMediaDir(usbPath: File, folderName: String): File {
-        return File(usbPath, folderName)
+        val candidate = File(usbPath, folderName)
+        return try {
+            val usbCanonical = usbPath.canonicalPath
+            val candidateCanonical = candidate.canonicalPath
+            if (candidateCanonical == usbCanonical ||
+                candidateCanonical.startsWith(usbCanonical + File.separator)
+            ) {
+                candidate
+            } else {
+                Log.w(TAG, "folderName escapes USB root, falling back to USB root: $folderName")
+                usbPath
+            }
+        } catch (e: Exception) {
+            // canonicalPath 需要 IO，异常时保守回退到 U 盘根
+            Log.e(TAG, "Failed to canonicalize USB media dir for '$folderName'", e)
+            usbPath
+        }
     }
     
     /**

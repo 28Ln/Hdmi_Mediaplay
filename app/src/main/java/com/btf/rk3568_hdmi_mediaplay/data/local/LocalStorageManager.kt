@@ -8,6 +8,8 @@ import com.btf.rk3568_hdmi_mediaplay.data.model.StorageLocation
 import com.btf.rk3568_hdmi_mediaplay.util.FileUtils
 import com.btf.rk3568_hdmi_mediaplay.util.UsbUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -30,6 +32,12 @@ class LocalStorageManager(private val context: Context) {
     
     private var storageLocation: StorageLocation = StorageLocation.SDCARD
     private var customPath: String = ""
+
+    /**
+     * 串行化整批拷贝。USB 插盘广播可能被投递两次（Manifest 静态 + 服务内动态注册），
+     * 并发拷贝会互相删除对方的 staging/backup 目录，破坏事务语义。
+     */
+    private val copyMutex = Mutex()
     
     fun updateStorageSettings(location: StorageLocation, path: String = "") {
         storageLocation = location
@@ -107,8 +115,19 @@ class LocalStorageManager(private val context: Context) {
             val stagingDir = File(parentDir, ".${localPlayerDir.name}_staging")
             val backupDir = File(parentDir, ".${localPlayerDir.name}_backup")
 
+            // 先回收上次中断遗留的备份：若上次拷贝在「旧目录已改名、新数据未就位」之间被杀，
+            // 真实数据只在 backup 里。此时应先把它还原，而不是删掉（旧实现会直接删）。
+            if (!localPlayerDir.exists() && backupDir.exists()) {
+                Log.w(TAG, "Recovering orphaned backup for player $playerIndex")
+                if (!backupDir.renameTo(localPlayerDir)) {
+                    Log.e(TAG, "Failed to recover backup for player $playerIndex")
+                }
+            }
+
             stagingDir.deleteRecursively()
-            backupDir.deleteRecursively()
+            if (!backupDir.exists()) {
+                backupDir.deleteRecursively()
+            }
             stagingDir.mkdirs()
 
             // 先拷贝到 staging，避免直接破坏当前缓存
@@ -187,16 +206,45 @@ class LocalStorageManager(private val context: Context) {
 
             PlayerCopyResult(playerIndex, usbFiles.size, finalFiles.size, true)
         } catch (e: Exception) {
-            Log.e(TAG, "Error copying player $playerIndex: ${e.message}")
-            e.printStackTrace()
+            // 异常（含拔盘、IO 失败、协程取消）时必须做两件事：
+            //   1) 清理半成品 staging，避免残留占空间并被误扫
+            //   2) 若旧缓存已被改名到 backup 而新数据未就位，把它还原回去
+            // 否则会「旧缓存消失、真数据孤立在隐藏的 backup 里」，现场表现像媒体丢失。
+            Log.e(TAG, "Error copying player $playerIndex: ${e.message}", e)
+            try {
+                val dir = FileUtils.getPlayerLocalDir(context, playerIndex, storageLocation, customPath)
+                val parent = dir.parentFile
+                if (parent != null) {
+                    File(parent, ".${dir.name}_staging").deleteRecursively()
+                    val backup = File(parent, ".${dir.name}_backup")
+                    if (!dir.exists() && backup.exists()) {
+                        Log.w(TAG, "Restoring backup for player $playerIndex after failure")
+                        backup.renameTo(dir)
+                    }
+                }
+            } catch (cleanupError: Exception) {
+                Log.e(TAG, "Cleanup after copy failure also failed", cleanupError)
+            }
             PlayerCopyResult(playerIndex, 0, 0, false, e.message)
         }
     }
     
     /**
      * 从U盘拷贝所有播放器的媒体文件
+     *
+     * 用 [copyMutex] 串行化：插盘广播可能被投递两次（静态 + 动态注册），
+     * 并发拷贝会互相删对方的 staging/backup，导致拷贝失败甚至丢失旧缓存。
+     * 第二个调用会排队等待，而不是并行执行。
      */
     suspend fun copyAllFromUsb(
+        usbPath: File,
+        folderName: String,
+        onProgress: ((Int, Float) -> Unit)? = null
+    ): Boolean = copyMutex.withLock {
+        copyAllFromUsbInternal(usbPath, folderName, onProgress)
+    }
+
+    private suspend fun copyAllFromUsbInternal(
         usbPath: File,
         folderName: String,
         onProgress: ((Int, Float) -> Unit)? = null
