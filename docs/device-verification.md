@@ -103,44 +103,49 @@
 > 与 App 内「横屏 2×1」的「行×列」记法相反，但所指画面相同。
 > 本版未改动客户可见的布局名文案，需确认后统一。
 
-### 10. 滚动输入（1.1.0 已实测）
+### 10. 滚动输入（1.1.2 实现，真机已测）
 
-**实测结论（RK3568 真机 + USB 光电鼠标）：**
+**问题**：设备用 USB 鼠标、**无触摸屏**。Compose 的 `scrollable`（`verticalScroll`
+的底层）只处理**触摸源**拖动，鼠标源的按住拖动被直接忽略 ——
+因此「鼠标按住拖动」在本应用里不滚动，而同设备上的系统设置（原生 `ScrollView`）可以。
 
-设备输入设备为 `USB OPTICAL MOUSE`，具备 `REL_X / REL_Y / REL_WHEEL`，
-即滚轮是**真鼠标事件**（非方向键映射）。
+**为什么此前排查耗时很久**：`adb shell input swipe` 注入的是**触摸源**事件，
+走的是能工作的那条分支，所以用它验证总是显示「能滚」，掩盖了真实问题。
 
-根因已定位：Compose 的 `verticalScroll` **原生支持滚轮**，但把 `scrollDelta.y`
-（每刻度 ±1.0）直接当作**像素**量，每次仅滚动约 1 像素，视觉上等同不滚动。
-原生 View 体系会对滚轮刻度乘系数，Compose 不会。
+**复现**（必须注入真实鼠标事件）：
+```
+# 按下
+adb shell sendevent /dev/input/eventN 1 272 1 && adb shell sendevent /dev/input/eventN 0 0 0
+# 拖动（重复若干次）
+adb shell sendevent /dev/input/eventN 2 1 -3 && adb shell sendevent /dev/input/eventN 0 0 0
+# 抬起
+adb shell sendevent /dev/input/eventN 1 272 0 && adb shell sendevent /dev/input/eventN 0 0 0
+```
 
-1.1.0 因此显式接管滚轮与方向键：
+**实现**：`ui/components/MouseDragScroll.kt` 的 `Modifier.mouseDragScroll(state)`。
+两个要点缺一不可：
 
-| 输入 | 步长 | 实测结果 |
+| 要点 | 作用 | 缺失后果 |
 |---|---|---|
-| 鼠标滚轮 | 64dp/刻度 | `pos` 0→64→128→192… 正常滚动 |
-| 方向键 / 翻页键 | 96dp（翻页 ×4） | `pos` 递增，正常滚动 |
-| 触摸拖动 | 系统默认 | 正常 |
+| `PointerEventPass.Initial` | 由外向内派发，本处理器**先于**内建 `scrollable` 收到事件 | 用 `Main`（内层先收）时内建会先滚一次 |
+| `change.consume()` | 内建收不到被消费的事件，不再二次滚动 | 不消费则两条路径同时滚 → **慢速拖动抖动** |
 
-验证方法：
+**验证**（真机 + 真实鼠标事件注入）：
 
-```
-adb logcat -s ScrollInput:D          # 仅 Debug 构建有输出
-```
+| 输入 | 结果 |
+|---|---|
+| 鼠标按住拖动 | ✅ 慢速拖动 40 步 × 1px → 精确移动 40px，无抖动 |
+| 触摸拖动 | ✅ 正常（走内建 scrollable） |
+| 鼠标滚轮 | 走 Compose 内建 `Scroll` 分支 |
 
-在设置页滚动鼠标滚轮，应看到：
+**应用位置**：设置页（`SettingsScreen.kt`）与图片裁剪页（`ImageSplitScreen.kt`）。
 
-```
-ScrollInput: wheel notches=1.0 delta=64.0 pos=64/3436
-```
+**设置页另有一处布局修复**：滚动容器此前被套入一层 `Box(Modifier.fillMaxSize())`
+（为放置悬浮滚动按钮引入），导致滚动区高度被挤出可视范围。
+排查方法：`uiautomator dump` 查看滚动容器 bounds，健康状态为 `[0,64][1024,552]`
+（顶栏之下、铺满剩余空间）。
 
-`pos` 随滚动递增即表示生效。
-
-行为约定：
-
-- 方向键仅在**确实滚动得动**时消费；到边界或内容未溢出时不消费，
-  让按键继续冒泡做焦点导航，避免遥控器用户无法把焦点移到开关/按钮上
-- 该修复同时应用于设置页与图片裁剪页
+**兜底**：设置页右侧提供 ▲▼ 悬浮按钮，仅依赖点击，滚轮不可用时仍可浏览。
 
 ### 11. HDMI 硬件按键权限（1.1.0 发现，需 ROM 侧处理）
 
@@ -190,7 +195,7 @@ Caused by: AudioSink$InitializationException: AudioTrack init failed
 
 1. 设备型号 / 固件版本
 2. App 版本 / commit SHA
-   - 1.1.0 起可在设置页「关于」直接读取版本号（`1.1.0`）与版本代码（`2`）
+   - 1.1.0 起可在设置页「关于」直接读取版本号（`1.1.2`）与版本代码（`4`）
 3. 测试日期
 4. 测试步骤
 5. 结果
