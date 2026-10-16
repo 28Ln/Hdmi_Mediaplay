@@ -73,8 +73,10 @@
 ### D. 文档
 
 - [ ] `README.md` 已更新
+- [ ] `CHANGELOG.md` 已添加本版本段落
 - [ ] `docs/release-checklist.md` 已更新
 - [ ] `docs/verification-matrix.md` 已更新
+- [ ] `docs/device-verification.md` 验收项已覆盖本版改动
 - [ ] 验收版本与验证结论一致
 
 ## 发布步骤
@@ -83,22 +85,37 @@
    ```powershell
    ./gradlew.bat --stop
    ```
-2. 确认本地签名注入就绪
-3. 执行完整验证
+2. 更新版本号与变更说明
+   - 版本号唯一来源：`gradle/libs.versions.toml` 的 `appVersionName` / `appVersionCode`
+     （`app/build.gradle.kts` 读取它，设置页「关于」展示）
+   - `versionCode` 每次交付必须递增，否则设备无法覆盖安装
+   - 在 `CHANGELOG.md` 顶部添加对应版本段落
+3. 确认本地签名注入就绪
+4. 执行完整验证
    ```powershell
-   ./gradlew.bat testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease --console=plain --no-daemon
+   ./gradlew.bat clean testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease --console=plain --no-daemon
    ```
-4. 在真机做最小冒烟：
+5. 校验交付包（不要跳过——仅“构建成功”不能证明产物正确）
+   ```powershell
+   bash tools/verify-release-apk.sh
+   ```
+   该脚本自动完成以下检查（也可手工执行等效命令）：
+   - `apksigner verify --print-certs` → 确认证书**非** debug 证书
+   - `aapt2 dump badging` → 确认 `versionName` / `versionCode` 与 `libs.versions.toml` 一致
+   - 解包 `classes*.dex` 抽查本版新增关键字 → 确认新代码确实进入产物
+   - 输出 APK 的 SHA-256
+6. 在真机做最小冒烟：
    - 启动
    - U 盘插拔
    - 远控命令
    - 播放完成 / 播放错误
    - 记录到 `docs/acceptance-evidence-template.md`
-5. 导出 release 包并记录：
+7. 导出 release 包并记录：
    - git revision
    - 构建时间
    - 验证人
    - 验证范围
+   - APK 校验和（SHA-256）
 
 ## 回滚原则
 

@@ -1,0 +1,1185 @@
+<title>RK3568 交付审计清单</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* ============================================================
+   设计计划
+   主题：工业级设备交付审计 —— 类比硬件数据手册（datasheet）
+   色彩：冷偏蓝灰纸面 + 深海军蓝墨色 + 单一青灰强调；严重度色独立于强调色
+   字体：IBM Plex Sans（正文/标题，为技术文档而设计）+ IBM Plex Mono（路径、标识符、统计）
+   布局：单列参考文档，卡片承载条目；筛选条固定于顶部；四项字段（现象/根因/修法/验证）成组
+   ============================================================ */
+:root {
+  --paper:      #F4F6F8;
+  --surface:    #FFFFFF;
+  --surface-2:  #EDF0F4;
+  --ink:        #131A24;
+  --ink-2:      #3D4A5C;
+  --muted:      #6B7889;
+  --rule:       #D6DCE4;
+  --rule-soft:  #E6EAF0;
+  --accent:     #0E6B70;
+  --accent-ink: #0A4F53;
+  --accent-bg:  #E2F0F1;
+
+  --p0:         #B3261E;
+  --p0-bg:      #FCEBEA;
+  --p1:         #9A5B00;
+  --p1-bg:      #FDF2E2;
+  --p2:         #2A5C8A;
+  --p2-bg:      #E8F1F9;
+  --p3:         #5C6673;
+  --p3-bg:      #EDF0F3;
+
+  --ok:         #1E6B3A;
+  --ok-bg:      #E4F1E8;
+
+  --sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  --gut: 20px;
+  --maxw: 1080px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:      #0F141B;
+    --surface:    #161D26;
+    --surface-2:  #1D2531;
+    --ink:        #E4E9F0;
+    --ink-2:      #B4BFCD;
+    --muted:      #8593A5;
+    --rule:       #2A3441;
+    --rule-soft:  #222B37;
+    --accent:     #4FB3B8;
+    --accent-ink: #7FCBD0;
+    --accent-bg:  #11302F;
+
+    --p0:         #F2857C;
+    --p0-bg:      #331917;
+    --p1:         #E0A94D;
+    --p1-bg:      #33270F;
+    --p2:         #7FB2E0;
+    --p2-bg:      #15283A;
+    --p3:         #98A4B4;
+    --p3-bg:      #1E2631;
+
+    --ok:         #6FC38B;
+    --ok-bg:      #14301E;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper:      #0F141B;
+  --surface:    #161D26;
+  --surface-2:  #1D2531;
+  --ink:        #E4E9F0;
+  --ink-2:      #B4BFCD;
+  --muted:      #8593A5;
+  --rule:       #2A3441;
+  --rule-soft:  #222B37;
+  --accent:     #4FB3B8;
+  --accent-ink: #7FCBD0;
+  --accent-bg:  #11302F;
+
+  --p0:         #F2857C;
+  --p0-bg:      #331917;
+  --p1:         #E0A94D;
+  --p1-bg:      #33270F;
+  --p2:         #7FB2E0;
+  --p2-bg:      #15283A;
+  --p3:         #98A4B4;
+  --p3-bg:      #1E2631;
+
+  --ok:         #6FC38B;
+  --ok-bg:      #14301E;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.6;
+  padding-block: 0 64px;
+  padding-inline: var(--gut);
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: var(--maxw); margin-inline: auto; }
+
+/* ---------- 页头 ---------- */
+header.masthead {
+  border-bottom: 2px solid var(--ink);
+  padding-block: 40px 20px;
+  margin-bottom: 0;
+}
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+h1 {
+  font-size: clamp(26px, 4.4vw, 40px);
+  line-height: 1.12;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 10px;
+  text-wrap: balance;
+}
+.sub {
+  color: var(--ink-2);
+  max-width: 62ch;
+  margin: 0;
+  font-size: 14.5px;
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin-top: 16px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.meta b { color: var(--ink-2); font-weight: 500; }
+
+/* ---------- 统计条 ---------- */
+.tally {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-top: none;
+  margin-bottom: 26px;
+}
+.tally div {
+  background: var(--surface);
+  padding: 14px 16px;
+}
+.tally .k {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.tally .v {
+  font-size: 23px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.tally .v small { font-size: 13px; font-weight: 500; color: var(--muted); }
+.v.c-p0 { color: var(--p0); }
+.v.c-p1 { color: var(--p1); }
+.v.c-ok { color: var(--ok); }
+
+/* ---------- 筛选 ---------- */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 0 18px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 30px;
+}
+.filters .lab {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 2px;
+}
+.fbtn {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 5px 11px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.fbtn:hover { border-color: var(--accent); color: var(--accent-ink); }
+.fbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fbtn[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+:root[data-theme="dark"] .fbtn[aria-pressed="true"],
+:root:not([data-theme="light"]) .fbtn[aria-pressed="true"] { color: #0F141B; }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .fbtn[aria-pressed="true"] { color: #fff; }
+}
+.sep { width: 1px; align-self: stretch; background: var(--rule); margin-inline: 4px; }
+.count {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 分组 ---------- */
+.group { margin-bottom: 40px; }
+.group > h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .01em;
+  margin: 0 0 4px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--ink);
+}
+.group > .gdesc {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 8px 0 16px;
+  max-width: 70ch;
+}
+
+/* ---------- 条目卡 ---------- */
+.item {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--p3);
+  border-radius: 3px;
+  padding: 15px 17px 16px;
+  margin-bottom: 9px;
+}
+.item[data-p="P0"] { border-left-color: var(--p0); }
+.item[data-p="P1"] { border-left-color: var(--p1); }
+.item[data-p="P2"] { border-left-color: var(--p2); }
+.item[data-p="P3"] { border-left-color: var(--p3); }
+.item.done { background: var(--surface-2); }
+.item.done .ttl { color: var(--ink-2); }
+
+.ihead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+.id {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  letter-spacing: .02em;
+}
+.chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+.c-ok  { background: var(--ok-bg);  color: var(--ok); }
+.c-part{ background: var(--p1-bg);  color: var(--p1); }
+.c-todo{ background: var(--surface-2); color: var(--muted); }
+.c-dec { background: var(--p2-bg);  color: var(--p2); }
+.ttl {
+  font-size: 15.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 0 0 10px;
+  letter-spacing: -0.005em;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 5px 12px;
+  font-size: 13.5px;
+}
+.fields dt {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  color: var(--muted);
+  text-transform: uppercase;
+  padding-top: 3px;
+}
+/* min-width:0 是关键：1fr 轨道默认 min-width:auto，长路径会把容器撑破 */
+.fields dd { margin: 0; color: var(--ink-2); line-height: 1.55; min-width: 0; }
+.fields dd + dt { margin-top: 3px; }
+
+code, .p {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--surface-2);
+  padding: 1px 4px;
+  border-radius: 2px;
+  color: var(--accent-ink);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 560px) {
+  .fields { grid-template-columns: 1fr; gap: 1px 0; }
+  .fields dt { padding-top: 7px; }
+}
+
+/* ---------- 决策区 ---------- */
+.decisions {
+  border: 1px solid var(--p2);
+  border-radius: 3px;
+  background: var(--surface);
+  padding: 4px 0;
+  margin-top: 8px;
+}
+.decisions .item { border: none; border-bottom: 1px solid var(--rule-soft); border-radius: 0; margin: 0; background: transparent; }
+.decisions .item:last-child { border-bottom: none; }
+
+/* ---------- clean 列表 ---------- */
+.clean {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 16px 20px 18px;
+}
+.clean ul { margin: 0; padding-left: 18px; }
+.clean li { margin-bottom: 5px; color: var(--ink-2); font-size: 13.5px; }
+.clean li::marker { color: var(--ok); }
+
+footer {
+  margin-top: 44px;
+  padding-top: 18px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.empty {
+  padding: 28px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13.5px;
+  border: 1px dashed var(--rule);
+  border-radius: 3px;
+}
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <div class="eyebrow">交付审计 · P 级任务清单</div>
+  <h1>RK3568 HDMI 媒体播放器</h1>
+  <p class="sub">
+    20 个只读审计 agent 并发扫描全部模块，叠加 1024×600 真机 GUI 实测。
+    下表是完整条目，已修复的与待修的一并列出，按「现象 → 根因 → 修法 → 验证」组织，可逐条推进。
+  </p>
+  <div class="meta">
+    <span><b>设备</b> RK3568 / Android 11 / 1024×600 @density 160</span>
+    <span><b>审计日期</b> 2026-10-15</span>
+    <span><b>基线</b> versionName 1.1.0 / versionCode 2</span>
+  </div>
+</header>
+
+<div class="tally">
+  <div><div class="k">P0 阻断交付</div><div class="v c-ok">11<small> / 11 已修</small></div></div>
+  <div><div class="k">P1 影响交付</div><div class="v c-p1">26</div></div>
+  <div><div class="k">P2 体验</div><div class="v ">16</div></div>
+  <div><div class="k">P3 打磨</div><div class="v ">6</div></div>
+  <div><div class="k">待你决策</div><div class="v ">4</div></div>
+</div>
+
+<div class="filters">
+  <span class="lab">级别</span>
+  <button class="fbtn" data-f="p" data-v="P0" aria-pressed="true">P0</button>
+  <button class="fbtn" data-f="p" data-v="P1" aria-pressed="true">P1</button>
+  <button class="fbtn" data-f="p" data-v="P2" aria-pressed="true">P2</button>
+  <button class="fbtn" data-f="p" data-v="P3" aria-pressed="true">P3</button>
+  <span class="sep"></span>
+  <span class="lab">状态</span>
+  <button class="fbtn" data-f="s" data-v="todo" aria-pressed="true">待修</button>
+  <button class="fbtn" data-f="s" data-v="part" aria-pressed="true">部分修复</button>
+  <button class="fbtn" data-f="s" data-v="done" aria-pressed="true">已修复</button>
+  <span class="count" id="shown"></span>
+</div>
+
+<!-- ================= P0 ================= -->
+<section class="group" data-group="P0">
+  <h2>P0 — 阻断交付<span class="chip c-ok">已清零</span></h2>
+  <p class="gdesc">这 11 条任一存在时，客户现场会出现「功能缺失 / 数据丢失 / 随机崩溃」级别的问题。全部已修复并通过构建。</p>
+
+  <article class="item done" data-p="P0" data-s="done">
+    <div class="ihead"><span class="id">P0-0</span><span class="chip c-ok">已修复</span></div>
+    <h3 class="ttl">布局切换销毁并重建 ExoPlayer（注释与实现相反）</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>SINGLE → 2×2 → SINGLE 来回切，2/3/4 路被反复 release 重建，视频从 00:00 重播并闪黑。</dd>
+      <dt>根因</dt><dd><code>QuadPlayerLayout.kt</code> 的 <code>PlayerCell</code> 在不可见时提前 <code>return</code>，令 <code>MediaPlayerView</code> 离开组合树，触发 <code>VideoPlayerView</code> 的 <code>DisposableEffect.onDispose</code> → <code>release()</code>。文件头注释却写明「布局切换不会重建」。</dd>
+      <dt>修法</dt><dd>隐藏格不再提前返回，始终组合播放器；隐藏时把配置改为「暂停 + 静音」以保留实例与进度，不再出声。</dd>
+      <dt>验证</dt><dd>切换布局时 logcat 不应再成对出现 <code>Creating new ExoPlayer for:</code> / <code>Player released</code>；切回后进度不回零。</dd>
+    </dl>
+  </article>
+
+  <article class="item done" data-p="P0" data-s="done">
+    <div class="ihead"><span class="id">P0-1</span><span class="chip c-ok">已修复</span></div>
+    <h3 class="ttl">客户版下 U 盘 btf_config.json 的功能开关全部失效</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>Release 包中，U 盘 <code>features</code> 开关完全不生效。而 <code>DEBUG_VS_RELEASE.md</code> 明确承诺「在 U 盘根目录放置 btf_config.json 即可为客户开启功能」。</dd>
+      <dt>根因</dt><dd><code>MainScreen.kt</code> 与 <code>SettingsScreen.kt</code> 在 <code>customerUiMode</code> 时无条件取 <code>FeatureFlags.releaseDefaults()</code>，把 <code>FeatureManager</code> 中已叠加过 U 盘覆盖的结果整个丢弃。Release 下该条件恒真。</dd>
+      <dt>修法</dt><dd>移除 UI 层的二次覆盖，改读 <code>FeatureManager</code>；底值差异由 <code>FeatureManager.init(!customerUiMode)</code> 决定。</dd>
+      <dt>验证</dt><dd>Release 包 + <code>{"features":{"showImageSplitTool":false}}</code> → 裁剪按钮消失；无 U 盘时行为与现状一致。</dd>
+    </dl>
+  </article>
+
+  <article class="item done" data-p="P0" data-s="done">
+    <div class="ihead"><span class="id">P0-2</span><span class="chip c-ok">已修复</span></div>
+    <h3 class="ttl">ERROR 状态不可逆 —— 播放恢复后 UI 永久卡在报错</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>某路出现一次瞬时错误后，格子永久卡在报错，点播放/暂停也出不来，只能重选文件。</dd>
+      <dt>根因</dt><dd><code>setPlayerError</code> 置 <code>ERROR</code> 后，<code>togglePlayPause</code> 的 <code>else</code> 分支对 ERROR 原样保留，<code>updatePlayerCurrentIndex</code> 只改索引不动状态。播放器自己却已在 <code>STATE_READY</code> 时清掉本地错误 —— 两套状态机各说各话。</dd>
+      <dt>修法</dt><dd>新增 <code>onRecovered</code> 回调链（播放器 → MediaPlayerView → QuadPlayerLayout → <code>clearPlayerError</code>），播放恢复即清除 ERROR。</dd>
+      <dt>验证</dt><dd>用无效路径播放 → 报错 → 换回有效文件，角标应由红转绿。</dd>
+    </dl>
+  </article>
+
+  <article class="item done" data-p="P0" data-s="done">
+    <div class="ihead"><span class="id">P0-3</span><span class="chip c-ok">已修复</span></div>
+    <h3 class="ttl">播放器初始化失败不上报，ViewModel 一直以为在播</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>4 路并发下 <code>ExoPlayer.Builder</code> 抛异常时，格子显示「播放器初始化失败」，但角标仍是绿色 PLAYING，远控查询也回 <code>playing</code>。</dd>
+      <dt>根因</dt><dd><code>VideoPlayerView</code> 的 <code>exoPlayer == null</code> 分支只渲染占位符就 <code>return</code>，唯独这一条漏了 <code>onError</code> 上报（同文件的「文件不存在」分支是有的）。</dd>
+      <dt>修法</dt><dd>该分支补 <code>LaunchedEffect { onError?.invoke(...) }</code>。</dd>
+      <dt>验证</dt><dd>人为让创建播放器抛异常，角标应变红且发出 <code>sendError</code>。</dd>
+    </dl>
+  </article>
+
+  <article class="item done" data-p="P0" data-s="done">
+    <div class="ihead"><span class="id">P0-4</span><span class="chip c-ok">已修复</span><span class="chip c-p0">安全</span></div>
+    <h3 class="ttl">U 盘配置可经 usbScanFolderName 越出 U 盘读取任意目录</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>U 盘上的 <code>btf_config.json</code> 写 <code>"usbScanFolderName":"../.."</code>，扫描目录即逃出 U 盘，把设备上任意目录的媒体拷入缓存，并持久化到设置长期生效。</dd>
+      <dt>根因</dt><dd>该字段只做「非空」校验，随后被 <code>File(usbPath, folderName)</code> 直接拼接，无规范化、无越界检查。</dd>
+      <dt>修法</dt><dd>解析层拒绝 <code>..</code> / <code>.</code> / 含 <code>/</code> 或 <code>\</code> 的值并记告警；使用层再用 <code>canonicalPath</code> 校验前缀，越界时回退到 U 盘根。</dd>
+      <dt>验证</dt><dd>新增单测覆盖 <code>../..</code>、<code>..</code>、<code>.</code>、<code>a/b</code>、<code>a\b</code>、<code>/sdcard</code> 六种取值均被拒。</dd>
+    </dl>
+  </article>
+
+  <article class="item done" data-p="P0" data-s="done">
+    <div class="ihead"><span class="id">P0-5</span><span class="chip c-ok">已修复</span></div>
+    <h3 class="ttl">startForeground 失败被吞 → 系统在 5 秒后杀掉进程</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>通知或渠道构造失败时，服务继续运行但无前台通知；Android 11+ 随后抛 <code>RemoteServiceException</code> 杀进程，日志上看着像「随机崩溃」。</dd>
+      <dt>根因</dt><dd><code>onStartCommand</code> 与 <code>onCreate</code> 都把 <code>startForeground</code> 包在只记日志的 catch 里，随后照常返回。</dd>
+      <dt>修法</dt><dd>失败即 <code>stopSelf()</code> 并返回 <code>START_NOT_STICKY</code>，让失败可见而不是伪装成崩溃。</dd>
+      <dt>验证</dt><dd>注入通知构造失败，logcat 不应出现 <code>RemoteServiceException</code>，服务干净退出。</dd>
+    </dl>
+  </article>
+
+  <article class="item done" data-p="P0" data-s="done">
+    <div class="ihead"><span class="id">P0-6</span><span class="chip c-ok">已修复</span></div>
+    <h3 class="ttl">拷贝中断可能丢失全部旧缓存</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>拷贝过程中断电/被杀，媒体只留在隐藏的 <code>.playerN_backup</code>；下次拷贝一进来先把它删掉 → 数据永久丢失。</dd>
+      <dt>根因</dt><dd>每次进入拷贝都无条件 <code>backupDir.deleteRecursively()</code>；异常路径既不恢复 backup 也不清理 staging。</dd>
+      <dt>修法</dt><dd>进入时先回收上次遗留的备份（若 target 缺失而 backup 存在则还原）；异常路径兜底还原 + 清理 staging。</dd>
+      <dt>验证</dt><dd>构造「backup 存在、playerN 缺失」，断言旧文件被找回而非被清掉。</dd>
+    </dl>
+  </article>
+
+  <article class="item done" data-p="P0" data-s="done">
+    <div class="ihead"><span class="id">P0-7</span><span class="chip c-ok">已修复</span></div>
+    <h3 class="ttl">拷贝可能并发执行，互相删毁 staging</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>一次插盘触发两次拷贝，一个协程删掉另一个正在写入的 staging，两边都失败。</dd>
+      <dt>根因</dt><dd>USB 挂载广播被投递两次（Manifest 静态注册 + 服务内动态注册），而拷贝入口无单飞保护。</dd>
+      <dt>修法</dt><dd><code>copyMutex.withLock</code> 串行化整批拷贝。</dd>
+      <dt>验证</dt><dd>并发调用两次 <code>copyAllFromUsb</code>，断言最终只有一份完整结果、无 staging/backup 残留。</dd>
+    </dl>
+  </article>
+
+  <article class="item done" data-p="P0" data-s="done">
+    <div class="ihead"><span class="id">P0-8</span><span class="chip c-ok">已修复</span></div>
+    <h3 class="ttl">ServiceConnection 泄漏</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>Activity 在 <code>bindService</code> 与 <code>onServiceConnected</code> 之间被销毁时，logcat 报 <code>Activity has leaked ServiceConnection</code>，Activity 无法回收。</dd>
+      <dt>根因</dt><dd><code>onDestroy</code> 只在 <code>serviceBound</code>（回调已到达）时才解绑，而该标志在此窗口内仍为 false。</dd>
+      <dt>修法</dt><dd>新增 <code>bindRequested</code> 标志，在发起绑定时置位，<code>onDestroy</code> 依据它解绑。</dd>
+      <dt>验证</dt><dd>触发绑定后立即 finish Activity，重复多次，logcat 无泄漏告警。</dd>
+    </dl>
+  </article>
+
+  <article class="item done" data-p="P0" data-s="done">
+    <div class="ihead"><span class="id">P0-9</span><span class="chip c-ok">已修复</span></div>
+    <h3 class="ttl">图片裁剪全量解码，4K/8K 源图必然 OOM</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>选一张 8K 图点「执行裁剪」，进程直接闪退。峰值内存 ≈ 源图 + 各分块中间图。</dd>
+      <dt>根因</dt><dd>直接 <code>decodeStream</code> 全尺寸解码；且 <code>catch (e: Exception)</code> 抓不到 <code>OutOfMemoryError</code>（它是 Error 不是 Exception），崩溃无法拦截。 <code>largeHeap</code> 只是把崩溃点往后推。</dd>
+      <dt>修法</dt><dd>先 <code>inJustDecodeBounds</code> 读边界算出 2 的幂次 <code>inSampleSize</code>，使解码量不超过「分块数 × 目标分辨率」；并单独捕获 <code>OutOfMemoryError</code> 返回可读失败信息。</dd>
+      <dt>验证</dt><dd>8K 图跑 2×2，应显示「图片过大，内存不足」而非进程退出。</dd>
+    </dl>
+  </article>
+
+  <article class="item done" data-p="P0" data-s="done">
+    <div class="ihead"><span class="id">P0-10</span><span class="chip c-ok">已修复</span></div>
+    <h3 class="ttl">CI 在干净克隆上必然失败</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>GitHub Actions 从未成功过；workflow 注定跑不起来。</dd>
+      <dt>根因</dt><dd><code>gradle.properties</code> 硬编码 <code>org.gradle.java.home=C:/Program Files/Android/Android Studio/jbr</code>。runner 上不装 Android Studio，该路径不存在 → Gradle 直接报 <code>Java home supplied is invalid</code>，并覆盖掉 <code>setup-java</code> 设的 JDK。</dd>
+      <dt>修法</dt><dd>删除该属性（本地需要时放进 <code>~/.gradle/gradle.properties</code>）。</dd>
+      <dt>验证</dt><dd>干净目录执行 workflow 命令不再报 invalid Java home。</dd>
+    </dl>
+  </article>
+</section>
+
+<!-- ================= P1 ================= -->
+<section class="group" data-group="P1">
+  <h2>P1 — 影响交付质量</h2>
+  <p class="gdesc">不阻断启动，但会造成现场功能异常、数据异常或难以排查的问题。</p>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-01</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">图片裁剪把非 16:9 源图硬拉变形</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>4000×3000 的 4:3 照片跑 2×2，每块裁出 2000×1500 后被无条件拉伸到 1920×1080，横向放大 1.33 倍，人脸明显变宽。</dd>
+      <dt>根因</dt><dd>只做等分，没有「先按目标总比例居中裁成 cols·16 : rows·9」的步骤，然后无条件 scale 到目标分辨率 —— 与注释声称的「确保输出全屏无黑边」矛盾。</dd>
+      <dt>修法</dt><dd>等分前先按 <code>(cols×1920) : (rows×1080)</code> 对源图做一次居中裁剪，再等分。</dd>
+      <dt>验证</dt><dd>4:3 与 16:9 两张图各跑 2×2，输出块宽高比应都等于布局理想比。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-02</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">裁剪结果不落布局，四路画面与裁剪网格对不上</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>2×2 裁剪并应用后返回主页，墙仍是旧布局：若是 SINGLE 只有一格显示；若是「2×2 同画面」四格显示同一块，看着像没生效。</dd>
+      <dt>根因</dt><dd>应用时只写文件 + 重新加载媒体，从不设置 <code>layoutMode</code> / <code>videoScaleMode</code>。</dd>
+      <dt>修法</dt><dd>按 <code>SplitLayout</code> 映射到对应 <code>LayoutMode</code> 并写入设置，同时确保缩放模式为拉伸。</dd>
+      <dt>验证</dt><dd>2×2 裁剪应用后，<code>settings.layoutMode</code> 应为 GRID_2X2，四格各显示不同的一块。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-03</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">裁剪结果文件名带时间戳且从不清理，旧图混进轮播</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>对图 A 应用一次、图 B 再应用一次，player1 目录下两张裁剪图并存，播放器在「旧图的一块」与「新图的一块」之间来回跳。多次应用后目录堆积大量历史文件。</dd>
+      <dt>根因</dt><dd>文件名带毫秒时间戳，永不重名也永不覆盖；写入前不清理同目录旧内容（对比 U 盘导入路径是有事务替换的）。</dd>
+      <dt>修法</dt><dd>写入前清空该播放器目录中的 <code>split_*.jpg</code>，或改用固定文件名覆盖写。</dd>
+      <dt>验证</dt><dd>连续应用两张图后，目录应只剩一份裁剪结果。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-04</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">裁剪失败后仍持有已回收的 Bitmap，再点保存即崩溃</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>保存过程中某块写盘失败时，页面停留且预览仍在渲染已回收的位图 → <code>Canvas: trying to use a recycled bitmap</code> 崩溃。且按钮仍可用，再按一次会弹「已保存 N 块」的假成功。</dd>
+      <dt>根因</dt><dd>回收后仍把同一批位图对象写回状态；失败分支只回调 <code>onComplete(false)</code> 而不清空结果；按钮 <code>enabled</code> 只看上一次的 <code>success</code>。</dd>
+      <dt>修法</dt><dd>成功/失败路径都清空结果或改为只持有路径的轻量模型；保存中禁用按钮；<code>savedCount</code> 统计本次实际写入数。</dd>
+      <dt>验证</dt><dd>把目标目录设为只读后保存，应提示部分失败而非崩溃；连点两次不出现成功提示。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-05</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">裁剪忽略 EXIF 方向，输出与预览方向不一致</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>手机竖拍照片（EXIF Orientation=6）预览是竖的、网格也竖着画，但裁出的四块是横的，拼起来和预览完全对不上。</dd>
+      <dt>根因</dt><dd>裁剪走 <code>BitmapFactory.decodeStream</code>（不解析 EXIF），而预览用 Coil 的 <code>AsyncImage</code>（会按 EXIF 自动定向）；读尺寸也是未旋转的宽高，导致推荐布局判错横竖。</dd>
+      <dt>修法</dt><dd>解码后读 <code>TAG_ORIENTATION</code> 并做矩阵旋转；<code>getImageInfo</code> 按 EXIF 交换宽高后再推荐布局。</dd>
+      <dt>验证</dt><dd>用 Orientation=6 的照片跑 2×2，输出块方向应与预览网格一致。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-06</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">裁剪整除余数被丢弃，写盘非原子会残留半截文件</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>4001×3001 的图跑 2×2，最后一列/行各丢 1px。磁盘满时目录里留下几百字节的半截 <code>split_*.jpg</code>，因长度 &gt; 0 仍被收进播放列表，播放时黑屏。</dd>
+      <dt>根因</dt><dd><code>sourceWidth / cols</code> 整数除法余数不补偿；写盘直接 <code>FileOutputStream</code>，中途异常不删除半成品。</dd>
+      <dt>修法</dt><dd>边界改为 <code>left = col * w / cols</code>、<code>right = (col+1) * w / cols</code> 让整图无遗漏；写盘先写 <code>.tmp</code> 再 rename。</dd>
+      <dt>验证</dt><dd>4001×3001 跑 3×1，三块宽度之和应为 4001；填满分区后目录无半截文件。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-07</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">视频索引与媒体总索引混用，混合内容时切错视频</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>一路里同时有视频和图片时，图片轮播推进过的序号会污染视频索引，下次切视频跳到错误文件或回到第一个。</dd>
+      <dt>根因</dt><dd><code>MediaPlayerView</code> 用 <code>videoItems</code> 的索引空间，而 ViewModel 用 <code>mediaItems</code> 的索引空间读写同一个 <code>currentIndex</code> 字段；错误回退分支又把它当图片索引用。</dd>
+      <dt>修法</dt><dd>统一 <code>currentIndex</code> 语义为「在 mediaItems 中的下标」，由 <code>MediaPlayerView</code> 内部做映射；或为视频/图片各设独立字段。</dd>
+      <dt>验证</dt><dd>构造「2 视频 + 5 图片」，触发视频结束与图片回退各一次，上报下标应与实播文件一致。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-08</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">轨道选择无上限，4 路 4K 有 OOM 与解码器耗尽风险</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>4 路同时打开高码率 4K HEVC 时内存攀升、卡顿甚至被杀。</dd>
+      <dt>根因</dt><dd><code>DefaultTrackSelector(context)</code> 未设 <code>setMaxVideoSize</code> / <code>setMaxVideoBitrate</code>，选流阶段就允许 2160p；缓冲字节数也设为 <code>LENGTH_UNSET</code>，随分辨率自动放大。</dd>
+      <dt>修法</dt><dd>用带约束的 Parameters 构造选择器（上限做成可配置项而非硬编码无限）；缓冲字节数改为固定上限。</dd>
+      <dt>验证</dt><dd>4K 源四路同开，<code>dumpsys meminfo</code> 观察峰值，<code>dumpsys media.codec</code> 确认活跃解码器数。</dd>
+    </dl>
+  </article>
+
+  <article class="item part" data-p="P1" data-s="part">
+    <div class="ihead"><span class="id">P1-09</span><span class="chip c-part">部分修复</span></div>
+    <h3 class="ttl">UI 层大量硬编码中文，绕过 StringResources</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>全仓 UI 层约 171 处中文未走资源：图片裁剪页整屏、设置页维护/HDMI/关于区块、多个对话框、ViewModel 的 14 条 toast。切英文后这些位置仍是中文。</dd>
+      <dt>根因</dt><dd>新增页面与后期改动未接 <code>StringResources</code>；项目同时存在 <code>res/values/strings.xml</code>（41 条中仅 4 条存活）与 Kotlin 资源对象两套来源。</dd>
+      <dt>修法</dt><dd>逐块下沉到 <code>StringResources</code>。已修：客户版底部栏、维护操作区块。剩余：裁剪页整屏、对话框、ViewModel toast。</dd>
+      <dt>验证</dt><dd>切英文后逐页截图，不应出现任何 CJK 字符。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-10</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">MainScreen 语言切换后文案不刷新</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>MainScreen 没有 <code>key(lang)</code>，<code>HelpTip</code> / <code>BottomControlBar</code> 等无参或参数不变的子组件被 Compose 跳过重组，切语言后仍显示旧语言。</dd>
+      <dt>根因</dt><dd><code>StringResources.currentLanguage</code> 是普通 <code>var</code>，不参与 Compose 快照；语言变化无法穿透到已跳过的子树。</dd>
+      <dt>修法</dt><dd>已修 <code>HelpTip</code>（加 <code>lang</code> 参数）。根治方案是改用 <code>CompositionLocal</code> 或在 MainScreen 外层包 <code>key(lang)</code>（注意不要重建播放器）。</dd>
+      <dt>验证</dt><dd>切英文后返回主界面，帮助提示与底部栏文案应同步为英文。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-11</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">set_loop_mode 非法值静默降级；set_interval 回报未 clamp 的值</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>远控发 <code>{"action":"set_loop_mode"}</code>（缺字段）或非法值，一律静默变成 LIST 并回报成功；<code>set_interval 999</code> 实际生效 60，回执却写 999。</dd>
+      <dt>根因</dt><dd>缺省值写成枚举里不存在的 <code>"ALL"</code>，<code>valueOf</code> 失败被 catch 成 LIST 后无条件报成功；interval 的回报文案用原始值而非 clamp 后的值。</dd>
+      <dt>修法</dt><dd>缺省改 LIST；非法值走 <code>sendError</code> 并返回 false；回报使用 clamped 值。</dd>
+      <dt>验证</dt><dd>新增单测覆盖缺字段与非法值应返回 false 且不调用回调；<code>set_interval:999</code> 的回执必须为 60。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-12</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">播放器级命令对不存在的索引仍报成功并广播虚假状态</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>SINGLE 布局下发 <code>play(player_index=3)</code>，回执报 <code>playing</code>，实际什么都没发生；远控端据此认为 4 路都在播。</dd>
+      <dt>根因</dt><dd>只校验常量的 <code>0..3</code> 区间，不知道实际播放器数量；无论回调是否生效都发 <code>playback_changed</code>；ViewModel 对应方法在无匹配配置或空媒体时是空操作且无返回值。</dd>
+      <dt>修法</dt><dd>回调方法返回 Boolean/Result，handler 据此决定发成功还是错误；索引按实际有效集合校验。</dd>
+      <dt>验证</dt><dd>单测用假回调令 <code>play(3)</code> 返回 false，断言 handler 返回 false 且发 error 而非 playback_changed。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-13</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">错误码塌缩：1004 / 1005 永不触发，部分失败静默</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>「文件不存在」「不可读」「格式不支持」三种情况一律折叠成同一个错误码；<code>media_paths</code> 数组里部分路径无效时只记日志跳过，调用方收到「成功 + 更少文件」。</dd>
+      <dt>根因</dt><dd><code>createMediaItem</code> 用 null 表示所有失败原因；两个已声明的错误码全仓零引用。</dd>
+      <dt>修法</dt><dd>改为密封结果类型区分三种失败并映射到对应错误码；数组部分失败返回 false 并列出被跳过的路径。</dd>
+      <dt>验证</dt><dd>分别用不存在路径、无读权限文件、<code>.txt</code> 构造命令，断言错误码各不相同。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-14</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">hide / show 无投递确认即报成功</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>Activity 不在前台时发 <code>hide</code>，广播无人接收、应用并未退到后台，调用方却收到 <code>command_success</code>。<code>show</code> 同理（后台启动 Activity 受限）。</dd>
+      <dt>根因</dt><dd>两个 handler 只负责发送广播或 <code>startActivity</code>，发送成功即视为命令成功，无回执确认。</dd>
+      <dt>修法</dt><dd>由 Activity 执行后回发 ack；或先检查前台状态，未生效时返回错误。</dd>
+      <dt>验证</dt><dd>注入不注册接收器的 Context，断言 <code>hide</code> 应返回 false。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-15</span><span class="chip c-todo">待修</span><span class="chip c-p1">文档</span></div>
+    <h3 class="ttl">11 种状态事件全部未文档化，state 取值域不一致</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>代码实发 11 种 <code>type</code> 事件，而 <code>docs/remote-command-contract.md</code> 全文零个事件类型，文档自认「JSON schema 待补」—— 验收方无法编写接收端。且 stop 回执用 <code>"stopped"</code>，而 <code>get_status</code> 把同一状态映射为 <code>"idle"</code>，接收端按 <code>stopped</code> 判停会失效。</dd>
+      <dt>根因</dt><dd>事件发射侧与状态快照侧各用一套映射，文档未随实现更新。</dd>
+      <dt>修法</dt><dd>在契约文档增「Status Events」表，逐条列字段名/类型/取值域；统一 <code>state</code> 映射函数。</dd>
+      <dt>验证</dt><dd>契约测试：stop 命令的 <code>playback_changed.state</code> 应与随后 <code>get_status</code> 中该路取值一致。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-16</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">状态载荷泄漏本地绝对路径</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd><code>media_path</code> 在三类事件中外发原样绝对路径（含 U 盘挂载点）；错误消息也内嵌路径。</dd>
+      <dt>根因</dt><dd>直接透传内部路径，未做脱敏。</dd>
+      <dt>修法</dt><dd>改为相对路径或仅发媒体名；错误用 code 表达，路径细节只进本地日志。</dd>
+      <dt>验证</dt><dd>接收端抓包确认载荷不含 <code>/storage/</code>、<code>/mnt/media_rw/</code> 前缀。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-17</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">batch 无深度限制可致栈溢出，部分失败仍报成功</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>嵌套 <code>batch</code> 无层数限制，递归过深会在主线程抛 <code>StackOverflowError</code> 崩溃进程（catch Exception 抓不到 Error）。10 条子命令产生 11 次系统广播。部分失败时仍回报成功。</dd>
+      <dt>根因</dt><dd>递归调用未限深度；catch 范围不含 Error；成功计数与总数未比对。</dd>
+      <dt>修法</dt><dd>加深度上限（如 &gt;3 拒绝）；catch 扩到 Throwable；部分失败改发错误或聚合上报（子命令进入静默模式，结束时一次性汇总）。</dd>
+      <dt>验证</dt><dd>5 层嵌套不崩溃且返回 false；10 条子命令只产生 1 次广播。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-18</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">主线程阻塞 I/O —— 大目录扫描有 ANR 风险</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>远控 <code>set_media_dir</code> 指向含上万文件的目录时，广播接收器在主线程同步 <code>listFiles()</code> + 逐文件 <code>exists/canRead/length</code>，receiver 有约 10 秒超时。</dd>
+      <dt>根因</dt><dd><code>onReceive</code> 默认主线程；handler 未切到 IO。</dd>
+      <dt>修法</dt><dd>改用 <code>goAsync()</code> + 后台调度，或 handler 内对扫描切 <code>Dispatchers.IO</code>，结果回调中再发广播。</dd>
+      <dt>验证</dt><dd>万级文件目录下发送命令，主线程无 &gt;100ms 停顿。</dd>
+    </dl>
+  </article>
+
+  <article class="item part" data-p="P1" data-s="part">
+    <div class="ihead"><span class="id">P1-19</span><span class="chip c-part">部分修复</span></div>
+    <h3 class="ttl">图片 96MB/格：Size.ORIGINAL 关闭了降采样</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>4 路图片轮播大图时内存暴涨、切图卡顿。6000×4000 按 ARGB_8888 解码约 96MB，淡入淡出期间新旧两份同时驻留再乘 4。</dd>
+      <dt>根因</dt><dd><code>ImageRequest.size(Size.ORIGINAL)</code> 显式关闭了 Coil 的目标尺寸降采样 —— 注释写「让 Coil 自动优化」，实际效果正相反。</dd>
+      <dt>修法</dt><dd>已移除该调用，交回 Coil 依据布局约束自动降采样。</dd>
+      <dt>验证</dt><dd>4 路轮播大图，<code>dumpsys meminfo</code> 的 Graphics 峰值应显著下降。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-20</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">样式无单一来源：同屏 4 种按钮高度、3 套字号</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>设置页里「高级设置」按钮是 Material 默认高、「维护操作」60dp、HDMI 全屏 64/52dp、拼接模式 82/68dp；三个手写 Surface 绕过共用组件且字号不随客户模式变化，而同一屏的其他区块却全随。</dd>
+      <dt>根因</dt><dd>无共享尺寸常量，各处各写 <code>.height()</code>；段内边距在容器和子项上被双重施加。</dd>
+      <dt>修法</dt><dd>抽出由客户模式一次性解析的尺寸对象，各设置组件统一消费。</dd>
+      <dt>验证</dt><dd>Debug/Release 各截整页长图，所有按钮高度与段落间距应各只有一个值。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-21</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">模式按钮文字可能被硬裁（无 ellipsis）</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>客户模式按钮固定 82dp 高、内边距上下各 6dp，可用 70dp；选中态需放 4 行（标题 17sp + 布局名 13sp + 描述 11sp×2 + 「✓ 当前」11sp）约 86–90dp，超出即被 Button 的 Surface 直接裁掉。</dd>
+      <dt>根因</dt><dd>固定 <code>height()</code> 与内容不匹配；两处 Text 未设 <code>overflow</code>，默认 Clip 而非省略号。</dd>
+      <dt>修法</dt><dd>改用 <code>heightIn(min=)</code>；补 <code>TextOverflow.Ellipsis</code>；英文描述过长需缩短。</dd>
+      <dt>验证</dt><dd>1024×600、英文、选中描述最长项时截图，三行文字应完整可见。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-22</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">U 盘配置写入非客户模式时，拼接区无任何高亮</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>U 盘配置写 <code>layoutMode: "PIP"</code>（合法枚举但不在客户可见集合内），设置页 8 个按钮全为未选中色，用户看不到当前模式，随便一点就覆盖掉配置。</dd>
+      <dt>根因</dt><dd>UI 只遍历客户可见集合，而 USB 配置校验允许全部枚举值，应用时无过滤。</dd>
+      <dt>修法</dt><dd>应用 USB 配置时用客户可见集合做白名单校验并忽略非法值；或 UI 插入只读的「当前：xxx（拼接板不支持）」项。</dd>
+      <dt>验证</dt><dd>写入 <code>PIP</code> 配置后启动，客户页应显示当前模式而非「无选中」。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-23</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">开机自启不可靠</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>开关打开后重启设备，应用不启动；且首次授权路径下 U 盘监听服务从未启动过。</dd>
+      <dt>根因</dt><dd>BootReceiver 用 <code>CoroutineScope(IO).launch</code> 却未 <code>goAsync()</code>，<code>onReceive</code> 立即返回，进程可能在读取设置前被回收；且它只启 Activity 不启服务。另外权限「已授予」分支直接 return，不启动服务。</dd>
+      <dt>修法</dt><dd>BootReceiver 改用 <code>goAsync()</code> 并直接启动前台服务；权限已授予时也补启动服务。</dd>
+      <dt>验证</dt><dd>开启自启后重启，<code>dumpsys activity services</code> 应常驻该服务。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-24</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">权限被拒后 U 盘功能永久静默失效，无重试入口</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>用户在系统页拒绝「所有文件访问」后返回应用，U 盘监听服务永不启动，插拔 U 盘无任何反应，界面无提示也无重试入口。</dd>
+      <dt>根因</dt><dd>权限判定只在 <code>onCreate</code> 调一次，<code>onResume</code> 不复查；拒绝分支只弹一次 Toast 就跳转系统设置。</dd>
+      <dt>修法</dt><dd>抽出权限检查在 <code>onResume</code> 复查；未授权时禁用/降级 U 盘相关 UI 并给出「重新授权」按钮；授权成功后补启动服务。</dd>
+      <dt>验证</dt><dd>拒绝权限后启动，界面应提示需授权而非静默无反应；授权后应出现 <code>Service connected</code>。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-25</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">拷贝前空间检查口径不对，未计入事务的瞬时占用</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>检查通过后拷贝仍可能因空间不足失败；「覆盖确认」这条路径完全没有空间检查。</dd>
+      <dt>根因</dt><dd>所需空间按整个目录树字节数整除 MB 计算（截断且把不支持的文件也算进去）；而事务本身要求 staging 与旧缓存/backup 同时存在，峰值约需 2 倍。</dd>
+      <dt>修法</dt><dd>只统计受支持且非空的文件字节；拷贝前用目标分区剩余空间做 <code>required × 2 &gt; free</code> 的硬校验。</dd>
+      <dt>验证</dt><dd>构造「需要 2X、可用 1.5X」，决策应为空间不足而非直接拷贝。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P1" data-s="todo">
+    <div class="ihead"><span class="id">P1-26</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">源端文件减少时旧缓存永不清理，缓存可无限增长</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>U 盘只剩 player1 时，player2/3/4 的旧缓存原样保留并继续被扫出来播放；裁剪产生的 <code>split_*.jpg</code> 无任何删除路径，每裁剪一次就往四个目录各塞一份。</dd>
+      <dt>根因</dt><dd>源目录为空即提前返回，从不触碰本地目录；全仓无按清单/mtime 回收的逻辑。</dd>
+      <dt>修法</dt><dd>拷贝成功后清理未出现在源端的播放器目录；裁剪保存前清空该目录。</dd>
+      <dt>验证</dt><dd>首次拷贝 player1+player2，第二次只拷 player1，断言 player2 目录为空。</dd>
+    </dl>
+  </article>
+</section>
+
+<!-- ================= P2 ================= -->
+<section class="group" data-group="P2">
+  <h2>P2 — 体验与可维护性</h2>
+  <p class="gdesc">不影响正确性，但会造成现场困惑、维护成本或长期隐患。</p>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-01</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">showDebugInfo 是僵尸开关</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>该开关在 FeatureFlags、UsbConfig、四份文档与样例配置里都有，但 <code>app/src/main</code> 中零处读取 —— 集成方改了没有任何效果。另有三个同类的僵尸字段：<code>useHardwareDecode</code>、<code>audioOutput</code>、<code>usbDetectionEnabled</code>、<code>maxCacheSizeMB</code>、<code>showCopyProgress</code>。</dd>
+      <dt>修法</dt><dd>逐项「接线或删除」：需要生效的接上实现，不需要的从模型、解析、文档、样例四处一起删掉。</dd>
+      <dt>验证</dt><dd>每项 grep 应存在非 UI 的消费点，或该字段已不存在。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-02</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">U 盘下发的设置覆盖被永久写进 DataStore，拔盘不还原</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>插带 <code>settings.layoutMode</code> 的 U 盘 → 生效；拔掉后布局仍是被覆盖的值，且此后每次冷启动都保持 —— 与「清除 U 盘配置即恢复」的契约矛盾，也无法区分「用户手动设置」与「U 盘强制」。</dd>
+      <dt>根因</dt><dd>U 盘设置被单向写入持久层，不记录覆盖前快照，无回滚路径。</dd>
+      <dt>修法</dt><dd>把 U 盘下发的设置改为运行时覆盖层（内存 overlay），或在应用配置前保存快照、清除时回滚。</dd>
+      <dt>验证</dt><dd>记录覆盖前的 layoutMode，插盘改配置，拔出后读持久层应等于快照值。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-03</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">冷启动时已插着的 U 盘，settings 覆盖不会应用</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>设备重启前 U 盘保持插入，开机后 features 覆盖生效，但 settings 覆盖（布局等）不生效。</dd>
+      <dt>根因</dt><dd>settings 覆盖的唯一入口是「U 盘刚连接」回调；而启动时走的是「同步已连接状态」路径，只更新状态不应用配置；服务侧的配置加载回调在 Activity 绑定前触发，事件已丢失。</dd>
+      <dt>修法</dt><dd>在同步已连接状态的路径上补一次幂等的配置应用，或在绑定完成后主动应用一次。</dd>
+      <dt>验证</dt><dd>保持 U 盘插入重启应用，日志应出现「应用U盘配置设置」且布局正确。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-04</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">USB 状态有两个独立数据源，拷贝成功会强制改回已连接</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>拷贝中途拔盘，服务已发出「已断开」，但 ViewModel 的拷贝回调随后把状态写回 <code>Connected</code>，界面显示「U 盘已连接」而实际已拔出，后续逻辑继续使用失效路径。</dd>
+      <dt>根因</dt><dd>服务与 ViewModel 各持一份状态；补偿通道是四个散装 setter，且回调在 ViewModel 引用就绪前会静默丢事件。</dd>
+      <dt>修法</dt><dd>让服务侧成为唯一数据源，ViewModel 只转发；删除 ViewModel 内的状态写入，改为「拷贝开始时捕获路径 + 完成时校验当前状态」。</dd>
+      <dt>验证</dt><dd>大文件拷贝中拔盘，界面应在 1 秒内变为已断开且不回弹。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-05</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">已连接状态不重扫；错误状态无退出路径</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>插入无 <code>media</code> 目录的 U 盘后，现场补建该目录，界面仍停在「未找到目录」直到手动扫描或重插；「空间不足」这类错误状态也会无限持续。</dd>
+      <dt>根因</dt><dd>同一路径的已连接状态不触发重新检查；错误状态只由 ViewModel 发出，服务端不会纠正。</dd>
+      <dt>修法</dt><dd>对「已连接但无媒体/无配置」的情况周期性重扫；给错误状态一个退出路径。</dd>
+      <dt>验证</dt><dd>插入无 media 的 U 盘，用 adb 补建目录，一个扫描周期内状态应自动翻转。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-06</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">状态事件字段无版本号；interval_seconds 命名有歧义</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>接入方无法做版本协商；<code>interval_seconds</code> 的字面意思像「状态推送周期」，实际是图片轮播间隔，极易误用。全仓无心跳事件。</dd>
+      <dt>修法</dt><dd>载荷加 <code>schema_version</code>；字段改名（保留旧名一版兼容）；文档明确「无周期心跳，存活信号仅 app_started / app_stopping」。</dd>
+      <dt>验证</dt><dd>文档字段表与代码中的 <code>put</code> 键集合逐项一致。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-07</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">底部触发区吞掉最后一排播放器的点击</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>屏幕底部 96dp 内的所有点击都被触发区拦截，落在播放器画面上的点击也失效，无法播放/暂停该格。</dd>
+      <dt>根因</dt><dd>触发区是一个带手势的透明遮罩 Box，声明在播放器之后，处于 Z 轴上层。</dd>
+      <dt>修法</dt><dd>改为在根 Box 上监听并按落点 y 判定；或把触发条放到播放器之下，仅靠边缘命中触发。</dd>
+      <dt>验证</dt><dd>GRID_2X1 下点击最下方播放器正中应能触发播放/暂停，同时点最底部空白条能唤出控制栏。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-08</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">15 秒自动隐藏与关闭按钮存在计时竞态</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>点 ✕ 隐藏后立刻重新唤出控制栏，栏会在旧计时的结束时刻被关掉，表现为「刚弹出就消失」。</dd>
+      <dt>根因</dt><dd>关闭走「直接置 false」，而旧的延迟任务仍在挂着，稍后把用户重新唤出的栏再关一次。</dd>
+      <dt>修法</dt><dd>用可取消的 Job 替代 tick 重启语义，每次唤出取消上一个计时；关闭时同样取消。</dd>
+      <dt>验证</dt><dd>唤出 → 关闭 → 2 秒后重新唤出，应从新时刻起稳定显示 15 秒。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-09</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">图标按钮无无障碍标签，TalkBack 朗读 emoji</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>全项目仅 4 处 <code>contentDescription</code>，都在图片上。底部栏按钮与 ✕ 会被读成「黑色三角」「白色方块」等。</dd>
+      <dt>修法</dt><dd>纯图标控件加语义描述，成组按钮合并朗读，装饰性 emoji 清除语义避免噪音。</dd>
+      <dt>验证</dt><dd>开启 TalkBack，底部栏应朗读「全部播放，按钮」而非「黑色三角，按钮」。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-10</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">对话框字号不参与客户模式体系</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>清缓存 / 重置对话框写死 14sp，而客户模式设置页正文是 18sp，弹窗文字明显小一档。</dd>
+      <dt>修法</dt><dd>对话框接入同一套尺寸体系；标题补字号。</dd>
+      <dt>验证</dt><dd>Release 下打开两个对话框截图，字号应与页面开关项同级。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-11</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">WALL_MODE_8 是臆造别名；布局解析受系统语言影响</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>拼接板只有模式 1–7，解析器却把 <code>WALL_MODE_8</code> 映射到「2×2 同画面」，文档与规格中均无此编号。另外解析用无参 <code>uppercase()</code>，在土耳其语等区域设置下 <code>"pip"</code> 会解析失败。</dd>
+      <dt>修法</dt><dd>删除该别名，或在契约文档中显式登记为兼容别名；<code>uppercase(Locale.ROOT)</code>。</dd>
+      <dt>验证</dt><dd><code>parseLayoutMode("WALL_MODE_8")</code> 返回 null；tr-TR 区域下 <code>"pip"</code> 仍解析为 PIP。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-12</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">扩展名表与目录扫描各有多份并行实现</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>扩展名集合在三处独立维护且内容不同：远控路径不认 <code>.ts</code> / <code>.m4v</code> / <code>.heic</code>，同一个文件经远控被判为不支持、经本地扫描却能播。目录扫描逻辑在六处重复，过滤条件各异。</dd>
+      <dt>根因</dt><dd>没有统一的媒体类型入口，各处复制字面量。</dd>
+      <dt>修法</dt><dd>统一委托给 <code>MediaTypeUtils</code>；抽出公用的目录扫描入口，递归/超时作为参数。</dd>
+      <dt>验证</dt><dd>同一目录经五条路径应返回完全一致的媒体列表。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-13</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">MediaPlayerView 两个回调参数从未被传入</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd><code>onPlaybackEnded</code> / <code>onNextVideo</code> 在唯一调用点都没传，内部对应分支恒为 null。</dd>
+      <dt>修法</dt><dd>接入或在签名中移除。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-14</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">MainViewModel 职责过载，无法做 JVM 单测</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>单文件约 900 行、8 类职责（设置读写与 U 盘合并、播放器状态机、USB 生命周期与拷贝编排、toast 总线、远控接口 15 个实现、本地扫描、生命周期广播、媒体去重）。构造函数内直接 new 依赖，init 里产生全局副作用，只能测 companion 里的一个纯函数。</dd>
+      <dt>修法</dt><dd>按职责拆成播放器状态、拷贝协调、设置编辑、远控适配；VM 只做状态组合与转发，依赖参数化。</dd>
+      <dt>验证</dt><dd>拆分后核心模块分支覆盖 &gt;80%，测试中不出现全局单例调用。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-15</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">FeatureManager 全局状态非线程安全，且 init 会清掉已应用的配置</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>当前 U 盘配置字段是无 volatile 的普通变量，由服务 IO 线程写、UI 线程读，可能读到陈旧值；重复调用 <code>init()</code> 会静默清掉已应用的 U 盘配置。</dd>
+      <dt>修法</dt><dd>用原子引用或并入同一个状态流；<code>init()</code> 加幂等保护。</dd>
+      <dt>验证</dt><dd>应用配置后调用 init 不应改变生效标志。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P2" data-s="todo">
+    <div class="ihead"><span class="id">P2-16</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">未使用导入、死参数与注释掉的模板代码</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>若干未使用 import；<code>BottomControlBar.onHide</code> 的默认值是永不生效的死代码；<code>HdmiEfullUiState.message</code> 设置了但界面上无处展示（HDMI 全屏写入失败的提示实际用户看不到）；Theme/Type 中留有 Android Studio 模板的注释块。</dd>
+      <dt>修法</dt><dd>清理；对「已实现但未接入」的项要么接线要么补 TODO 标注，而非静默悬挂。</dd>
+    </dl>
+  </article>
+</section>
+
+<!-- ================= P3 ================= -->
+<section class="group" data-group="P3">
+  <h2>P3 — 打磨</h2>
+  <p class="gdesc">不紧急，但影响长期维护与产物质量。</p>
+
+  <article class="item" data-p="P3" data-s="todo">
+    <div class="ihead"><span class="id">P3-01</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">布局间隙 gap 用裸像素，与相邻的 dp 内边距单位不一致</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>当前密度下 1dp = 1px 恰好等价，看不出问题；换到其他密度屏，dp 侧会缩放而 gap 不会，缝隙比例随之失衡。实测相邻两格视频间的实际暗缝约是声明值的三倍（含两侧内边距与边框）。</dd>
+      <dt>修法</dt><dd>在布局阶段取实际密度把 dp 换算为 px，或统一为 px 并让声明值包含子项内缩量。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P3" data-s="todo">
+    <div class="ihead"><span class="id">P3-02</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">行列模型有两套并行定义</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>播放器布局与图片裁剪各自定义了一套行列枚举，映射靠人工维护（裁剪应用时需手工对应到布局）。</dd>
+      <dt>修法</dt><dd>合并为单一模型，或提供显式映射表并由单测锁定。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P3" data-s="todo">
+    <div class="ihead"><span class="id">P3-03</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">strings.xml 九成是死资源，colors.xml 全部未使用</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>41 条字符串仅 4 条存活（通知与应用名），其余被 Kotlin 资源对象完全遮蔽；同一句话两处维护易漂移。颜色资源引用数为 0。资源目录缺少英文变体，故通知栏与应用名在英文环境下仍是中文。</dd>
+      <dt>修法</dt><dd>删除死资源与死颜色文件；至少补英文资源目录覆盖通知/应用名。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P3" data-s="todo">
+    <div class="ihead"><span class="id">P3-04</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">Release 未开启代码裁剪，APK 96% 是未处理的 dex</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>25.4MB 的 APK 里 24.4MB 是三个未裁剪的 dex，无 native 库。同时 proguard 规则文件全是注释、等于死配置，资源压缩也未开启。</dd>
+      <dt>修法</dt><dd>开启裁剪与资源压缩，并补 media3 / Coil / 广播接收器的 keep 规则。开启前需确认反射点（配置解析为手写 JSON 无反射，相对安全）。</dd>
+      <dt>验证</dt><dd>对比开启前后 APK 体积，并跑一遍真机冒烟（配置解析、远控、播放）。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P3" data-s="todo">
+    <div class="ihead"><span class="id">P3-05</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">依赖与版本目录可收敛</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>两条依赖声明但代码零引用（导航、lifecycle-runtime-ktx），三条测试依赖未使用；Compose 编译器版本硬编码在构建脚本里，未纳入版本目录，升级 Kotlin 时易漏改。</dd>
+      <dt>修法</dt><dd>删除未用依赖；把编译器版本提到版本目录；后续按官方兼容表整组升级。</dd>
+    </dl>
+  </article>
+
+  <article class="item" data-p="P3" data-s="todo">
+    <div class="ihead"><span class="id">P3-06</span><span class="chip c-todo">待修</span></div>
+    <h3 class="ttl">清单中的死声明与文档漂移</h3>
+    <dl class="fields">
+      <dt>现象</dt><dd>清单里 <code>WRITE_EXTERNAL_STORAGE</code> 带 <code>maxSdkVersion=29</code>、<code>requestLegacyExternalStorage</code> 在 minSdk 30 下恒不生效，属噪音；架构文档的模块清单漏掉 hardware、receiver、settings、split 等模块；任务清单的勾选状态停留在上一版。</dd>
+      <dt>修法</dt><dd>删除死声明；补齐架构文档模块与全局状态清单；校正任务清单。</dd>
+    </dl>
+  </article>
+</section>
+
+<!-- ================= 决策 ================= -->
+<section class="group" data-group="DEC">
+  <h2>需你决策<span class="chip c-dec">不改代码</span></h2>
+  <p class="gdesc">这几项涉及客户可见的行为或文案，改了就是产品变更，我不擅自决定。</p>
+
+  <div class="decisions">
+    <article class="item" data-p="DEC" data-s="todo">
+      <div class="ihead"><span class="id">DEC-1</span><span class="chip c-dec">待决策</span></div>
+      <h3 class="ttl">showPlayerIndex 由两个模型 AND 决定，U 盘配置无法强制开启</h3>
+      <dl class="fields">
+        <dt>现状</dt><dd>功能开关与用户偏好两个字段做 AND，用户侧永远有否决权。于是 U 盘配置写 <code>true</code> 但用户在设置页关掉后，编号仍不显示 —— 与「U 盘配置优先」的文档契约相反。</dd>
+        <dt>选项</dt><dd>① 删除用户侧字段，统一由功能开关管理；② 改为 OR 语义（U 盘配置为「强制显示」）。两者都会改变现有交互。</dd>
+      </dl>
+    </article>
+
+    <article class="item" data-p="DEC" data-s="todo">
+      <div class="ihead"><span class="id">DEC-2</span><span class="chip c-dec">待决策</span></div>
+      <h3 class="ttl">客户版底部栏是否应显示「扫描U盘 / 裁剪」</h3>
+      <dl class="fields">
+        <dt>现状</dt><dd>客户版分支没有读取这两个按钮的开关，而默认配置里「扫描U盘」是开启的 —— 可能是遗漏，也可能是刻意精简。注意 1024px 宽度下再加两个按钮需要重新分配宽度。</dd>
+      </dl>
+    </article>
+
+    <article class="item" data-p="DEC" data-s="todo">
+      <div class="ihead"><span class="id">DEC-3</span><span class="chip c-dec">待决策</span></div>
+      <h3 class="ttl">拼接板示意图与 App 的行列记法相反</h3>
+      <dl class="fields">
+        <dt>现状</dt><dd>示意图上手写的模式 5/6/7 标注用「列×行」，App 内显示「横屏 2×1」用「行×列」，所指画面相同但记法相反。因为涉及客户可见文案，本版未动。</dd>
+      </dl>
+    </article>
+
+    <article class="item" data-p="DEC" data-s="todo">
+      <div class="ihead"><span class="id">DEC-4</span><span class="chip c-dec">待决策</span><span class="chip c-p0">部署</span></div>
+      <h3 class="ttl">HDMI 硬件按键需要 ROM 放权才能用</h3>
+      <dl class="fields">
+        <dt>现状</dt><dd>控制节点权限为 root 只写，普通应用写入被拒（SELinux 为 Permissive，纯属文件权限）。这是内核/驱动与 ueventd 决定的，应用层无论用什么 API 都在同一道 VFS 检查之下，<strong>无法在 App 内修复</strong>。</dd>
+        <dt>选项</dt><dd>① ROM 侧把节点权限放开（一行 chmod，最省事）；② 把应用放进系统私有分区；③ 若客户不改 ROM，则把这两个按钮从客户版隐藏，避免现场把「点了没反应」误判成软件缺陷。</dd>
+      </dl>
+    </article>
+  </div>
+</section>
+
+<!-- ================= clean ================= -->
+<section class="group">
+  <h2>已确认无问题<span class="chip c-ok">避免重复审计</span></h2>
+  <div class="clean">
+    <ul>
+      <li>配置持久化对称：全部 26 个数据字段读写成对，无「重启静默重置」，模型默认值与读取回退值逐项一致</li>
+      <li>状态广播权限：带权限发送，接收方必须持有该权限；命令接收器的签名级权限确实在系统层强制执行</li>
+      <li>JSON 构造：全部 <code>put</code> 都有空值保护，无崩溃路径</li>
+      <li>布局几何：12 个模式的分割数学全部正确，最后一格吸收整除余数，右/下边缘无缝隙、无重叠</li>
+      <li>滚动修饰符链顺序正确，边界处不消费按键，不阻断焦点导航</li>
+      <li>音频降级：真机实测生效（AC3 直通失败 → 静音播视频）</li>
+      <li>2×2 同画面：真机实测四格同步，P2–P4 静音且不上报重复事件</li>
+      <li>仓库卫生：密钥、签名配置、本地配置、release 产物均未被版本控制跟踪</li>
+      <li>无 shell 注入可达路径：所有外部输入都未流向进程执行或任意路径写入</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  完整明细（含根因行号与验证方式）见仓库内 docs/audit-findings.md<br>
+  修复记录按轮次追加于该文件末尾 · 状态以代码与真机验证为准
+</footer>
+
+</div>
+
+<script>
+(function () {
+  var state = { p: { P0: true, P1: true, P2: true, P3: true }, s: { todo: true, part: true, done: true } };
+  var items = Array.prototype.slice.call(document.querySelectorAll('.item'));
+  var shown = document.getElementById('shown');
+
+  function apply() {
+    var n = 0;
+    items.forEach(function (el) {
+      var p = el.getAttribute('data-p');
+      var s = el.getAttribute('data-s');
+      var ok = true;
+      if (state.p[p] !== undefined && !state.p[p]) ok = false;
+      if (state.s[s] !== undefined && !state.s[s]) ok = false;
+      // 仅当该条目属于某个可筛选级别时，隐藏才生效
+      if (p === 'DEC' && !state.s[s]) ok = false;
+      el.hidden = !ok;
+      if (ok) n++;
+    });
+    // 分组整体隐藏（若组内条目全被过滤）
+    document.querySelectorAll('.group').forEach(function (g) {
+      var kids = g.querySelectorAll('.item');
+      if (!kids.length) return;
+      var any = Array.prototype.some.call(kids, function (k) { return !k.hidden; });
+      g.hidden = !any;
+    });
+    shown.textContent = n + ' / ' + items.length + ' 条';
+  }
+
+  document.querySelectorAll('.fbtn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var f = btn.getAttribute('data-f');
+      var v = btn.getAttribute('data-v');
+      state[f][v] = !state[f][v];
+      btn.setAttribute('aria-pressed', state[f][v] ? 'true' : 'false');
+      apply();
+    });
+  });
+
+  apply();
+})();
+</script>

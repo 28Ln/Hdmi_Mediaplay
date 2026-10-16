@@ -37,6 +37,9 @@
 
 ## 配置文件格式 (btf_config.json)
 
+完整可用的示例见仓库根目录 [`btf_config_sample.json`](btf_config_sample.json)，
+字段定义与校验规则见 [`docs/usb-config-schema.md`](docs/usb-config-schema.md)。
+
 ```json
 {
   "version": 1,
@@ -48,11 +51,12 @@
     "loopMode": "LIST"
   },
   "features": {
-    "showSettingsButton": false,
-    "allowManualFileSelect": false,
+    "showSettingsButton": true,
+    "allowManualFileSelect": true,
     "allowLocalMediaScan": false,
     "showHelpTip": false,
-    "allowLayoutChange": false,
+    "allowLayoutChange": true,
+    "allowOrientationAutoSwitch": true,
     "showDebugInfo": false
   }
 }
@@ -60,16 +64,37 @@
 
 ## 功能开关默认值
 
+下表与 `FeatureFlags.debugDefaults()` / `FeatureFlags.releaseDefaults()` 保持一致。
+未在 `btf_config.json` 中出现的键按构建类型的默认值生效。
+
 | 功能 | Debug | Release |
 |------|-------|---------|
-| showSettingsButton | true | false |
-| allowManualFileSelect | true | false |
+| showSettingsButton | true | true |
+| allowManualFileSelect | true | true |
 | allowLocalMediaScan | true | false |
 | showHelpTip | true | false |
-| allowLayoutChange | true | false |
+| allowLayoutChange | true | true |
+| allowOrientationAutoSwitch | true | true |
 | showDebugInfo | true | false |
 | showPlayerIndex | true | true |
 | allowVolumeControl | true | true |
+| allowClearCache | true | false |
+| showLanguageSetting | true | false |
+| showAudioOutputSetting | true | false |
+| showPlaybackSettings | true | false |
+| showVideoSettings | true | false |
+| showImageSettings | true | false |
+| showUsbSettings | true | false |
+| showDisplaySettings | true | false |
+| showAdvancedSettings | true | false |
+| showStorageSettings | true | false |
+| showHdmiControl | true | false |
+| showHelpSection | true | false |
+| showScanUsbButton | true | true |
+| showBottomControlBar | true | true |
+| showImageSplitTool | true | true |
+| allowPlayPauseControl | true | true |
+| showUsbStatus | true | true |
 
 ## 注意事项
 - 所有修改必须向后兼容

@@ -30,5 +30,14 @@
 - [ ] CI 说明已更新
 - [ ] Release SOP 已更新
 - [ ] 真机验证指南与验收留痕模板已更新
-- [ ] 版本号与变更说明已更新
+- [ ] 版本号已更新（`gradle/libs.versions.toml` 的 `appVersionName` / `appVersionCode`）
+- [ ] `CHANGELOG.md` 已添加对应版本段落
 - [ ] 验证矩阵已更新
+
+## Release Artifact
+
+- [ ] 交付包为签名 release（`apksigner verify --print-certs` 确认非 debug 证书）
+- [ ] 产物版本号正确（`aapt2 dump badging` 的 `versionName` / `versionCode` 与 `libs.versions.toml` 一致）
+- [ ] 本版新增代码确实进入产物（解包 `classes*.dex` 抽查新增关键字）
+- [ ] 设置页「关于」显示的版本号与构建类型与实际包一致
+

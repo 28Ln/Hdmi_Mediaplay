@@ -14,20 +14,39 @@
     "autoPlayAfterCopy": true,
     "keepScreenOn": true,
     "usbScanFolderName": "btf_media",
-    "showOverwriteConfirm": false
+    "showOverwriteConfirm": false,
+    "audioFallbackSilent": true
   },
   "features": {
+    "showBottomControlBar": true,
     "showSettingsButton": true,
+    "showImageSplitTool": true,
+    "allowPlayPauseControl": true,
+
     "allowManualFileSelect": true,
     "allowLocalMediaScan": true,
-    "showHelpTip": true,
-    "allowLayoutChange": true,
-    "showDebugInfo": false,
-    "showPlayerIndex": true,
     "allowVolumeControl": true,
-    "allowClearCache": true,
+    "allowLayoutChange": true,
+    "allowOrientationAutoSwitch": true,
+
+    "showHelpTip": true,
+    "showPlayerIndex": true,
     "showUsbStatus": true,
-    "allowPlayPauseControl": true,
-    "showBottomControlBar": true
+    "showDebugInfo": false,
+
+    "allowClearCache": true,
+
+    "showLanguageSetting": true,
+    "showAudioOutputSetting": true,
+    "showPlaybackSettings": true,
+    "showVideoSettings": true,
+    "showImageSettings": true,
+    "showUsbSettings": true,
+    "showDisplaySettings": true,
+    "showAdvancedSettings": true,
+    "showStorageSettings": true,
+    "showHdmiControl": true,
+    "showHelpSection": true,
+    "showScanUsbButton": true
   }
 }
