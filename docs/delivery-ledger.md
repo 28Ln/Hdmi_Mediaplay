@@ -5,7 +5,7 @@
 > 状态以本文件为准。
 
 - 版本基线：**1.1.2（versionCode 4）**，见 `gradle/libs.versions.toml`
-- 台账更新日期：2026-10-16
+- 台账更新日期：2026-10-17
 - 核实方式：逐条 grep 代码中的实际实现，**不采信文档声称**
 
 ---
@@ -41,6 +41,11 @@
 | P1-14 | 版本号从未变过（1.0/1 自建仓未改） | 统一到 `libs.versions.toml` |
 | P1-15 | 无变更记录文件，但发布流程要求 | 新增 `CHANGELOG.md`（含 1.1.0/1.1.1/1.1.2） |
 | P1-16 | `.gitignore` 只写具体路径，改名即静默提交密钥 | 补 `*.jks`/`*.keystore`/`*.p12` 等通配 |
+| P1-17 | 开机自启不可靠（信发场景核心诉求） | `BootReceiver.kt` 补 `goAsync()` 保活 + 同时启动前台服务 |
+| P1-18 | 服务内接收器 <13 隐式导出注册 | `UsbMonitorService.kt` 统一 `ContextCompat.registerReceiver` |
+| P1-19 | 裁剪结果不落布局，用户看不到拼接效果 | `SplitLayout.matchingLayoutMode` + 保存后自动切布局与 STRETCH |
+| P1-20 | 轨道无上限，4 路 4K 有 OOM 风险 | `PlaybackConfig.kt` + `setMaxVideoSize/Bitrate/FrameRate` |
+| P1-21 | 模式按钮文字可能被硬裁 | `heightIn(min=)` + `TextOverflow.Ellipsis` |
 
 ---
 
@@ -51,18 +56,12 @@
 | 编号 | 问题 | 位置 | 说明 |
 |---|---|---|---|
 | P1-20 | 远控 11 种状态事件全部未文档化 | `docs/remote-command-contract.md` | 客户无法编写接收端，**对接前置条件** |
-| P1-21 | 开机自启不可靠 | `receiver/BootReceiver.kt` | 无 `goAsync()`，`onReceive` 立即返回 |
-| P1-22 | 图片裁剪非 16:9 源图变形 | `ImageSplitModels.kt` + `ImageSplitter.kt` | 每块无条件拉伸到 1920×1080 |
-| P1-23 | 裁剪结果不落布局 | `ImageSplitViewModel.kt` | 2×2 裁完若当前是 SINGLE，只显示一格 |
 | P1-24 | 状态载荷泄漏本地绝对路径 | `PlayerStatusBroadcaster.kt` | 含 U 盘挂载点 |
-| P1-25 | 轨道选择无上限 | `VideoPlayerView.kt` | 无 `setMaxVideoSize`，4 路 4K 有风险 |
 | P1-26 | `set_loop_mode` 静默降级 / `set_interval` 回报未 clamp | `PlayerCommandHandler.kt` | 缺省值 `"ALL"` 枚举中不存在 |
 | P1-27 | 播放器级命令对无效索引仍报成功 | `PlayerCommandHandler.kt` | 广播虚假 `playing` 状态 |
 | P1-28 | 错误码塌缩，1004/1005 永不触发 | `PlayerCommandHandler.kt` | 三类失败折叠为同一码 |
 | P1-29 | `hide`/`show` 无投递确认即报成功 | `PlayerCommandHandler.kt` | Activity 不在前台时无人接收 |
-| P1-30 | 服务内接收器 <13 隐式导出注册 | `UsbMonitorService.kt` | 未统一 `ContextCompat.registerReceiver` |
 | P1-31 | 样式无单一来源（4 种按钮高度 / 3 套字号） | `SettingsScreen.kt` | 无 `SettingsDimens` |
-| P1-32 | 模式按钮文字可能被硬裁 | `SettingsScreen.kt` | 固定 `height(82dp)`，无 `TextOverflow` |
 
 ### 体验与可维护性（P2）
 

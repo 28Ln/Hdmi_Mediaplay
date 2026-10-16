@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.btf.rk3568_hdmi_mediaplay.BuildConfig
@@ -709,7 +710,9 @@ private fun WallLayoutModeSetting(
                         onClick = { onModeSelected(mode) },
                         modifier = Modifier
                             .weight(1f)
-                            .height(if (customerMode) 82.dp else 68.dp),
+                            // 用 heightIn 而非固定 height：选中态要放 4 行文字
+                            // （模式名/布局名/描述/✓当前），固定 82dp 会裁掉最后一行。
+                            .heightIn(min = if (customerMode) 82.dp else 68.dp),
                         colors = ButtonDefaults.buttonColors(
                         containerColor = if (selected) Color(0xFF00838F) else Color(0xFF3A3A3A),
                         contentColor = Color.White
@@ -727,13 +730,15 @@ private fun WallLayoutModeSetting(
                             Text(
                                 text = StringResources.getLayoutModeText(mode),
                                 fontSize = if (customerMode) 13.sp else 11.sp,
-                                maxLines = 1
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = StringResources.getLayoutModeDescription(mode),
                                 color = Color(0xFFB0BEC5),
                                 fontSize = if (customerMode) 11.sp else 9.sp,
-                                maxLines = 2
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
                             )
                             if (selected) {
                                 Text(

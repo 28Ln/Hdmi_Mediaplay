@@ -6,6 +6,9 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.btf.rk3568_hdmi_mediaplay.data.local.LocalStorageManager
+import com.btf.rk3568_hdmi_mediaplay.data.repository.SettingsRepository
+import com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode
+import com.btf.rk3568_hdmi_mediaplay.data.model.VideoScaleMode
 import com.btf.rk3568_hdmi_mediaplay.data.model.ImageInfo
 import com.btf.rk3568_hdmi_mediaplay.data.model.SplitConfig
 import com.btf.rk3568_hdmi_mediaplay.data.model.SplitLayout
@@ -16,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 /**
@@ -28,6 +32,7 @@ class ImageSplitViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private val localStorageManager = LocalStorageManager(application)
+    private val settingsRepository = SettingsRepository(application)
 
     // 当前选择的图片 URI
     private val _selectedImageUri = MutableStateFlow<Uri?>(null)
@@ -198,10 +203,15 @@ class ImageSplitViewModel(application: Application) : AndroidViewModel(applicati
                 _splitResult.value = savedResult
 
                 val savedCount = savedResult.parts.count { it.savedPath != null }
-                if (savedCount == result.config.layout.totalParts) {
-                    onComplete(true, "已保存 $savedCount 块到播放器目录")
+                val totalParts = result.config.layout.totalParts
+
+                if (savedCount == totalParts) {
+                    // 裁剪各块写入 player1..N，必须同时把播放器切到对应分屏布局，
+                    // 否则用户看不到拼接效果（例如 2×2 裁完但当前是单屏，只显示一格）。
+                    applyLayoutForSplit(result.config.layout)
+                    onComplete(true, "已保存 $savedCount 块并切换到对应布局")
                 } else {
-                    onComplete(false, "部分保存失败，成功 $savedCount/${result.config.layout.totalParts}")
+                    onComplete(false, "部分保存失败，成功 $savedCount/$totalParts")
                 }
 
             } catch (e: Exception) {
@@ -210,6 +220,36 @@ class ImageSplitViewModel(application: Application) : AndroidViewModel(applicati
             } finally {
                 _isLoading.value = false
             }
+        }
+    }
+
+    /**
+     * 把播放器切到与裁剪布局匹配的分屏模式。
+     *
+     * 逐块裁剪的结果分别写入 player1..N，只有播放器也切到对应分屏
+     * 才能拼成完整画面。同时把缩放模式设为拉伸，避免每格留黑边拼不回原图。
+     *
+     * 若当前是「2×2 同画面」（四格播同一路），裁剪结果会四格显示同一块，
+     * 因此强制切回独立四宫格。
+     */
+    private suspend fun applyLayoutForSplit(layout: SplitLayout) {
+        val target = layout.matchingLayoutMode
+        if (target == null) {
+            Log.w(TAG, "布局 $layout 无对应播放模式，跳过自动切换")
+            return
+        }
+        try {
+            val current = settingsRepository.settingsFlow.first()
+            val updated = current.copy(
+                layoutMode = target,
+                videoScaleMode = VideoScaleMode.STRETCH
+            )
+            if (updated != current) {
+                settingsRepository.updateSettings(updated)
+                Log.i(TAG, "裁剪完成：布局切到 $target，缩放设为 STRETCH")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "自动切换布局失败", e)
         }
     }
 

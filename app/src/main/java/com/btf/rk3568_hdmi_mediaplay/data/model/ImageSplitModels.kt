@@ -31,6 +31,28 @@ enum class SplitLayout(
      */
     val idealAspectRatio: Float get() = cols.toFloat() / rows.toFloat()
 
+    /**
+     * 该裁剪布局对应的播放器布局。
+     *
+     * 裁剪把一张图切成 N 块写入 player1..N，必须同时把播放器切到对应的
+     * 分屏布局，否则用户裁完看不到拼接效果（例如 2×2 裁完但当前是单屏，
+     * 只有一格显示），会以为功能没生效。
+     *
+     * 映射依据：两者的行列数一一对应。
+     * 1×4 / 4×1 无对应的「客户可见」拼接模式（只有未在客户页展示的
+     * ROW_1X4 / COLUMN_4X1），故返回 null，调用方应提示不支持。
+     */
+    val matchingLayoutMode: LayoutMode?
+        get() = when (this) {
+            SPLIT_1X2 -> LayoutMode.GRID_1X2
+            SPLIT_2X1 -> LayoutMode.GRID_2X1
+            SPLIT_1X3 -> LayoutMode.GRID_1X3
+            SPLIT_3X1 -> LayoutMode.GRID_3X1
+            SPLIT_2X2 -> LayoutMode.GRID_2X2
+            SPLIT_1X4 -> LayoutMode.ROW_1X4
+            SPLIT_4X1 -> LayoutMode.COLUMN_4X1
+        }
+
     companion object {
         /**
          * 根据图片尺寸推荐最佳布局

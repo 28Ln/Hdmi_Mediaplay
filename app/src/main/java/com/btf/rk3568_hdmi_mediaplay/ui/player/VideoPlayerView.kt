@@ -350,21 +350,32 @@ fun VideoPlayerView(
 private fun createLowMemoryExoPlayer(
     context: android.content.Context
 ): Pair<ExoPlayer, DefaultTrackSelector> {
-    // 低内存缓冲配置 - 关键优化点
+    // 低内存缓冲配置（值见 PlaybackConfig）
     // 规则: minBufferMs >= bufferForPlaybackAfterRebufferMs
     val loadControl = DefaultLoadControl.Builder()
         .setBufferDurationsMs(
-            5000,   // minBufferMs - 最小缓冲 5秒
-            15000,  // maxBufferMs - 最大缓冲 15秒 (默认50秒太大)
-            1500,   // bufferForPlaybackMs - 开始播放需要 1.5秒
-            3000    // bufferForPlaybackAfterRebufferMs - 重新缓冲后需要 3秒
+            PlaybackConfig.BUFFER_MIN_MS,
+            PlaybackConfig.BUFFER_MAX_MS,
+            PlaybackConfig.BUFFER_FOR_PLAYBACK_MS,
+            PlaybackConfig.BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
         )
-        .setTargetBufferBytes(C.LENGTH_UNSET)
+        // 固定缓冲字节上限：原先不限，缓冲量随分辨率放大，
+        // 4 路高码率并播时是内存的主要压力源
+        .setTargetBufferBytes(PlaybackConfig.TARGET_BUFFER_BYTES)
         .setPrioritizeTimeOverSizeThresholds(true)
         .build()
 
-    // 轨道选择器 - 不限制分辨率，RK3568 有硬件解码
-    val trackSelector = DefaultTrackSelector(context)
+    // 轨道选择器：限制最大分辨率/码率/帧率。
+    // 本机输出 1024×600、4 路分屏，4K 源无收益且有 OOM 与解码器耗尽风险。
+    // 上限值见 PlaybackConfig，可按客户素材调整。
+    val trackSelector = DefaultTrackSelector(
+        context,
+        DefaultTrackSelector.Parameters.Builder(context)
+            .setMaxVideoSize(PlaybackConfig.MAX_VIDEO_WIDTH, PlaybackConfig.MAX_VIDEO_HEIGHT)
+            .setMaxVideoBitrate(PlaybackConfig.MAX_VIDEO_BITRATE)
+            .setMaxVideoFrameRate(PlaybackConfig.MAX_VIDEO_FRAME_RATE)
+            .build()
+    )
 
     val player = ExoPlayer.Builder(context)
         .setLoadControl(loadControl)

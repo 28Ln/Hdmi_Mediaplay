@@ -13,6 +13,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.btf.rk3568_hdmi_mediaplay.FeatureManager
 import com.btf.rk3568_hdmi_mediaplay.MainActivity
 import com.btf.rk3568_hdmi_mediaplay.R
@@ -217,11 +218,15 @@ class UsbMonitorService : Service() {
                 addDataScheme("file")
             }
             
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(usbReceiver, filter, RECEIVER_NOT_EXPORTED)
-            } else {
-                registerReceiver(usbReceiver, filter)
-            }
+            // 统一用 ContextCompat：在 Android 13 以下也能明确声明「不导出」，
+            // 避免该接收器被外部应用触发（USB 挂载广播本身受系统保护，
+            // 但显式声明可消除歧义、也便于安全审计）
+            ContextCompat.registerReceiver(
+                this,
+                usbReceiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
             
             UsbBroadcastReceiver.onUsbMounted = { path ->
                 Log.i(TAG, "Broadcast: USB mounted at $path")
