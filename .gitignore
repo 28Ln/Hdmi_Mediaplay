@@ -19,3 +19,18 @@ local.properties
 /app.jks
 /app/release/
 gradle_verify.log
+
+# 密钥类：必须用通配，只写具体路径会在改名时静默提交（历史已因此泄漏过一次）
+*.jks
+*.keystore
+*.p12
+*.pepk
+*.pem
+
+# 日志与临时目录
+*.log
+.tmp/
+
+# 构建产物
+*.apk
+*.aab

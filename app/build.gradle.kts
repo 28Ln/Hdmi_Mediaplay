@@ -43,8 +43,9 @@ android {
         applicationId = "com.btf.rk3568_hdmi_mediaplay"
         minSdk = 30  // Android 11
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        // 版本号唯一来源见 gradle/libs.versions.toml
+        versionCode = libs.versions.appVersionCode.get().toInt()
+        versionName = libs.versions.appVersionName.get()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -146,6 +147,9 @@ dependencies {
     
     // Test
     testImplementation(libs.junit)
+    // JVM org.json，使 btf_config.json 解析在单元测试中真实执行
+    // （Android framework 的 org.json stub 在 isReturnDefaultValues 下返回 null）
+    testImplementation(libs.json)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

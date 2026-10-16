@@ -1,4 +1,8 @@
 [versions]
+# 应用版本号唯一来源：设置页「关于」读取 BuildConfig.VERSION_NAME / VERSION_CODE
+appVersionName = "1.1.2"
+appVersionCode = "4"
+
 agp = "8.6.0"
 kotlin = "1.9.0"
 coreKtx = "1.10.1"
@@ -14,10 +18,14 @@ datastore = "1.0.0"
 lifecycleViewmodel = "2.6.1"
 navigationCompose = "2.7.5"
 coroutines = "1.7.3"
+json = "20240303"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+
+# JVM org.json for unit tests (Android framework stub returns nulls under isReturnDefaultValues)
+json = { group = "org.json", name = "json", version.ref = "json" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
