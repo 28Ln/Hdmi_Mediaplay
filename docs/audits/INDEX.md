@@ -72,7 +72,7 @@ git diff --stat 1cdb969..HEAD
 | `layout_mode` 别名不全 | **已补全**为完整表格（含 `SPLIT_1X4`/`ROW_1X4`/`COLUMN_4X1`/`PIP` 等 14 项）。再次「发现别名不全」= 没看新表 | `docs/remote-command-contract.md` 二·兼容别名 |
 | `set_media` 批量静默跳过 | **已知设计**：`media_path` 单个失败立即报错；`media_paths[]` 部分失败**跳过并继续**、回执仍成功。接入方须核对回执 `media_count`。**不是 bug，勿改** | 同上，五节末尾 |
 | `HelpTip` 的 `lang` 参数 | **不是死参数** —— 它是语言切换的唯一重组键，已用 `key(lang)` 接入。**删掉会造成永久缺陷** | `docs/audits/2026-10-17-audit-02.md` 新发现 5 |
-| `values-en` 不生效 | **已知未完成**：需接 `setApplicationLocales`，不是「已修」 | `docs/audits/2026-10-17-audit-02.md` 第三节 |
+| `values-en` 不生效 | **已解决**：`setApplicationLocales` 在本机不可用（API 33+ 才有 LocaleManager，且未引入 appcompat）。改为通知文案直接取 `StringResources`。仅桌面图标名仍随系统语言，属平台限制 | `docs/audits/2026-10-17-audit-02.md` 第三节 |
 | 底部触发区吞点击 / 15s 竞态 | **已诊断到根因，属产品取舍**，等客户确认，**不要重复扫** | `docs/audits/2026-10-17-audit-02.md` 第四节 |
 | 设备过热 85°C / 四路越播越不同步 | **热设计问题，非 App 逻辑缺陷**。关键线索：`DynamicANWBuffer failed -1010` 使硬解无法零拷贝。需 ROM 方核对解码 HAL。App 侧降分辨率等手段**未经 A/B 验证，勿盲改** | 同上，第四节专题 |
 | SAME 四格不同步 | **默认关闭同步**（`ENABLED_BY_DEFAULT=false`）。根因是四个独立 ExoPlayer 各自缓冲/循环；seek 纠正必然转圈。**除非做单解码器多 Surface 的架构改动，否则别再尝试调参** | `PlaybackSync.kt` 顶部注释 |
