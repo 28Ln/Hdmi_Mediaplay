@@ -296,6 +296,12 @@ class UsbMonitorService : Service() {
             
             UsbBroadcastReceiver.onUsbMounted = { path ->
                 Log.i(TAG, "Broadcast: USB mounted at $path")
+                // 挂载广播是"新设备已就绪"的权威信号，必须无条件检查一次。
+                //
+                // 不能只依赖卸载广播清缓存：某些 ROM 在重新挂载同一分区时
+                // 只发 MOUNTED、不发 UNMOUNTED；服务重启后也可能直接收到 MOUNTED。
+                // 这些情况下签名可能与缓存值相同，闸门会把这次插入吞掉。
+                lastContentSignature = null
                 checkUsbContent(File(path))
             }
             
@@ -427,6 +433,26 @@ class UsbMonitorService : Service() {
     private fun contentSignature(usbPath: File, folderName: String): String =
         contentSignatureForTest(usbPath, folderName)
 
+    /**
+     * 检查U盘内容。
+     *
+     * **内容签名闸门**：签名未变时直接早退、不通知上层，用于避免轮询每 3 秒
+     * 重复打扰（弹覆盖确认框、重复拷贝）。
+     *
+     * ## 调用方须知：有三类调用必须绕过闸门
+     *
+     * 若调用方的语义是「这是一次新的插入/一次明确的重试」，而不是「例行巡检」，
+     * 就必须在调用前把 `lastContentSignature = null`：
+     *
+     * | 调用方 | 是否绕过 | 原因 |
+     * |---|---|---|
+     * | `onUsbMounted` 挂载广播 | **是** | 新设备就绪的权威信号 |
+     * | `triggerScan`（手动/重试） | **是** | 意图就是"再试一次"，被闸门挡住等于功能失效 |
+     * | `scanForUsb` 轮询 | 否 | 例行巡检，靠闸门去重 |
+     *
+     * **新增调用方时请先判断属于哪一类** —— 本项目已两次因漏了这一步
+     * 导致功能静默失效（手动扫描无效、错误自动重试永远恢复不了）。
+     */
     private suspend fun checkUsbContentAsync(usbPath: File) {
         Log.i(TAG, "Checking USB content: ${usbPath.absolutePath}")
         emitUsbState(UsbRuntimeState.Scanning(usbPath))
