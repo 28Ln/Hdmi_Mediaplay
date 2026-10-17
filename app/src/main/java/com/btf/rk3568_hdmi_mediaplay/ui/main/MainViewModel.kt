@@ -363,6 +363,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             usbRetryAttempt++
             log("U盘错误态自动重试第 $usbRetryAttempt 次（等待 ${delayMs}ms，原因：$message）")
             rescan()
+
+            // 重试发出后给服务一点时间完成检查，再看状态是否已脱离 Error。
+            //
+            // **为什么必须在这里主动检查**：重试成功后状态会从 Error 变成
+            // Connected，但服务端的 checkUsbContentAsync 在「U盘内容未变」
+            // 时会直接 return、**不发任何状态**（签名闸门）。
+            // 而「空间不足被清理」这个场景下 U 盘内容本来就一点没变，
+            // 所以 syncUsbState 永远不会被调用 → usbRetryAttempt 永不归零
+            // → 退避单调递增到 60 秒并永久停在那里，下次故障响应极慢。
+            delay(3_000)
+            if (_usbState.value !is UsbRuntimeState.Error) {
+                log("U盘错误已解除，退避计数归零（此前重试 $usbRetryAttempt 次）")
+                usbRetryAttempt = 0
+            }
         }
     }
 
