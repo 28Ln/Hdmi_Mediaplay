@@ -29,6 +29,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 
 /**
@@ -155,6 +157,36 @@ class UsbMonitorService : Service() {
      */
     @Volatile
     private var lastContentSignature: String? = null
+
+    /**
+     * 串行化内容检查。
+     *
+     * [checkUsbContentAsync] 有**三个并发调用方**，都跑在
+     * `Dispatchers.IO` 线程池上：
+     * - 每 3 秒的轮询
+     * - 挂载广播
+     * - 手动扫描 / 错误重试
+     *
+     * 没有这把锁时，"读 lastContentSignature → 比较 → 写回"不是原子操作，
+     * 两个线程可能同时判定"内容变了"，于是并发 emitUsbState 并两次
+     * notifyUsbConnected —— 上层收到重复通知、重复弹覆盖框，
+     * 而这正是内容签名闸门想要消除的现象。
+     */
+    private val checkMutex = Mutex()
+
+    /**
+     * 缓存代次。每次 [clearUsbCaches] 自增。
+     *
+     * 用于解决「检查进行中遇到拔盘」的竞态：
+     * 检查是在持锁期间做多次 IO 的，若此间有广播触发了 clearUsbCaches()，
+     * 检查结束时会把**过期的** signature 写回去，使已清空的缓存复活，
+     * 导致下次重插同一个 U 盘时不刷新。
+     *
+     * 做法：进入检查时记下代次，写回前比对；若代次已变说明期间被清空过，
+     * 就放弃写回（让下一次检查重新判断）。
+     */
+    @Volatile
+    private var cacheGeneration: Long = 0L
     
     // 缓存最后加载的U盘配置
     @Volatile
@@ -444,6 +476,7 @@ class UsbMonitorService : Service() {
      * 以后新增重置路径时，只需调用本函数，不会再漏字段。
      */
     private fun clearUsbCaches() {
+        cacheGeneration++
         lastDetectedUsb = null
         lastLoadedConfig = null
         lastContentSignature = null
@@ -480,7 +513,8 @@ class UsbMonitorService : Service() {
      * **新增调用方时请先判断属于哪一类** —— 本项目已两次因漏了这一步
      * 导致功能静默失效（手动扫描无效、错误自动重试永远恢复不了）。
      */
-    private suspend fun checkUsbContentAsync(usbPath: File) {
+    private suspend fun checkUsbContentAsync(usbPath: File) = checkMutex.withLock {
+        val startGeneration = cacheGeneration
         try {
             val folderName = try {
                 settingsRepository?.settingsFlow?.first()?.usbScanFolderName ?: "media"
@@ -533,7 +567,13 @@ class UsbMonitorService : Service() {
                 }
             }
 
-            // 更新状态
+            // 更新状态。
+            // 写回前确认期间没有被 clearUsbCaches()（如拔盘广播）打断，
+            // 否则会把过期签名写回去、让已清空的缓存复活。
+            if (cacheGeneration != startGeneration) {
+                Log.i(TAG, "检查期间缓存被清空（代次 $startGeneration -> $cacheGeneration），放弃写回")
+                return
+            }
             lastDetectedUsb = Pair(usbPath, hasMediaContent)
             lastContentSignature = signature
             emitUsbState(UsbRuntimeState.Connected(usbPath, hasMediaContent, hasConfig))
