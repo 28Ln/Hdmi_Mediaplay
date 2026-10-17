@@ -13,6 +13,7 @@
 | `./gradlew.bat --stop; ./gradlew.bat clean testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease --console=plain --no-daemon` | Passed; adopted as stable verification baseline |
 | `./gradlew.bat :app:assembleDebug --console=plain --no-daemon` | Passed; 确认 1.1.2 改动前工作区可编译 |
 | `./gradlew.bat --stop; ./gradlew.bat clean testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease --console=plain --no-daemon` | Passed; 1.1.2 交付候选构建 |
+| `./gradlew.bat clean testDebugUnitTest assembleDebug assembleRelease --console=plain --no-daemon` | Passed; **1.1.3** 二次审计修复批次（47 个单测全绿，含 2 个新增 tr-TR 回归用例） |
 
 ## CI Baseline
 
@@ -28,9 +29,9 @@ Planned workflow:
 
 ## Latest Evidence
 
-版本：**1.1.2**（`gradle/libs.versions.toml`）
+版本：**1.1.3**（`gradle/libs.versions.toml`）
 
-单元测试（`app/src/test`，共 38 个 `@Test`，0 failures / 0 errors）：
+单元测试（`app/src/test`，共 **47** 个 `@Test`，0 failures / 0 errors）：
 
 | 测试类 | 用例数 | 结果 |
 |---|---|---|
@@ -41,8 +42,9 @@ Planned workflow:
 | `LayoutModeTest` | 4 | 0 failures |
 | `LocalStorageManagerTest` | 2 | 0 failures |
 | `MainViewModelDecisionTest` | 4 | 0 failures |
-| `PlayerCommandHandlerTest` | 4 | 0 failures |
-| `UsbConfigTest` | 9 | 0 failures |
+| `PlayerCommandHandlerTest` | 7 | 0 failures |
+| `SplitLayoutMappingTest` | 4 | 0 failures |
+| `UsbConfigTest` | 11 | 0 failures |
 | `ExampleUnitTest` | 1 | 0 failures |
 
 构建与静态检查：
@@ -80,4 +82,4 @@ Planned workflow:
 | Scroll input | 设置页/图片裁剪页可用**鼠标按住拖动**滚动；慢速拖动应跟手且无抖动（用真实鼠标事件注入验证，`input swipe` 走触摸源、测不出该问题）|
 | HDMI | persist.sys.rotation.efull-1 toggles true/false from settings and bottom bar |
 | Release | feature matrix matches docs |
-| Build identity | 设置页顶部显示版本号 1.1.2 / 版本代码 4，构建类型与实际包一致（Debug 包显示 DEBUG）|
+| Build identity | 设置页顶部显示版本号 1.1.3 / 版本代码 5，构建类型与实际包一致（Debug 包显示 DEBUG）|

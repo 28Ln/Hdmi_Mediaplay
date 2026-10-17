@@ -1,7 +1,7 @@
 [versions]
 # 应用版本号唯一来源：设置页「关于」读取 BuildConfig.VERSION_NAME / VERSION_CODE
-appVersionName = "1.1.2"
-appVersionCode = "4"
+appVersionName = "1.1.3"
+appVersionCode = "5"
 
 agp = "8.6.0"
 kotlin = "1.9.0"

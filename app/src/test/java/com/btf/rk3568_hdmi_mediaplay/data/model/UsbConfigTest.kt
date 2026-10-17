@@ -6,6 +6,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Locale
 
 class UsbConfigTest {
 
@@ -147,5 +148,41 @@ class UsbConfigTest {
         val result = UsbConfig.validateFolderName("btf_media", warnings, "settings", "usbScanFolderName")
         assertEquals("btf_media", result)
         assertTrue(warnings.isEmpty())
+    }
+
+    // 回归防线：枚举归一化必须用 Locale.ROOT。
+    // 土耳其语环境下 "pip".uppercase() == "PİP"（带点大写 İ），与枚举值 "PIP" 不匹配，
+    // 会让合法配置被静默判为非法并回退默认值 —— 属"能编译、能运行、行为错"的一类。
+    @Test
+    fun `enum normalization is immune to turkish locale`() {
+        val original = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"))
+            val warnings = mutableListOf<String>()
+
+            assertEquals("PIP", UsbConfig.validateEnumValue("pip", setOf("PIP", "FULL"), warnings, "s", "f"))
+            assertEquals("pip", UsbConfig.validateAliasValue("PIP", setOf("pip", "full"), warnings, "s", "f"))
+
+            assertTrue("Locale.ROOT 下不应产生告警: $warnings", warnings.isEmpty())
+        } finally {
+            Locale.setDefault(original)
+        }
+    }
+
+    @Test
+    fun `config parsing under turkish locale still accepts valid enum values`() {
+        val original = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"))
+            val config = UsbConfig.fromJson("""{"settings":{"layoutMode":"GRID_2X2"}}""")
+
+            assertNotNull(config)
+            assertTrue(
+                "tr-TR 下合法枚举值不应产生告警: ${config!!.validationWarnings}",
+                config.validationWarnings.isEmpty()
+            )
+        } finally {
+            Locale.setDefault(original)
+        }
     }
 }

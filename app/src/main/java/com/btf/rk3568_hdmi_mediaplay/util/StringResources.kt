@@ -108,6 +108,17 @@ object StringResources {
     val unsupportedFormat: String get() = if (isEn) "Unsupported Format" else "不支持的格式"
     val supportedFormatsHint: String get() = if (isEn) "Supported: MP4, MKV, AVI, JPG, PNG, etc." else "支持: MP4, MKV, AVI, JPG, PNG 等"
     val videoPlayError: String get() = if (isEn) "Video playback error" else "视频播放错误"
+
+    // ========== 权限 ==========
+    /**
+     * Android 13+ 通知权限被拒绝。
+     * 属于降级提示：前台服务仍会运行，只是常驻通知不可见。
+     */
+    val notificationDenied: String get() = if (isEn) {
+        "Notification permission denied: USB monitoring still runs, but its status notification is hidden"
+    } else {
+        "通知权限被拒绝：U盘监听仍在运行，但状态通知不会显示"
+    }
     
     // ========== 设置页面 ==========
     val coreSettings: String get() = if (isEn) "Core Settings" else "核心设置"
@@ -175,14 +186,10 @@ object StringResources {
     // ========== 显示设置项 ==========
     val layoutMode: String get() = if (isEn) "Layout Mode" else "布局模式"
     val hdmiEfull: String get() = if (isEn) "HDMI Fullscreen" else "HDMI全屏"
-    val hdmiEfullOn: String get() = if (isEn) "ON" else "开"
-    val hdmiEfullOff: String get() = if (isEn) "OFF" else "关"
     /** 底部控制栏：切换拼接板模式（写 sysfs 控制节点） */
     val switchMode: String get() = if (isEn) "Switch Mode" else "切换模式"
     /** 底部控制栏：切换分辨率（写 sysfs 控制节点） */
     val switchResolution: String get() = if (isEn) "Switch Resolution" else "切换分辨率"
-    /** 底部控制栏：HDMI 全屏开关（按钮文字，与 hdmiEfull 拼接使用） */
-    val hdmiFullscreen: String get() = if (isEn) "HDMI Fullscreen" else "HDMI全屏"
     /** 图片裁剪入口 */
     val imageSplit: String get() = if (isEn) "Image Split" else "裁剪"
     /** 设置页「维护操作」区块标题 */

@@ -19,8 +19,7 @@ package com.btf.rk3568_hdmi_mediaplay.data.model
  * {
  *   "features": {
  *     "showSettingsButton": true,
- *     "showImageSplitTool": true,
- *     "showDebugInfo": true
+ *     "showImageSplitTool": true
  *   }
  * }
  * ```
@@ -65,9 +64,6 @@ data class FeatureFlags(
     
     /** 显示U盘状态 - 右上角的U盘连接状态指示器 */
     val showUsbStatus: Boolean = true,
-    
-    /** 显示调试信息 - 开发用，显示额外的调试日志和状态信息 */
-    val showDebugInfo: Boolean = false,
     
     // ============ 高级功能相关 ============
     
@@ -142,7 +138,6 @@ data class FeatureFlags(
             showHelpTip = true,
             showPlayerIndex = true,
             showUsbStatus = true,
-            showDebugInfo = true,
             // 高级功能 - 全部允许
             allowClearCache = true,
             // 设置页面 - 全部显示
@@ -185,7 +180,6 @@ data class FeatureFlags(
             showHelpTip = false,
             showPlayerIndex = true,
             showUsbStatus = true,
-            showDebugInfo = false,
             // 高级功能 - 限制
             allowClearCache = false,
             // 设置页面 - 按需求控制

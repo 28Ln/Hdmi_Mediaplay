@@ -12,6 +12,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -254,7 +256,9 @@ private fun EmptyPlayerContent(playerIndex: Int, showIndex: Boolean) {
         verticalArrangement = Arrangement.Center,
         modifier = Modifier.padding(16.dp)
     ) {
-        Text(text = "📺", fontSize = 48.sp)
+        // 📺 只是占位图形，紧跟其后的文字已经说明了状态；
+        // 静音掉，避免 TalkBack 先念一遍 emoji 字形
+        Text(text = "📺", fontSize = 48.sp, modifier = Modifier.clearAndSetSemantics {})
         Spacer(modifier = Modifier.height(12.dp))
         Text(
             text = if (showIndex) StringResources.playerN(playerIndex + 1) else StringResources.noContent,
@@ -295,7 +299,8 @@ private fun ErrorContent(message: String, suggestion: String? = null) {
         verticalArrangement = Arrangement.Center,
         modifier = Modifier.padding(16.dp)
     ) {
-        Text(text = "❌", fontSize = 48.sp)
+        // 同为装饰性占位图形，错误信息由下方 message/suggestion 朗读
+        Text(text = "❌", fontSize = 48.sp, modifier = Modifier.clearAndSetSemantics {})
         Spacer(modifier = Modifier.height(12.dp))
         Text(text = message, color = Color.Red, fontSize = 16.sp)
         suggestion?.let {
@@ -350,6 +355,14 @@ private fun PausedOverlay() {
             .background(Color.Black.copy(alpha = 0.5f)),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = "⏸", fontSize = 64.sp)
+        // 暂停遮罩是纯图标、没有任何文字，必须给出语义描述，
+        // 否则 TalkBack 只能念出字形本身
+        Text(
+            text = "⏸",
+            fontSize = 64.sp,
+            modifier = Modifier.clearAndSetSemantics {
+                contentDescription = StringResources.pause
+            }
+        )
     }
 }

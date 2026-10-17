@@ -1,10 +1,7 @@
 package com.btf.rk3568_hdmi_mediaplay.remote
 
-import android.content.BroadcastReceiver
 import android.content.Context
-import androidx.core.content.ContextCompat
 import android.content.Intent
-import android.content.IntentFilter
 import android.util.Log
 import com.btf.rk3568_hdmi_mediaplay.MainActivity
 import com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode
@@ -12,11 +9,10 @@ import com.btf.rk3568_hdmi_mediaplay.data.model.LoopMode
 import com.btf.rk3568_hdmi_mediaplay.data.model.MediaItem
 import com.btf.rk3568_hdmi_mediaplay.data.model.MediaSource
 import com.btf.rk3568_hdmi_mediaplay.data.model.MediaType
+import com.btf.rk3568_hdmi_mediaplay.util.AppForegroundState
 import org.json.JSONObject
 import java.io.File
 import java.util.Locale
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /**
  * 播放器命令处理器
@@ -39,16 +35,19 @@ object PlayerCommandHandler {
         const val UNKNOWN_ACTION = 2002
     }
 
-    /** hide 命令等待 Activity 回执的超时（毫秒） */
-    private const val HIDE_ACK_TIMEOUT_MS = 1_000L
+    /** batch 命令最大嵌套深度。超过即拒绝，避免深层嵌套递归耗尽栈 */
+    private const val MAX_BATCH_DEPTH = 3
     
     // ViewModel 引用，由 MainActivity 设置
     private var viewModelCallback: ViewModelCallback? = null
     
     interface ViewModelCallback {
-        fun playAll()
-        fun pauseAll()
-        fun stopAll()
+        /** @return 是否真正生效（一个可播放的路都没有时返回 false） */
+        fun playAll(): Boolean
+        /** @return 是否真正生效（当前没有处于播放中的路时返回 false） */
+        fun pauseAll(): Boolean
+        /** @return 是否真正生效（当前布局内没有路时返回 false） */
+        fun stopAll(): Boolean
         /** @return 是否真正生效（无媒体的路返回 false） */
         fun play(playerIndex: Int): Boolean
         fun pause(playerIndex: Int): Boolean
@@ -58,8 +57,9 @@ object PlayerCommandHandler {
         fun clearMedia(playerIndex: Int)
         fun clearAllMedia()
         fun setInterval(seconds: Int)
-        fun setVolume(playerIndex: Int, volume: Int)
-        fun setMute(playerIndex: Int, mute: Boolean)
+        /** @return 是否真正生效（索引不在当前布局中返回 false） */
+        fun setVolume(playerIndex: Int, volume: Int): Boolean
+        fun setMute(playerIndex: Int, mute: Boolean): Boolean
         fun setLoopMode(loopMode: LoopMode)
         fun getStatus(): StatusData
     }
@@ -86,7 +86,11 @@ object PlayerCommandHandler {
         handleCommandInternal(context, commandJson)
     }
 
-    private fun handleCommandInternal(context: Context, commandJson: String): Boolean {
+    private fun handleCommandInternal(
+        context: Context,
+        commandJson: String,
+        depth: Int = 0
+    ): Boolean {
         try {
             val json = JSONObject(commandJson)
             val action = json.optString("action", "")
@@ -128,7 +132,7 @@ object PlayerCommandHandler {
                 "get_status" -> handleGetStatus(context)
                 
                 // 批量命令
-                "batch" -> handleBatch(context, json)
+                "batch" -> handleBatch(context, json, depth)
                 
                 else -> {
                     sendError(context, ErrorCode.UNKNOWN_ACTION, "未知命令: $action")
@@ -146,21 +150,31 @@ object PlayerCommandHandler {
     
     private fun handlePlayAll(context: Context): Boolean {
         val callback = requireCallback(context) ?: return false
-        callback.playAll()
+        // 依据实际是否生效回报：一路可播内容都没有时，报成功会误导接入方
+        if (!callback.playAll()) {
+            sendError(context, ErrorCode.MEDIA_LOAD_FAILED, "play_all 未生效：没有任何可播放的内容")
+            return false
+        }
         PlayerStatusBroadcaster.sendCommandSuccess(context, "play_all")
         return true
     }
-    
+
     private fun handlePauseAll(context: Context): Boolean {
         val callback = requireCallback(context) ?: return false
-        callback.pauseAll()
+        if (!callback.pauseAll()) {
+            sendError(context, ErrorCode.MEDIA_LOAD_FAILED, "pause_all 未生效：当前没有正在播放的路")
+            return false
+        }
         PlayerStatusBroadcaster.sendCommandSuccess(context, "pause_all")
         return true
     }
-    
+
     private fun handleStopAll(context: Context): Boolean {
         val callback = requireCallback(context) ?: return false
-        callback.stopAll()
+        if (!callback.stopAll()) {
+            sendError(context, ErrorCode.MEDIA_LOAD_FAILED, "stop_all 未生效：当前布局内没有播放器")
+            return false
+        }
         PlayerStatusBroadcaster.sendCommandSuccess(context, "stop_all")
         return true
     }
@@ -373,18 +387,25 @@ object PlayerCommandHandler {
         val callback = requireCallback(context) ?: return false
         
         val volume = json.optInt("volume", 100)
-        callback.setVolume(playerIndex, volume.coerceIn(0, 100))
+        // 依据实际是否生效回报：索引不在当前布局中时 setVolume 是空操作
+        if (!callback.setVolume(playerIndex, volume.coerceIn(0, 100))) {
+            sendError(context, ErrorCode.INVALID_PLAYER_INDEX, "set_volume 未生效：该路不在当前布局中")
+            return false
+        }
         PlayerStatusBroadcaster.sendCommandSuccess(context, "set_volume")
         return true
     }
-    
+
     private fun handleSetMute(context: Context, json: JSONObject): Boolean {
         val playerIndex = json.optInt("player_index", -1)
         if (!validatePlayerIndex(context, playerIndex)) return false
         val callback = requireCallback(context) ?: return false
-        
+
         val mute = json.optBoolean("mute", false)
-        callback.setMute(playerIndex, mute)
+        if (!callback.setMute(playerIndex, mute)) {
+            sendError(context, ErrorCode.INVALID_PLAYER_INDEX, "set_mute 未生效：该路不在当前布局中")
+            return false
+        }
         PlayerStatusBroadcaster.sendCommandSuccess(context, "set_mute")
         return true
     }
@@ -430,54 +451,36 @@ object PlayerCommandHandler {
     }
     
     private fun handleHide(context: Context): Boolean {
-        // 等待 Activity 的回执，确认确实退到后台。
-        // 此前发完广播即报成功——Activity 不在前台时无人接收 MOVE_TO_BACK，
+        // 前置判定：只有 Activity 处于前台，MOVE_TO_BACK 才有接收方。
+        // 此前发完广播即报成功——Activity 不在前台时无人接收，
         // app 实际没退后台，调用方却收到 command_success。
-        val latch = CountDownLatch(1)
-        val ackReceiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context?, intent: Intent?) {
-                if (intent?.action == PlayerBroadcastContract.ACTION_MOVE_TO_BACK_ACK) {
-                    latch.countDown()
-                }
-            }
+        //
+        // 不采用「广播回执 + latch 等待」：命令处理运行在 onReceive 内的主线程，
+        // 该上下文 registerReceiver 会抛 ReceiverCallNotAllowedException
+        // （onReceive 拿到的是 ReceiverRestrictedContext）；即便注册成功，
+        // 阻塞等待也会与主线程回调互锁、必然超时。
+        if (!AppForegroundState.isForeground) {
+            sendError(
+                context,
+                ErrorCode.MEDIA_LOAD_FAILED,
+                "hide 未生效：应用当前不在前台"
+            )
+            return false
         }
 
         return try {
-            ContextCompat.registerReceiver(
-                context,
-                ackReceiver,
-                IntentFilter(PlayerBroadcastContract.ACTION_MOVE_TO_BACK_ACK),
-                ContextCompat.RECEIVER_NOT_EXPORTED
-            )
-
             context.sendBroadcast(
                 Intent(PlayerBroadcastContract.ACTION_MOVE_TO_BACK)
                     .setPackage(context.packageName)
             )
-
-            val acked = latch.await(HIDE_ACK_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            if (acked) {
-                PlayerStatusBroadcaster.sendCommandSuccess(context, "hide")
-                true
-            } else {
-                // Activity 不在前台（或未注册接收器），未真正退到后台
-                sendError(
-                    context,
-                    ErrorCode.MEDIA_LOAD_FAILED,
-                    "hide 未生效：应用当前不在前台，无接收方确认"
-                )
-                false
-            }
+            // 广播为异步投递：此处只保证「已发出」，Activity 收到后会执行 moveTaskToBack。
+            // 副作用是否最终落地由 Activity 侧完成，调用方无需等待。
+            PlayerStatusBroadcaster.sendCommandSuccess(context, "hide")
+            true
         } catch (e: Exception) {
             Log.e(TAG, "隐藏应用失败", e)
             sendError(context, ErrorCode.MEDIA_LOAD_FAILED, "隐藏应用失败: ${e.message}")
             false
-        } finally {
-            try {
-                context.unregisterReceiver(ackReceiver)
-            } catch (e: Exception) {
-                Log.d(TAG, "unregister ack receiver: ${e.message}")
-            }
         }
     }
     
@@ -501,28 +504,60 @@ object PlayerCommandHandler {
     
     // ==================== 批量命令 ====================
     
-    private fun handleBatch(context: Context, json: JSONObject): Boolean {
+    private fun handleBatch(context: Context, json: JSONObject, depth: Int): Boolean {
+        // 深度上限：batch 嵌套 batch 会递归下去，此前没有限制，
+        // 深层嵌套会耗尽栈。StackOverflowError 是 Error 不是 Exception，
+        // 外层 catch(Exception) 兜不住 → 主线程直接崩进程。
+        if (depth >= MAX_BATCH_DEPTH) {
+            sendError(
+                context,
+                ErrorCode.UNKNOWN_ACTION,
+                "batch 嵌套超过 $MAX_BATCH_DEPTH 层，已拒绝"
+            )
+            return false
+        }
+
         val commands = json.optJSONArray("commands")
         if (commands == null || commands.length() == 0) {
             sendError(context, ErrorCode.JSON_PARSE_ERROR, "批量命令为空")
             return false
         }
-        
+
         var successCount = 0
+        var failureCount = 0
         for (i in 0 until commands.length()) {
             val cmd = commands.optJSONObject(i)
-            if (cmd != null) {
-                try {
-                    if (handleCommandInternal(context, cmd.toString())) {
-                        successCount++
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "批量命令第 $i 个执行失败", e)
+            if (cmd == null) {
+                failureCount++
+                continue
+            }
+            try {
+                if (handleCommandInternal(context, cmd.toString(), depth + 1)) {
+                    successCount++
+                } else {
+                    failureCount++
                 }
+            } catch (e: Throwable) {
+                // 捕获 Throwable 而非 Exception：StackOverflowError / OutOfMemoryError
+                // 等 Error 不属于 Exception，会穿透到主线程导致崩溃。
+                // 此处降级为一次失败回报即可。
+                Log.e(TAG, "批量命令第 $i 个执行失败", e)
+                failureCount++
             }
         }
-        
-        PlayerStatusBroadcaster.sendCommandSuccess(context, "batch", "执行了 $successCount 个命令")
+
+        val detail = if (failureCount > 0) {
+            "执行了 $successCount 个命令，失败 $failureCount 个"
+        } else {
+            "执行了 $successCount 个命令"
+        }
+        // 有子命令失败时不能回报 command_success——此前 detail 只报成功数，
+        // 部分失败也会被当作整批成功。
+        if (failureCount > 0) {
+            sendError(context, ErrorCode.UNKNOWN_ACTION, "批量命令部分失败：$detail")
+            return false
+        }
+        PlayerStatusBroadcaster.sendCommandSuccess(context, "batch", detail)
         return successCount > 0
     }
     

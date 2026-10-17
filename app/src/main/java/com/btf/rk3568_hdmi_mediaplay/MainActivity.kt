@@ -42,6 +42,7 @@ import com.btf.rk3568_hdmi_mediaplay.ui.settings.SettingsScreen
 import com.btf.rk3568_hdmi_mediaplay.ui.split.ImageSplitScreen
 import com.btf.rk3568_hdmi_mediaplay.ui.split.ImageSplitViewModel
 import com.btf.rk3568_hdmi_mediaplay.ui.theme.Rk3568_hdmi_mediaplayTheme
+import com.btf.rk3568_hdmi_mediaplay.util.AppForegroundState
 import com.btf.rk3568_hdmi_mediaplay.util.FilePickerHelper
 import com.btf.rk3568_hdmi_mediaplay.util.StringResources
 import java.io.File
@@ -73,15 +74,9 @@ class MainActivity : ComponentActivity() {
             if (intent.action == PlayerBroadcastContract.ACTION_MOVE_TO_BACK) {
                 Log.d(TAG, "收到 MOVE_TO_BACK 广播")
                 moveTaskToBack(true)
-                // 回执：让 hide 命令知道确实生效了（否则发送方只能盲目报成功）
-                try {
-                    sendBroadcast(
-                        Intent(PlayerBroadcastContract.ACTION_MOVE_TO_BACK_ACK)
-                            .setPackage(packageName)
-                    )
-                } catch (e: Exception) {
-                    Log.e(TAG, "发送 MOVE_TO_BACK 回执失败", e)
-                }
+                // 注：此处曾发 ACTION_MOVE_TO_BACK_ACK 回执，供 hide 等待确认。
+                // 但该回执机制无法工作（详见 PlayerCommandHandler.handleHide 注释），
+                // 现由 AppForegroundState 在「发送前」判定，故不再发回执。
             }
         }
     }
@@ -158,6 +153,52 @@ class MainActivity : ComponentActivity() {
             startUsbMonitorService()
         } else {
             showToast("部分权限被拒绝，U盘功能可能受限")
+        }
+    }
+
+    /**
+     * Android 13+ 通知权限（POST_NOTIFICATIONS）。
+     *
+     * 与 [permissionLauncher] 分开注册：通知权限是「可选增强」，
+     * 被拒绝时绝不能让前台服务停摆（U盘监听必须继续运行），
+     * 因此这里的结果只用于告知用户通知不可见，不参与任何启动判断。
+     */
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            Log.i(TAG, "POST_NOTIFICATIONS granted")
+        } else {
+            Log.w(
+                TAG,
+                "POST_NOTIFICATIONS denied: foreground notification stays hidden, USB monitor keeps running"
+            )
+            // 降级提示：服务照常，用户只是看不到常驻通知
+            showToast(StringResources.notificationDenied)
+        }
+    }
+
+    /**
+     * API 33+ 请求通知权限。
+     *
+     * 只有通知可见性受影响，所以任何失败路径都必须静默吞掉：
+     * 调用方 [requestPermissions] 无论授权与否都会继续启动 U 盘监听服务。
+     */
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        try {
+            val granted = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (granted) {
+                Log.d(TAG, "POST_NOTIFICATIONS already granted")
+            } else {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        } catch (e: Exception) {
+            // 部分定制 ROM 可能未提供该权限，请求失败不得影响 U 盘监听启动
+            Log.e(TAG, "requestNotificationPermissionIfNeeded failed", e)
         }
     }
     
@@ -359,6 +400,8 @@ class MainActivity : ComponentActivity() {
     
     override fun onStart() {
         super.onStart()
+        // 供远控 hide 判定「是否真的能退到后台」；见 AppForegroundState
+        AppForegroundState.onActivityStarted()
         Log.i(TAG, "onStart, serviceBound=$serviceBound, bindRequested=$bindRequested")
         // 依据 bindRequested 判断，避免回调未到达时重复 bind
         if (!bindRequested) {
@@ -373,7 +416,12 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    
+
+    override fun onStop() {
+        super.onStop()
+        AppForegroundState.onActivityStopped()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "onDestroy")
@@ -468,22 +516,27 @@ class MainActivity : ComponentActivity() {
                         e.printStackTrace()
                     }
                 } else {
+                    // 通知权限在「即将启动前台服务」时才请求：此时不会与
+                    // 跳转系统设置页的 startActivity 抢焦点，且语义上正好对应
+                    // 「这个服务需要一条常驻通知」。被拒绝也不影响服务运行。
+                    requestNotificationPermissionIfNeeded()
                     startUsbMonitorService()
                 }
             } else {
                 val permissions = mutableListOf<String>()
-                if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) 
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
                     != PackageManager.PERMISSION_GRANTED) {
                     permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
                 }
-                if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) 
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     != PackageManager.PERMISSION_GRANTED) {
                     permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
                 }
-                
+
                 if (permissions.isNotEmpty()) {
                     permissionLauncher.launch(permissions.toTypedArray())
                 } else {
+                    requestNotificationPermissionIfNeeded()
                     startUsbMonitorService()
                 }
             }

@@ -1,6 +1,5 @@
 package com.btf.rk3568_hdmi_mediaplay.ui.split
 
-import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border

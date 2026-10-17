@@ -31,9 +31,13 @@
 - [x] 5.3 添加配置加载状态提示
 
 ### 阶段6: 测试与文档
-- [ ] 6.1 编译测试 Debug 版本
-- [ ] 6.2 编译测试 Release 版本
+- [x] 6.1 编译测试 Debug 版本
+- [x] 6.2 编译测试 Release 版本
 - [x] 6.3 创建用户文档说明配置文件格式
+
+> 6.1 / 6.2 的完成证据：`docs/verification-matrix.md` 中
+> `assembleDebug` / `assembleRelease` 已在多轮验证中通过
+> （含 `clean testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease` 稳定基线）。
 
 ## 配置文件格式 (btf_config.json)
 
@@ -46,26 +50,64 @@
   "settings": {
     "layoutMode": "GRID_2X2",
     "language": "zh",
+    "backgroundColor": "#FF000000",
     "defaultVolume": 80,
+    "defaultMuted": false,
     "imageIntervalSeconds": 5,
-    "loopMode": "LIST"
+    "imageTransition": "FADE",
+    "loopMode": "LIST",
+    "videoScaleMode": "FIT",
+    "autoPlayOnStart": true,
+    "autoPlayAfterCopy": true,
+    "keepScreenOn": true,
+    "usbScanFolderName": "btf_media",
+    "showOverwriteConfirm": false,
+    "audioFallbackSilent": true
   },
   "features": {
+    "showBottomControlBar": true,
     "showSettingsButton": true,
+    "showImageSplitTool": true,
+    "allowPlayPauseControl": true,
     "allowManualFileSelect": true,
     "allowLocalMediaScan": false,
-    "showHelpTip": false,
+    "allowVolumeControl": true,
     "allowLayoutChange": true,
     "allowOrientationAutoSwitch": true,
-    "showDebugInfo": false
+    "showHelpTip": false,
+    "showPlayerIndex": true,
+    "showUsbStatus": true,
+    "allowClearCache": true,
+    "showLanguageSetting": true,
+    "showAudioOutputSetting": true,
+    "showPlaybackSettings": true,
+    "showVideoSettings": true,
+    "showImageSettings": true,
+    "showUsbSettings": true,
+    "showDisplaySettings": true,
+    "showAdvancedSettings": true,
+    "showStorageSettings": true,
+    "showHdmiControl": true,
+    "showHelpSection": true,
+    "showScanUsbButton": true
   }
 }
 ```
+
+> 上例为**解析器全量键**（与 `UsbConfigSettings.SETTINGS_KEYS` /
+> `UsbConfigFeatures.FEATURE_KEYS` 一一对应）。
+> 其中 `showDebugInfo` 解析器仍接受（`FEATURE_KEYS` 保留该键，避免旧配置产生
+> 「未知键」告警），但 `app/src/main` **零处读取**，是僵尸标志 ——
+> 故不再出现在示例中；真实调试开关请用 `BuildConfig.IS_DEBUG_BUILD` /
+> `enableDebugLog`。
 
 ## 功能开关默认值
 
 下表与 `FeatureFlags.debugDefaults()` / `FeatureFlags.releaseDefaults()` 保持一致。
 未在 `btf_config.json` 中出现的键按构建类型的默认值生效。
+
+> `showDebugInfo` 解析器仍接受该键（`FEATURE_KEYS` 保留），但代码零处读取，
+> 属僵尸标志（见 `docs/audit-findings.md` P2-1），故不计入本表。
 
 | 功能 | Debug | Release |
 |------|-------|---------|
@@ -75,7 +117,6 @@
 | showHelpTip | true | false |
 | allowLayoutChange | true | true |
 | allowOrientationAutoSwitch | true | true |
-| showDebugInfo | true | false |
 | showPlayerIndex | true | true |
 | allowVolumeControl | true | true |
 | allowClearCache | true | false |

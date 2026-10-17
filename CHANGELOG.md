@@ -5,6 +5,65 @@
 
 ---
 
+## [1.1.3] - 2026-10-17
+
+本次为**二次审计**后的修复批次。其中最严重的一项（U 盘拷贝）属于会**永久生效**
+的故障，建议所有已部署设备升级。
+
+### 修复
+
+- **U 盘拷贝可能永久失败，且可能丢失缓存（严重）**
+  `LocalStorageManager` 中陈旧备份清理被误加了 `if (!backupDir.exists())` 条件
+  —— 该条件使清理**永远不执行**。一旦某次拷贝在「旧目录已改名、新数据已就位」
+  之后、清理之前被中断（断电 / 进程被杀），隐藏目录 `.playerN_backup` 会残留；
+  下次拷贝时 `renameTo` 无法覆盖已存在的目录，返回 `backup_prepare_failed`，
+  **此后每次拷贝都失败**，必须手工删除该隐藏目录才能恢复。
+  现已恢复无条件清理。
+- **同一处还有一处数据丢失隐患**：孤儿备份还原失败时原代码只记日志就继续，
+  紧接着的清理会删掉当时**唯一一份**数据。现改为还原失败即中止拷贝，绝不删除。
+- **远控 `hide` 命令完全不可用**（比 1.1.2 更差）
+  1.1.2 的实现是在 `BroadcastReceiver.onReceive` 里注册回执接收器并阻塞等待——
+  该上下文是 `ReceiverRestrictedContext`，`registerReceiver` 必抛
+  `ReceiverCallNotAllowedException`；且命令处理本身在主线程，回执也在主线程投递，
+  阻塞等待必然超时互锁。更严重的是注册排在发送之前，异常被吞掉后
+  **连「退到后台」都不再执行**。现改为发送前用 `AppForegroundState` 判定前台状态。
+- **播放器级命令对无效索引仍报成功**
+  `_playerConfigs` 恒为 4 项且不随布局收缩，因此「索引存在」不等于「该路可见」。
+  单路布局下对 P2–P4 发 `play` 会广播一个并不存在的 `playing` 状态。
+  现校验索引是否在当前布局内。同时 `play_all` / `pause_all` / `stop_all` /
+  `set_volume` / `set_mute` 也改为按**实际是否生效**回报。
+- **布局解析在土耳其语环境下失败**（1.1.2 只修了远控侧）
+  `UsbConfig` 仍有三处裸 `uppercase()` / `lowercase()`，
+  tr-TR 下 `"pip"` → `"PİP"`，合法配置被静默判为非法并回退默认值。
+  已全部改用 `Locale.ROOT`，并新增在 tr-TR 下运行的回归测试。
+- **切换语言后帮助提示不刷新**：`StringResources` 不是 Compose State，
+  语言变化不会触发重组。现已把语言作为重组键。
+
+### 改进
+
+- **远控契约文档订正**：`status_response` 的 `players[]` 字段实际是 **`index`**
+  （文档曾误写为 `player_index`，接入方按文档写会取不到值）；
+  补齐 `media_type`、`timestamp`、错误码 `5001`；订正 `1004`/`1005` 的说明。
+- **`batch` 命令加嵌套深度上限**（3 层），超出返回错误；
+  子命令部分失败时不再报整体成功。同时把 `catch (Exception)` 扩到 `Throwable`，
+  避免深层嵌套的 `StackOverflowError` 直接崩溃主线程。
+- **Android 13+ 通知可见**：补 `POST_NOTIFICATIONS` 声明与运行时请求。
+  用户拒绝不会影响前台服务运行，仅降级提示。
+- **无障碍**：图标按钮补 `contentDescription`，纯装饰 emoji 对读屏静音。
+- **资源清理**：`strings.xml` 41 项中 37 项为死资源，已删除；
+  `colors.xml` 全部为模板残留，已清空；新增 `values-en` 英文资源。
+- 删除死代码：`MainViewModel.getCurrentStoragePath()`、`SingleImageView`、
+  `hdmiEfullOn/Off`、`showDebugInfo` 字段（U 盘配置中的同名键仍被接受，
+  不会产生「未知键」告警）。
+
+### 已知未完成
+
+- `values-en` **不会**让通知跟随应用内语言设置 —— 需要接入
+  `AppCompatDelegate.setApplicationLocales`，本轮未做。
+- 底部触发区会吞掉最后 96dp 内的点击（含播放器点击）——属交互取舍，待产品确认。
+
+---
+
 ## [1.1.2] - 2026-10-16
 
 ### 修复

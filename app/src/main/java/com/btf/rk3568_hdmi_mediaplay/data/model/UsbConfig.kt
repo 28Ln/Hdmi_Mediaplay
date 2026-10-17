@@ -1,6 +1,7 @@
 package com.btf.rk3568_hdmi_mediaplay.data.model
 
 import org.json.JSONObject
+import java.util.Locale
 
 /**
  * U盘配置文件数据结构
@@ -104,7 +105,9 @@ data class UsbConfig(
             fieldName: String
         ): String? {
             if (value == null) return null
-            val normalized = value.uppercase()
+            // Locale.ROOT：土耳其语环境下 "pip".uppercase() == "PİP"，与枚举值不匹配，
+            // 会让合法配置被静默判为非法（warning + 回退默认值）。
+            val normalized = value.uppercase(Locale.ROOT)
             return if (normalized in allowedValues) {
                 normalized
             } else {
@@ -121,7 +124,8 @@ data class UsbConfig(
             fieldName: String
         ): String? {
             if (value == null) return null
-            val normalized = value.lowercase()
+            // 同上：tr-TR 下 "I".lowercase() == "ı"，须用 Locale.ROOT 保证与 ASCII 别名表一致。
+            val normalized = value.lowercase(Locale.ROOT)
             return if (normalized in allowedValues) {
                 normalized
             } else {
@@ -157,7 +161,7 @@ data class UsbConfig(
             val normalized = value.trim()
             val isValid = Regex("^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$").matches(normalized)
             return if (isValid) {
-                normalized.uppercase()
+                normalized.uppercase(Locale.ROOT)
             } else {
                 warnings += "Invalid color for $scope.$fieldName: $value (expected #RRGGBB or #AARRGGBB)"
                 null
@@ -362,7 +366,6 @@ data class UsbConfigFeatures(
     val showHelpTip: Boolean? = null,
     val showPlayerIndex: Boolean? = null,
     val showUsbStatus: Boolean? = null,
-    val showDebugInfo: Boolean? = null,
     val allowClearCache: Boolean? = null,
     val showLanguageSetting: Boolean? = null,
     val showAudioOutputSetting: Boolean? = null,
@@ -384,7 +387,6 @@ data class UsbConfigFeatures(
         allowLocalMediaScan: Boolean? = null,
         showHelpTip: Boolean? = null,
         allowLayoutChange: Boolean? = null,
-        showDebugInfo: Boolean? = null,
         showPlayerIndex: Boolean? = null,
         allowVolumeControl: Boolean? = null,
         allowClearCache: Boolean? = null,
@@ -404,7 +406,6 @@ data class UsbConfigFeatures(
         showHelpTip = showHelpTip,
         showPlayerIndex = showPlayerIndex,
         showUsbStatus = showUsbStatus,
-        showDebugInfo = showDebugInfo,
         allowClearCache = allowClearCache,
         showLanguageSetting = null,
         showAudioOutputSetting = null,
@@ -465,7 +466,9 @@ data class UsbConfigFeatures(
                 showHelpTip = UsbConfig.parseOptionalBoolean(json, "showHelpTip", warnings, "features"),
                 showPlayerIndex = UsbConfig.parseOptionalBoolean(json, "showPlayerIndex", warnings, "features"),
                 showUsbStatus = UsbConfig.parseOptionalBoolean(json, "showUsbStatus", warnings, "features"),
-                showDebugInfo = UsbConfig.parseOptionalBoolean(json, "showDebugInfo", warnings, "features"),
+                // showDebugInfo：字段已于 1.1.2 删除（声明/解析/文档齐全但代码零读取）。
+                // 键仍保留在 FEATURE_KEYS 中，使既有 btf_config.json 不会产生
+                // "Unknown key" 告警；值被有意忽略。
                 allowClearCache = UsbConfig.parseOptionalBoolean(json, "allowClearCache", warnings, "features"),
                 showLanguageSetting = UsbConfig.parseOptionalBoolean(json, "showLanguageSetting", warnings, "features"),
                 showAudioOutputSetting = UsbConfig.parseOptionalBoolean(json, "showAudioOutputSetting", warnings, "features"),
@@ -500,7 +503,6 @@ data class UsbConfigFeatures(
             showHelpTip = showHelpTip ?: base.showHelpTip,
             showPlayerIndex = showPlayerIndex ?: base.showPlayerIndex,
             showUsbStatus = showUsbStatus ?: base.showUsbStatus,
-            showDebugInfo = showDebugInfo ?: base.showDebugInfo,
             allowClearCache = allowClearCache ?: base.allowClearCache,
             showLanguageSetting = showLanguageSetting ?: base.showLanguageSetting,
             showAudioOutputSetting = showAudioOutputSetting ?: base.showAudioOutputSetting,

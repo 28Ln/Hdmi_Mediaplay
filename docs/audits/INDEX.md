@@ -9,7 +9,7 @@
 | # | 日期 | 代码指纹 | 方法 | 记录文件 | 状态 |
 |---|---|---|---|---|---|
 | 01 | 2026-10-15 | `27f6c0d` + 未提交工作区 | 20 个只读 agent 并发全量扫描 | `2026-10-15-audit-01.md` | ✅ 已归档（结论已并入台账） |
-| 02 | 2026-10-17 | `1cdb969` | 2 个 agent 验证批量改动 + 既有结论复核 | `2026-10-17-audit-02.md` | 🔄 进行中 |
+| 02 | 2026-10-17 | `4acc859` | 2 个验证 agent 验证批量改动 + 3 个实现 agent + 真机复核 | `2026-10-17-audit-02.md` | ✅ 已归档 |
 
 ---
 
@@ -63,6 +63,15 @@ git diff --stat 1cdb969..HEAD
 | HDMI 节点 EACCES | ROM 侧权限问题，App 已支持 su 回退 | `docs/device-verification.md` |
 | AC3 视频无声 | 设备无 AC3 直通，已降级静音播视频 | `CHANGELOG.md` |
 | CI 硬编码 java.home | 已移除 | `gradle.properties` |
+| `uppercase()` 受 locale 影响 | **已修**（`PlayerCommandHandler` + `UsbConfig` 全部改 `Locale.ROOT`），并有 tr-TR 回归测试。**再次「发现」即为漏看测试** | `docs/audits/2026-10-17-audit-02.md` |
+| `WALL_MODE_8` 是「臆造别名」 | **不是缺陷** —— 是有意保留的兼容别名，仅支持别名表，非硬件编号；契约文档已说明 | `docs/remote-command-contract.md:77` |
+| `hide` 命令不生效 | **已修**（改用 `AppForegroundState` 发送前判定）。**注意**：回执方案是死路，别再试一次 —— `onReceive` 里 `registerReceiver` 必抛异常 | `docs/audits/2026-10-17-audit-02.md` 新发现 2 |
+| U 盘拷贝永久失败 | **已修** —— 备份清理条件曾被写反成 `if (!backupDir.exists())`。**该处不能加任何 `exists` 条件** | `LocalStorageManager.kt:127-145` |
+| 无效索引命令报成功 | **已修**（`play/pause/stop/set_volume/set_mute` 校验是否在当前布局内；`*_all` 按实际生效返回） | `docs/audits/2026-10-17-audit-02.md` 新发现 3 |
+| `players[].index` 字段名 | 契约文档曾误写为 `player_index`，**已订正** | `docs/remote-command-contract.md` 第三节 |
+| `HelpTip` 的 `lang` 参数 | **不是死参数** —— 它是语言切换的唯一重组键，已用 `key(lang)` 接入。**删掉会造成永久缺陷** | `docs/audits/2026-10-17-audit-02.md` 新发现 5 |
+| `values-en` 不生效 | **已知未完成**：需接 `setApplicationLocales`，不是「已修」 | `docs/audits/2026-10-17-audit-02.md` 第三节 |
+| 底部触发区吞点击 / `Connected` 不重扫 / `Error` 无退出 / 15s 竞态 | **已诊断到根因，属产品取舍**，等客户确认，**不要重复扫** | `docs/audits/2026-10-17-audit-02.md` 第四节 |
 
 ---
 
@@ -71,6 +80,11 @@ git diff --stat 1cdb969..HEAD
 | 教训 | 说明 |
 |---|---|
 | **验证方法要与问题路径一致** | 用 `adb input swipe` 测鼠标拖动 → 走的是触摸源分支，永远显示「正常」，掩盖真实问题。必须注入真实鼠标事件（`BTN_LEFT` + `REL_Y`） |
-| **批量替换必须逐处核对** | 本项目 3 次静默回归全部来自批量脚本：按钮高度被改、函数作用域错误、字号 13sp→12sp。**能编译通过 ≠ 行为未变** |
-| **文档结论要核代码，不凭记忆** | 写远控契约时把 status action 写成 `action.STATUS_CALLBACK`，实际是 `status.CALLBACK` —— 这类错误会让客户对接直接失败 |
+| **批量替换必须逐处核对** | 本项目**四次**静默回归全部来自批量脚本：按钮高度被改、函数作用域错误、字号 13sp→12sp、**备份清理条件被写反**。**能编译通过 ≠ 行为未变** |
+| **加条件前先问「原来为什么无条件」** | 最严重的一次回归（`LocalStorageManager` 备份清理）就是给一条原本无条件的 `deleteRecursively()` 加了 `exists` 守卫。原代码的「无条件」往往是刻意的 |
+| **「已修复」必须在代码里指到具体实现** | `hide` 曾写成「✅ 已修」，但实现（`onReceive` 里注册接收器 + 主线程 latch）**在框架层面不可能成功**，且比修之前更差。写台账/契约时必须逐个核对实现 |
+| **文档结论要核代码，不凭记忆** | 契约文档把 `players[].index` 写成 `player_index` → 接入方按文档写会直接取不到值 |
+| **`@return` 语义要落到实现** | `play(index): Boolean` 的注释写「不在当前布局中返回 false」，实现却只查了「有没有媒体」。注释与实现不符时，**以实现为准并立刻补齐** |
+| **未使用告警可能是漏接线，不是死代码** | `HelpTip(lang)` 的 `lang` 被判为 unused；实际它是语言切换时**唯一**的重组触发源，删掉会把「切语言不刷新」变成永久缺陷 |
+| **修一个模式要 grep 全部同类调用点** | P1-26 只修了报出问题的那一处，`UsbConfig.kt` 的同类裸调用被漏掉近一个月，且无任何症状 |
 | **状态文档要有唯一权威来源** | 三份审计文档给出 4/11/11 三种 P0 计数，无法判断谁对 |

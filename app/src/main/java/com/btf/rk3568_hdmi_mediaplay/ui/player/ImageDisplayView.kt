@@ -265,33 +265,3 @@ private fun ErrorImagePlaceholder(message: String, modifier: Modifier = Modifier
     }
 }
 
-/**
- * 单张图片显示
- */
-@Composable
-fun SingleImageView(
-    imagePath: String,
-    modifier: Modifier = Modifier,
-    scaleMode: VideoScaleMode = VideoScaleMode.FIT,
-    onError: ((String) -> Unit)? = null
-) {
-    val contentScale = remember(scaleMode) {
-        when (scaleMode) {
-            VideoScaleMode.FIT -> ContentScale.Fit
-            VideoScaleMode.FILL -> ContentScale.Crop
-            VideoScaleMode.STRETCH -> ContentScale.FillBounds
-            VideoScaleMode.ORIGINAL -> ContentScale.None
-        }
-    }
-    
-    Box(
-        modifier = modifier.background(Color.Black),
-        contentAlignment = Alignment.Center
-    ) {
-        OptimizedImageContent(
-            path = imagePath, 
-            contentScale = contentScale,
-            onError = onError
-        )
-    }
-}

@@ -11,6 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -264,6 +267,17 @@ fun MainScreen(
  */
 @Composable
 private fun HelpTip(lang: AppLanguage) {
+    // StringResources 是普通单例、不是 Compose State，语言切换不会自动触发重组。
+    // `lang` 本身不参与文案取值（文案都走 StringResources），但它是本组件唯一
+    // 会随语言变化的入参，故用 key() 把它作为重组键——否则点「切换语言」后
+    // 帮助提示会停留在旧语言，直到下一次因其他原因重组。
+    key(lang) {
+        HelpTipContent()
+    }
+}
+
+@Composable
+private fun HelpTipContent() {
     var showHelp by remember { mutableStateOf(true) }
     
     if (showHelp) {
@@ -451,7 +465,15 @@ private fun BottomControlBar(
                     onClick = onHide,
                     colors = ButtonDefaults.textButtonColors(contentColor = Color.Gray)
                 ) {
-                    Text(text = "✕", fontSize = 16.sp)
+                    Text(
+                        text = "✕",
+                        fontSize = 16.sp,
+                        // "✕" 是符号字形，TalkBack 只会念符号本身（或直接念不出），
+                        // 用户无法判断这个按钮做什么；用文字描述覆盖掉字形文本
+                        modifier = Modifier.clearAndSetSemantics {
+                            contentDescription = StringResources.close
+                        }
+                    )
                 }
             }
         }
@@ -470,8 +492,14 @@ private fun CustomerControlButton(
         modifier = modifier.height(68.dp),
         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF263238))
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(text = icon, fontSize = 20.sp)
+        // 图标是 emoji（▶/⏸/🔁/🖥/⚙），单独暴露给 TalkBack 会被念成
+        // "black square" 之类的噪声。emoji 用 clearAndSetSemantics 静音，
+        // 再让 Column 合并后代语义，朗读出来就只有按钮文字（如"全部播放"）。
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.semantics(mergeDescendants = true) {}
+        ) {
+            Text(text = icon, fontSize = 20.sp, modifier = Modifier.clearAndSetSemantics {})
             Text(text = text, color = Color.White, fontSize = 14.sp, maxLines = 1)
         }
     }
@@ -487,7 +515,16 @@ private fun ControlButton(
         onClick = onClick,
         colors = ButtonDefaults.textButtonColors(contentColor = Color.White)
     ) {
-        Text(text = "$icon $text", fontSize = 13.sp)
+        // 单个 Text 里拼了 emoji（▶/⏸/🔍/✂️/⚙），TalkBack 会先念出
+        // "black square" 之类的字形再念文字。这里用纯文字语义替换整个节点，
+        // 保留按钮原有的可点击语义（clearAndSetSemantics 只清后代节点）。
+        Text(
+            text = "$icon $text",
+            fontSize = 13.sp,
+            modifier = Modifier.clearAndSetSemantics {
+                contentDescription = text
+            }
+        )
     }
 }
 

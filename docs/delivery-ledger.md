@@ -49,9 +49,9 @@
 | P1-22 | 远控 11 种事件未文档化（**对接前置条件**） | `docs/remote-command-contract.md` 重写：9 种事件、19 命令、错误码、layout_mode 全取值与别名、接入示例 |
 | P1-23 | `set_loop_mode` 缺省值 `"ALL"` 是枚举中不存在的值 | 改为 `LIST`；非法值返回错误而非静默降级 |
 | P1-24 | `set_interval` 回报未 clamp 的原始值 | 回执显示实际生效值 |
-| P1-25 | `hide` 发完广播即报成功，未确认是否生效 | 等待 Activity 回执（超时 1 秒），未生效时返回错误 |
-| P1-26 | 布局解析受系统语言影响（tr-TR 下 `pip` 失败） | `uppercase()` → `uppercase(Locale.ROOT)` |
-| P1-27 | 播放器级命令对无效索引仍报成功并广播虚假 `playing` | `play`/`pause`/`stop` 回调改返回 `Boolean`，handler 据此报成败 |
+| P1-25 | `hide` 发完广播即报成功，未确认是否生效 | **初版修法是错的**（回执方案在框架层面不可能成功）。现改为发送前用 `AppForegroundState` 判定前台，不在前台返回 `1006` |
+| P1-26 | 布局解析受系统语言影响（tr-TR 下 `pip` 失败） | `PlayerCommandHandler` 已改 `Locale.ROOT`；**`UsbConfig` 的三处裸调用 2026-10-17 补齐**，并加 tr-TR 回归测试 |
+| P1-27 | 播放器级命令对无效索引仍报成功并广播虚假 `playing` | **初版只拦了「无媒体」，没拦「不在当前布局」**。现已补 `isPlayerInCurrentLayout` 校验；`*_all` 与 `set_volume`/`set_mute` 一并按实际生效返回 |
 | P1-28 | 错误码塌缩，1004/1005 永不触发 | `MediaResult` 区分「不存在/不可读/格式不支持」→ 1003/1004/1005 |
 
 ---
@@ -81,18 +81,30 @@
 
 ### 体验与可维护性（P2）
 
+**本轮修复中**（详见 `docs/audits/2026-10-17-audit-02.md`）：
+
 - `showDebugInfo` 僵尸标志（声明/解析/文档齐全，代码零读取）
 - `batch` 无深度限制，可致 `StackOverflowError` 崩溃主线程
-- 主线程阻塞 I/O，万级文件目录扫描有 ANR 风险
 - `POST_NOTIFICATIONS` 未声明 → Android 13+ 前台服务通知不可见
+- 图标按钮无 `contentDescription`
+- `uppercase()` 受系统语言影响 —— **`UsbConfig.kt` 三处补齐 `Locale.ROOT`**
+  （P1-26 当时只修了 `PlayerCommandHandler`，属**只修一半**，已补回归测试）
+- 死代码：`MainViewModel.getCurrentStoragePath()`、`SingleImageView`、
+  `hdmiEfullOn/Off` 未使用
+
+**待决策（已诊断到根因，属产品取舍，勿重复扫）**：
+
 - `Connected` 状态不重扫；`Error` 状态无退出路径
 - 底部触发区吞掉最后 96dp 内所有点击（含播放器点击）
+  —— `detectTapGestures(onPress=…)` 消费按下事件。**改为只响应滑动会破坏
+  「点底部唤起控制栏」这一现有交互**，需产品确认
 - 15s 自动隐藏与 ✕ 计时竞态
-- 图标按钮无 `contentDescription`
-- `WALL_MODE_8` 是臆造别名；`uppercase()` 受系统语言影响
-- `MainViewModel` 职责过载（900 行 / 8 类职责），无法单测
-- 死代码：`MainViewModel.getCurrentStoragePath()`、`SingleImageView`、
-  `onPlaybackEnded`/`onNextVideo` 回调链、`hdmiEfullOn/Off` 未使用
+- 主线程阻塞 I/O，万级文件目录扫描有 ANR 风险 —— 需先确认目标 U 盘规模
+- `MainViewModel` 职责过载（900 行 / 8 类职责），无法单测 —— 重构面大，需排期
+
+> **已从本列表移除**：「`WALL_MODE_8` 是臆造别名」——
+> 它是**有意保留的兼容别名**（非硬件编号，拼接板只有 1–7），
+> `remote-command-contract.md:77` 已明确说明，属已文档化的设计而非缺陷。
 
 ### 打磨（P3）
 

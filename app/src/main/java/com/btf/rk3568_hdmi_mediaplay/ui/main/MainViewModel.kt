@@ -379,7 +379,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     /**
      * 设置播放器音量
      */
-    fun setVolume(playerIndex: Int, volume: Float) {
+    fun setVolume(playerIndex: Int, volume: Float): Boolean {
+        // 索引不在当前布局中时是空操作，返回 false 让远控如实回报
+        if (!isPlayerInCurrentLayout(playerIndex)) return false
         _playerConfigs.update { configs ->
             configs.mapIndexed { index, config ->
                 if (index == playerIndex) {
@@ -387,6 +389,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
                 } else config
             }
         }
+        return true
     }
     
     /**
@@ -575,13 +578,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     }
     
     /**
-     * 获取当前存储路径
-     */
-    fun getCurrentStoragePath(): String {
-        return localStorageManager.getCurrentStoragePath()
-    }
-    
-    /**
      * 计算U盘内容所需空间
      */
     private fun calculateRequiredSpace(usbPath: File): Long {
@@ -735,7 +731,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     
     // ==================== 远程控制接口实现 ====================
     
-    override fun playAll() {
+    override fun playAll(): Boolean {
         var playCount = 0
         _playerConfigs.update { configs ->
             configs.map { config ->
@@ -751,27 +747,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
         } else {
             showToast("无可播放内容", MessageType.WARNING)
         }
+        // 一路可播内容都没有时返回 false，让 handler 回报错误而不是虚假成功
+        return playCount > 0
     }
-    
-    override fun pauseAll() {
+
+    override fun pauseAll(): Boolean {
+        var pausedCount = 0
         _playerConfigs.update { configs ->
             configs.map { config ->
                 if (config.state == PlayerState.PLAYING) {
+                    pausedCount++
                     config.copy(state = PlayerState.PAUSED)
                 } else config
             }
         }
-        log("远程控制: 暂停全部")
+        log("远程控制: 暂停全部 ($pausedCount 个)")
+        if (pausedCount == 0) {
+            // 当前没有正在播放的路 → 命令无实际效果
+            return false
+        }
         showToast("已暂停", MessageType.INFO)
+        return true
     }
-    
-    override fun stopAll() {
+
+    override fun stopAll(): Boolean {
+        if (settings.value.layoutMode.visiblePlayerCount <= 0) return false
         _playerConfigs.update { configs ->
             configs.map { config ->
                 config.copy(state = PlayerState.IDLE, currentIndex = 0)
             }
         }
         log("远程控制: 停止全部")
+        return true
     }
     
     /**
@@ -780,6 +787,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
      *         而不是广播一个虚假的 playing 状态。
      */
     override fun play(playerIndex: Int): Boolean {
+        if (!isPlayerInCurrentLayout(playerIndex)) {
+            log("远程控制: 播放播放器 $playerIndex 失败（该路不在当前布局中）")
+            return false
+        }
         val target = _playerConfigs.value.getOrNull(playerIndex)
         if (target == null || target.mediaItems.isEmpty()) {
             log("远程控制: 播放播放器 $playerIndex 失败（无媒体或索引无效）")
@@ -793,10 +804,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
         log("远程控制: 播放播放器 $playerIndex")
         return true
     }
-    
+
     override fun pause(playerIndex: Int): Boolean {
-        if (_playerConfigs.value.getOrNull(playerIndex) == null) {
-            log("远程控制: 暂停播放器 $playerIndex 失败（索引无效）")
+        if (!isPlayerInCurrentLayout(playerIndex)) {
+            log("远程控制: 暂停播放器 $playerIndex 失败（该路不在当前布局中）")
             return false
         }
         _playerConfigs.update { configs ->
@@ -807,10 +818,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
         log("远程控制: 暂停播放器 $playerIndex")
         return true
     }
-    
+
     override fun stop(playerIndex: Int): Boolean {
-        if (_playerConfigs.value.getOrNull(playerIndex) == null) {
-            log("远程控制: 停止播放器 $playerIndex 失败（索引无效）")
+        if (!isPlayerInCurrentLayout(playerIndex)) {
+            log("远程控制: 停止播放器 $playerIndex 失败（该路不在当前布局中）")
             return false
         }
         _playerConfigs.update { configs ->
@@ -823,7 +834,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
         log("远程控制: 停止播放器 $playerIndex")
         return true
     }
-    
+
+    /**
+     * 该路是否在当前布局中可见。
+     *
+     * `_playerConfigs` 恒为 4 项且不随布局收缩（隐藏的格子仍需保留 ExoPlayer
+     * 实例与播放进度，见 QuadPlayerLayout 的说明），因此**不能**用
+     * `configs.getOrNull(index) != null` 判断索引是否有效——
+     * 单路布局下对 P2/P3/P4 发 `play` 会在只检查「有无媒体」时被误判为成功，
+     * 并向信发系统广播一个并不存在的 `playing` 状态。
+     */
+    private fun isPlayerInCurrentLayout(playerIndex: Int): Boolean {
+        if (playerIndex < 0) return false
+        return playerIndex < settings.value.layoutMode.visiblePlayerCount
+    }
+
     override fun setLayout(layoutMode: LayoutMode) {
         safeLaunch {
             val newSettings = settings.value.copy(layoutMode = layoutMode)
@@ -875,7 +900,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
         }
     }
     
-    override fun setVolume(playerIndex: Int, volume: Int) {
+    override fun setVolume(playerIndex: Int, volume: Int): Boolean {
+        if (!isPlayerInCurrentLayout(playerIndex)) {
+            log("远程控制: 设置播放器 $playerIndex 音量失败（该路不在当前布局中）")
+            return false
+        }
         _playerConfigs.update { configs ->
             configs.mapIndexed { index, config ->
                 if (index == playerIndex) {
@@ -884,9 +913,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             }
         }
         log("远程控制: 设置播放器 $playerIndex 音量 $volume")
+        return true
     }
-    
-    override fun setMute(playerIndex: Int, mute: Boolean) {
+
+    override fun setMute(playerIndex: Int, mute: Boolean): Boolean {
+        if (!isPlayerInCurrentLayout(playerIndex)) {
+            log("远程控制: 设置播放器 $playerIndex 静音失败（该路不在当前布局中）")
+            return false
+        }
         _playerConfigs.update { configs ->
             configs.mapIndexed { index, config ->
                 if (index == playerIndex) {
@@ -895,6 +929,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             }
         }
         log("远程控制: 设置播放器 $playerIndex 静音 $mute")
+        return true
     }
     
     override fun setLoopMode(loopMode: LoopMode) {

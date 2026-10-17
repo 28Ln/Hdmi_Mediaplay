@@ -10,23 +10,26 @@
         android:name="com.btf.rk3568_hdmi_mediaplay.permission.RECEIVE_PLAYER_STATUS"
         android:protectionLevel="signature" />
 
-    <!-- 存储权限 -->
+    <!-- 存储权限。minSdk=30（Android 11），读写U盘走 MANAGE_EXTERNAL_STORAGE；
+         WRITE_EXTERNAL_STORAGE 带 maxSdkVersion=29，在 minSdk 30 上永远不生效，已移除。 -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
-        android:maxSdkVersion="29" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
-    
+
     <!-- USB权限 -->
     <uses-permission android:name="android.permission.USB_PERMISSION" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
-    
+
     <!-- 开机自启动 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    
+
     <!-- 前台服务 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Android 13+（API 33）起通知需运行时授权：UsbMonitorService 是前台服务，
+         没有此权限时其常驻通知不显示，用户无法得知U盘监听正在运行。
+         注意：用户拒绝只影响通知可见性，前台服务本身照常运行。 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     
     <!-- 屏幕常亮 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -41,7 +44,6 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Rk3568_hdmi_mediaplay"
-        android:requestLegacyExternalStorage="true"
         android:largeHeap="true"
         android:hardwareAccelerated="true"
         tools:targetApi="31">

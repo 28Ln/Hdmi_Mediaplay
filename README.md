@@ -3,7 +3,7 @@
 面向 **RK3568 / Android 11+** 设备的交付型多窗口 HDMI 媒体播放器。  
 项目目标不是“本地能跑的 Demo”，而是可用于 **客户设备 / kiosk / 信发终端** 的稳定交付版本。
 
-**当前版本：1.1.2（versionCode 4）** — 见 [CHANGELOG.md](CHANGELOG.md)  
+**当前版本：1.1.3（versionCode 5）** — 见 [CHANGELOG.md](CHANGELOG.md)  
 版本号唯一来源：`gradle/libs.versions.toml` 的 `appVersionName` / `appVersionCode`。
 
 ---

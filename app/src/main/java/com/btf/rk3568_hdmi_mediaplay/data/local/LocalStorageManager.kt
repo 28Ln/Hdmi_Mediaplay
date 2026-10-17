@@ -120,14 +120,27 @@ class LocalStorageManager(private val context: Context) {
             if (!localPlayerDir.exists() && backupDir.exists()) {
                 Log.w(TAG, "Recovering orphaned backup for player $playerIndex")
                 if (!backupDir.renameTo(localPlayerDir)) {
-                    Log.e(TAG, "Failed to recover backup for player $playerIndex")
+                    // 唯一一份数据此刻只存在于 backup 中，还原失败就不能继续往下走：
+                    // 下面的 backupDir.deleteRecursively() 会把它删掉，造成数据丢失。
+                    Log.e(TAG, "Failed to recover backup for player $playerIndex, aborting copy")
+                    stagingDir.deleteRecursively()
+                    return@withContext PlayerCopyResult(
+                        playerIndex, usbFiles.size, 0, false, "backup_recovery_failed"
+                    )
                 }
             }
 
             stagingDir.deleteRecursively()
-            if (!backupDir.exists()) {
-                backupDir.deleteRecursively()
-            }
+
+            // 走到这里 backupDir 若仍存在，说明 localPlayerDir 也有数据
+            // （上次拷贝在 promote 成功之后、清理之前被中断），是陈旧备份，必须删除。
+            //
+            // 注意：此处**不能**加任何 exists 条件——曾误写成 `if (!backupDir.exists())`，
+            // 使删除恒为空操作，于是 backup 残留；下一次拷贝时第 158 行的
+            // `localPlayerDir.renameTo(backupDir)` 因目标已存在而失败（renameTo 无法
+            // 覆盖已存在的目录），返回 backup_prepare_failed，**此后每次 U 盘拷贝都失败**，
+            // 且必须手工删除隐藏目录才能恢复。
+            backupDir.deleteRecursively()
             stagingDir.mkdirs()
 
             // 先拷贝到 staging，避免直接破坏当前缓存

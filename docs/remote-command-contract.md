@@ -123,17 +123,26 @@ sendBroadcast(intent)
 
 ```json
 {
-  "player_index": 0,
+  "index": 0,
+  "state": "playing",
+  "media_type": "video",
   "media_path": "/storage/emulated/0/.../video.mp4",
   "media_count": 3,
   "current_index": 1,
   "volume": 80,
-  "muted": false,
-  "state": "playing"
+  "muted": false
 }
 ```
 
+> **注意字段名差异**（易错点）：
+> `players[]` 内用的是 **`index`**，而 `playback_changed` / `media_loaded`
+> 等**事件**里用的是 **`player_index`**。二者不是同一个字段名。
+
+> `media_type` 仅在当前路已加载媒体时出现；
 > `media_count` 与 `current_index` 仅在媒体数 > 1 时出现。
+
+> 顶层另有 **`timestamp`**（`System.currentTimeMillis()`），**所有**事件都会带，
+> 用于接入方判断事件新鲜度。事件中不再重复出现。
 
 ---
 
@@ -141,18 +150,20 @@ sendBroadcast(intent)
 
 | 码 | 常量 | 含义 |
 |---|---|---|
-| 1001 | `INVALID_PLAYER_INDEX` | 路序号越界 |
+| 1001 | `INVALID_PLAYER_INDEX` | 路序号越界，或该路**不在当前布局中** |
 | 1002 | `INVALID_LAYOUT_MODE` | 布局模式无效 |
 | 1003 | `MEDIA_NOT_FOUND` | 媒体文件不存在 |
 | 1004 | `MEDIA_NOT_READABLE` | 媒体不可读 |
 | 1005 | `UNSUPPORTED_FORMAT` | 格式不支持 |
-| 1006 | `MEDIA_LOAD_FAILED` | 媒体加载失败 |
+| 1006 | `MEDIA_LOAD_FAILED` | 媒体加载失败；亦用于 `hide` 等命令**未实际生效** |
 | 2001 | `JSON_PARSE_ERROR` | 命令 JSON 解析失败 |
-| 2002 | `UNKNOWN_ACTION` | 未知的 action |
+| 2002 | `UNKNOWN_ACTION` | 未知的 action，或参数值非法（如 `loop_mode` 取值不在枚举中） |
+| 5001 | `PLAYBACK_ERROR_CODE` | **播放期**错误（由播放器上报，非命令回执） |
 
-> **已知问题**：1004 / 1005 当前**不会被发出** —— 媒体校验把
-> 「不存在 / 不可读 / 格式不支持」折叠为同一个 `1003`。
-> 接入方目前只需处理 1003。此项已记录在 `docs/delivery-ledger.md`，待细化。
+> 说明：
+> - `1004` / `1005` 由 `set_media` 的实际失败原因区分（不存在 / 不可读 / 格式不支持），
+>   **会**被发出。
+> - `5001` 不是命令回执，而是播放过程中出错时主动广播的错误事件，接入方需一并处理。
 
 ---
 
@@ -174,22 +185,36 @@ registerReceiver(receiver, filter,
 
 ---
 
-## 六、待补强（已记录，勿视为已实现）
+## 六、命令生效性与错误回报
 
-以下项**已在 1.1.2 中修复**（不再列为问题）：
+以下项**已在 1.1.2 中修复**：
 
-- ✅ `hide` 现在等待 Activity 回执，超时返回错误而非盲目报成功
 - ✅ `set_loop_mode` 非法值返回错误，缺省值改为枚举中真实存在的 `LIST`
 - ✅ `set_interval` 回执显示实际生效值（clamp 后）
+- ✅ `hide` 在应用**不在前台**时返回错误，不再盲目报成功
+  （实现方式：发送前读取 `AppForegroundState` 判定，而非等待广播回执；
+  回执方案不可行，原因见下方「曾走过的弯路」）
+- ✅ 播放器级命令（`play` / `pause` / `stop` / `set_volume` / `set_mute`）
+  对**不在当前布局中**的路返回 `1001`，不再广播虚假状态
+- ✅ 全量命令（`play_all` / `pause_all` / `stop_all`）无实际效果时返回 `1006`
+- ✅ `batch` 嵌套深度上限为 3，超出返回 `2002`；子命令部分失败时不再报整体成功
 
-以下项仍在，接入前请知悉：
+### 曾走过的弯路（供接入方与后续维护者参考）
+
+`hide` 最初采用「Activity 回执 + 阻塞等待」实现，**该方案不可能成功**：
+
+1. 命令处理发生在 `BroadcastReceiver.onReceive` 内、运行在主线程；
+   `onReceive` 拿到的是 `ReceiverRestrictedContext`，在其中调用
+   `registerReceiver` 会抛 `ReceiverCallNotAllowedException`。
+2. 即便注册成功，回执也在主线程投递，而主线程正阻塞在等待上 → 必然超时互锁。
+
+现改为「发送前判定前台状态」，同步、无阻塞、无回执。
+
+### 仍在的项
 
 | 项 | 状态 |
 |---|---|
-| 1004 / 1005 错误码 | 已声明但不会发出，见第四节 |
 | `state` 取值 `stopped` vs `idle` | 两个事件中不一致，见第三节 |
-| 播放器级命令对无效索引 | 仍上报成功并广播 `playing` 状态 |
-| `batch` 嵌套深度 | 无限制，深层嵌套有栈溢出风险 |
 | 状态载荷中的 `media_path` | 为**本地绝对路径**（如 `/storage/emulated/0/RK3568MediaPlayer/player1/video.mp4`），含 U 盘挂载点。当前版本**有意保持**该行为，因为部分接入方用它做内容匹配。若要脱敏需与接入方约定后统一变更，见下方说明 |
 
 ### 关于 `media_path` 的说明
