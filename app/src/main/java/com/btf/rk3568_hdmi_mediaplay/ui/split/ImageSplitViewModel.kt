@@ -208,8 +208,17 @@ class ImageSplitViewModel(application: Application) : AndroidViewModel(applicati
                 if (savedCount == totalParts) {
                     // 裁剪各块写入 player1..N，必须同时把播放器切到对应分屏布局，
                     // 否则用户看不到拼接效果（例如 2×2 裁完但当前是单屏，只显示一格）。
-                    applyLayoutForSplit(result.config.layout)
-                    onComplete(true, "已保存 $savedCount 块并切换到对应布局")
+                    val layoutApplied = applyLayoutForSplit(result.config.layout)
+                    if (layoutApplied) {
+                        onComplete(true, "已保存 $savedCount 块并切换到对应布局")
+                    } else {
+                        // 图片已保存成功，只是布局没能切换 —— 必须如实告诉用户，
+                        // 否则他会以为看到的是拼接效果，实际只是单格。
+                        onComplete(
+                            true,
+                            "已保存 $savedCount 块，但未能自动切换布局，请手动选择对应模式"
+                        )
+                    }
                 } else {
                     onComplete(false, "部分保存失败，成功 $savedCount/$totalParts")
                 }
@@ -232,24 +241,38 @@ class ImageSplitViewModel(application: Application) : AndroidViewModel(applicati
      * 若当前是「2×2 同画面」（四格播同一路），裁剪结果会四格显示同一块，
      * 因此强制切回独立四宫格。
      */
-    private suspend fun applyLayoutForSplit(layout: SplitLayout) {
+    private suspend fun applyLayoutForSplit(layout: SplitLayout): Boolean {
         val target = layout.matchingLayoutMode
         if (target == null) {
             Log.w(TAG, "布局 $layout 无对应播放模式，跳过自动切换")
-            return
+            return false
         }
-        try {
+        return try {
             val current = settingsRepository.settingsFlow.first()
             val updated = current.copy(
                 layoutMode = target,
                 videoScaleMode = VideoScaleMode.STRETCH
             )
-            if (updated != current) {
-                settingsRepository.updateSettings(updated)
-                Log.i(TAG, "裁剪完成：布局切到 $target，缩放设为 STRETCH")
+            if (updated == current) {
+                // 已经是目标布局，无需切换
+                return true
             }
+            settingsRepository.updateSettings(updated)
+            // 写入后回读确认：updateSettings 内部会吞掉异常（只 printStackTrace），
+            // 不能仅凭"它没抛"就认为写入成功。
+            // 此前毫无校验就提示"已切换到对应布局"，用户可能看到成功提示、
+            // 画面却仍是旧布局。
+            val persisted = settingsRepository.settingsFlow.first().layoutMode
+            val ok = persisted == target
+            if (ok) {
+                Log.i(TAG, "裁剪完成：布局切到 $target，缩放设为 STRETCH")
+            } else {
+                Log.e(TAG, "自动切换布局未生效：期望 $target，实际 $persisted")
+            }
+            ok
         } catch (e: Exception) {
             Log.e(TAG, "自动切换布局失败", e)
+            false
         }
     }
 
