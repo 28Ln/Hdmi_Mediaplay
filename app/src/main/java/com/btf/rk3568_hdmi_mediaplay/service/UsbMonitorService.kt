@@ -52,6 +52,39 @@ class UsbMonitorService : Service() {
             return buildContentSignature(usbPath, folderName)
         }
 
+        /**
+         * 轮询时是否应进入内容检查（纯函数，便于测试）。
+         *
+         * 只有 `Scanning` 不重入；其余状态都进入检查，由签名闸门决定是否通知上层。
+         * 该判定本身不做 IO —— 此前这里是按状态与路径分别判断，
+         * 曾两次因漏掉某个分支导致功能静默失效（手动扫描无效、重试永远失败）。
+         */
+        internal fun shouldCheckOnPoll(state: UsbRuntimeState): Boolean =
+            state !is UsbRuntimeState.Scanning
+
+        /**
+         * 调用方是否需要绕过签名闸门（纯函数，便于测试）。
+         *
+         * 语义是「新插入 / 明确重试」的路径必须绕过，否则会被"内容未变"吞掉。
+         * 本项目的三次静默失效都源于漏判这一点，故用测试固化。
+         */
+        internal fun mustBypassSignatureGate(caller: TriggerSource): Boolean =
+            when (caller) {
+                TriggerSource.POLL -> false
+                TriggerSource.MOUNT_BROADCAST -> true
+                TriggerSource.MANUAL_OR_RETRY -> true
+            }
+
+        /** 触发内容检查的来源 */
+        enum class TriggerSource {
+            /** 每 3 秒的例行轮询 */
+            POLL,
+            /** 系统挂载广播 */
+            MOUNT_BROADCAST,
+            /** 「扫描U盘」按钮 / 错误态自动重试 */
+            MANUAL_OR_RETRY
+        }
+
         private fun buildContentSignature(usbPath: File, folderName: String): String {
             return try {
                 val sb = StringBuilder(usbPath.absolutePath)
@@ -296,12 +329,14 @@ class UsbMonitorService : Service() {
             
             UsbBroadcastReceiver.onUsbMounted = { path ->
                 Log.i(TAG, "Broadcast: USB mounted at $path")
-                // 挂载广播是"新设备已就绪"的权威信号，必须无条件检查一次。
+                // 挂载广播是"新设备已就绪"的权威信号，必须绕过签名闸门。
                 //
                 // 不能只依赖卸载广播清缓存：某些 ROM 在重新挂载同一分区时
                 // 只发 MOUNTED、不发 UNMOUNTED；服务重启后也可能直接收到 MOUNTED。
                 // 这些情况下签名可能与缓存值相同，闸门会把这次插入吞掉。
-                lastContentSignature = null
+                if (mustBypassSignatureGate(TriggerSource.MOUNT_BROADCAST)) {
+                    lastContentSignature = null
+                }
                 checkUsbContent(File(path))
             }
             
@@ -382,16 +417,7 @@ class UsbMonitorService : Service() {
                 // Connected 同一路径时仍然每轮进入检查：这样 U 盘内容变化
                 // （用户往里拷文件）能被发现；是否真正通知上层由签名决定，
                 // 不会每 3 秒打扰用户。
-                val needCheck = when (currentState) {
-                    is UsbRuntimeState.Disconnected -> true
-                    is UsbRuntimeState.Error -> true
-                    // 已连接（无论是否同一路径）都进入检查：
-                    // 同一路径下 U 盘内容仍可能变化（用户往里拷了文件）。
-                    // 是否真的通知上层由 [checkUsbContentAsync] 的签名闸门决定。
-                    is UsbRuntimeState.Connected -> true
-                    // Scanning 时不重入，避免上一轮尚未结束时叠加
-                    is UsbRuntimeState.Scanning -> false
-                }
+                val needCheck = shouldCheckOnPoll(currentState)
 
                 if (needCheck) {
                     checkUsbContentAsync(usbPath)
@@ -569,7 +595,9 @@ class UsbMonitorService : Service() {
                 // 目的是"强制再检查一次同一个盘"，而不是把它当成新插入的盘。
                 // 若这里走 clearUsbCaches()，会把已检测状态也清掉，
                 // 上层可能误判为新盘插入。
-                lastContentSignature = null
+                if (mustBypassSignatureGate(TriggerSource.MANUAL_OR_RETRY)) {
+                    lastContentSignature = null
+                }
                 checkUsbContentAsync(usbPaths.first())
             } else {
                 clearUsbCaches()
