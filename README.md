@@ -145,6 +145,7 @@
 ## 七、核心文档
 
 - `docs/delivery-ledger.md` ← **交付台账（修复状态的唯一权威来源）**
+- `docs/audits/INDEX.md` ← **审计存档索引**（含代码指纹，用于增量扫描、避免重复审计）
 - `CHANGELOG.md`
 - `PROJECT_EXECUTION_PROMPT.md`
 - `docs/project-intent.md`
