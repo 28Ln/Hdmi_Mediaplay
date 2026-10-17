@@ -318,7 +318,10 @@ private fun PlayerCell(
             onPlaybackCompleted = onPlaybackCompleted,
             onError = onPlaybackError,
             onRecovered = onRecovered,
-            onCurrentIndexChanged = onCurrentIndexChanged
+            onCurrentIndexChanged = onCurrentIndexChanged,
+            // 「同画面」模式下 P2–P4 只是 P1 的镜像：索引由 P1 驱动，
+            // 自己不得推进，否则四格会渐渐停在不同文件上
+            followsPrimary = settings.layoutMode.mirrorsPrimaryPlayer && cellIndex != 0
         )
     }
 }

@@ -21,6 +21,7 @@ import com.btf.rk3568_hdmi_mediaplay.data.model.UsbConfig
 import com.btf.rk3568_hdmi_mediaplay.data.model.UsbRuntimeState
 import com.btf.rk3568_hdmi_mediaplay.data.repository.SettingsRepository
 import com.btf.rk3568_hdmi_mediaplay.receiver.UsbBroadcastReceiver
+import com.btf.rk3568_hdmi_mediaplay.util.FileUtils
 import com.btf.rk3568_hdmi_mediaplay.util.UsbConfigLoader
 import com.btf.rk3568_hdmi_mediaplay.util.UsbUtils
 import kotlinx.coroutines.*
@@ -55,6 +56,20 @@ class UsbMonitorService : Service() {
     // 缓存最后检测到的U盘状态
     @Volatile
     private var lastDetectedUsb: Pair<File, Boolean>? = null
+
+    /**
+     * 上一次已处理过的U盘内容签名（路径 + 媒体文件清单 + 配置文件 mtime）。
+     *
+     * **为什么需要**：轮询每 3 秒跑一次。若「已连接也重扫」且每次都回调
+     * [onUsbConnected]，上层会每 3 秒弹一次覆盖确认框 —— 插件无法使用。
+     * 用签名做闸门：只有U盘内容**真的变了**才重新通知。
+     *
+     * 覆盖两种「内容变化」场景：
+     * 1. 拔掉后重新插入**同一个**U盘（路径相同，但期间可能改过内容）
+     * 2. U盘一直插着，用户往里拷了新文件
+     */
+    @Volatile
+    private var lastContentSignature: String? = null
     
     // 缓存最后加载的U盘配置
     @Volatile
@@ -237,6 +252,9 @@ class UsbMonitorService : Service() {
                 Log.i(TAG, "Broadcast: USB unmounted from $path")
                 lastDetectedUsb = null
                 lastLoadedConfig = null
+                // 清空内容签名：这样「拔了再插同一个盘」会被判定为内容变化，
+                // 从而正常触发一次刷新（否则重插同盘不会重新拷贝）
+                lastContentSignature = null
                 emitUsbState(UsbRuntimeState.Disconnected)
                 // 清除U盘配置
                 FeatureManager.applyUsbConfig(null)
@@ -292,14 +310,25 @@ class UsbMonitorService : Service() {
             } else {
                 val usbPath = usbPaths.first()
                 val currentState = _usbState.value
-                
-                // 检查是否需要更新状态
-                val needCheck = when {
-                    currentState is UsbRuntimeState.Disconnected -> true
-                    currentState is UsbRuntimeState.Connected && currentState.path.absolutePath != usbPath.absolutePath -> true
-                    else -> false
+
+                // 需要重新检查的情形：
+                // - 尚未连接 / 连接的是另一个U盘
+                // - **已连接同一路径**：U盘内容可能已变（用户往里拷了文件），
+                //   或拔插后重新挂载到同一路径
+                // - **Error 态**：给出一条自动恢复路径，否则永远卡在错误态
+                //
+                // 注意：这里"重扫"只做媒体/配置的**探测**，是否回调上层
+                // 由 [checkUsbContentAsync] 里的内容签名决定，不会每 3 秒打扰用户。
+                val needCheck = when (currentState) {
+                    is UsbRuntimeState.Disconnected -> true
+                    is UsbRuntimeState.Error -> true
+                    is UsbRuntimeState.Connected ->
+                        currentState.path.absolutePath != usbPath.absolutePath ||
+                            contentSignature(usbPath, settingsRepository?.settingsFlow?.first()?.usbScanFolderName ?: "media") !=
+                            lastContentSignature
+                    is UsbRuntimeState.Scanning -> false
                 }
-                
+
                 if (needCheck) {
                     checkUsbContentAsync(usbPath)
                 }
@@ -315,49 +344,103 @@ class UsbMonitorService : Service() {
         }
     }
     
+    /**
+     * 计算U盘内容签名。
+     *
+     * 包含：路径、扫描目录下每个文件的「名字+大小+修改时间」，以及配置文件的 mtime。
+     * 只要内容有任何变化，签名就不同 —— 用于判断「是否需要重新通知上层」。
+     *
+     * 只读目录元数据，不读文件内容，开销与一次 `listFiles` 同级（毫秒级）。
+     */
+    private fun contentSignature(usbPath: File, folderName: String): String {
+        return try {
+            val sb = StringBuilder(usbPath.absolutePath)
+            val mediaDir = UsbUtils.getUsbMediaDir(usbPath, folderName)
+            if (mediaDir.exists() && mediaDir.isDirectory) {
+                FileUtils.PLAYER_FOLDERS.forEach { playerFolder ->
+                    val dir = File(mediaDir, playerFolder)
+                    if (dir.isDirectory) {
+                        dir.listFiles()
+                            ?.filter { it.isFile }
+                            ?.sortedBy { it.name }
+                            ?.forEach { f ->
+                                sb.append('|').append(playerFolder)
+                                    .append('/').append(f.name)
+                                    .append(':').append(f.length())
+                                    .append('@').append(f.lastModified())
+                            }
+                    }
+                }
+            }
+            // 配置文件变化也要触发重扫（客户可能只改 btf_config.json 不动媒体）
+            val configFile = File(usbPath, UsbConfig.CONFIG_FILE_NAME)
+            if (configFile.exists()) {
+                sb.append("|cfg:").append(configFile.length())
+                    .append('@').append(configFile.lastModified())
+            }
+            sb.toString()
+        } catch (e: Exception) {
+            Log.w(TAG, "contentSignature failed: ${e.message}")
+            // 计算不出签名时退化为「总是需要检查」，宁可多查一次也不要漏掉变化
+            "unavailable:${System.nanoTime()}"
+        }
+    }
+
     private suspend fun checkUsbContentAsync(usbPath: File) {
         Log.i(TAG, "Checking USB content: ${usbPath.absolutePath}")
         emitUsbState(UsbRuntimeState.Scanning(usbPath))
-        
+
         try {
             val folderName = try {
                 settingsRepository?.settingsFlow?.first()?.usbScanFolderName ?: "media"
             } catch (e: Exception) {
                 "media"
             }
-            
+
+            // 内容未变 → 只刷新状态、**不回调上层**，
+            // 避免每 3 秒弹一次覆盖确认框。
+            // 注意：拔盘时会把 lastContentSignature 置空，因此「拔了再插同一个盘」
+            // 签名必然不同 → 会正常触发刷新。
+            val signature = contentSignature(usbPath, folderName)
+            val unchanged = signature == lastContentSignature
+
             val hasMediaContent = withContext(Dispatchers.IO) {
                 UsbUtils.hasValidMediaStructure(usbPath, folderName)
             }
-            
+
             // 加载U盘配置文件
             val usbConfig = withContext(Dispatchers.IO) {
                 UsbConfigLoader.loadConfig(usbPath)
             }
-            
+
             val hasConfig = usbConfig != null
-            
-            Log.i(TAG, "USB check result: path=${usbPath.absolutePath}, hasMedia=$hasMediaContent, hasConfig=$hasConfig")
-            
+
+            Log.i(TAG, "USB check result: path=${usbPath.absolutePath}, hasMedia=$hasMediaContent, hasConfig=$hasConfig, unchanged=$unchanged")
+
             // 应用U盘配置到 FeatureManager
             if (usbConfig != null) {
                 Log.i(TAG, "Applying USB config: version=${usbConfig.version}")
                 FeatureManager.applyUsbConfig(usbConfig)
                 lastLoadedConfig = usbConfig
-                
+
                 // 通知配置加载
                 mainHandler.post {
                     onConfigLoaded?.invoke(usbConfig)
                 }
             }
-            
+
             // 更新状态
             lastDetectedUsb = Pair(usbPath, hasMediaContent)
+            lastContentSignature = signature
             emitUsbState(UsbRuntimeState.Connected(usbPath, hasMediaContent, hasConfig))
-            
-            // 通知回调
-            notifyUsbConnected(usbPath, hasMediaContent)
-            
+
+            // 通知回调：仅在内容变化时触发，避免轮询重复打扰
+            if (!unchanged) {
+                notifyUsbConnected(usbPath, hasMediaContent)
+            } else {
+                Log.i(TAG, "U盘内容未变化，跳过重复通知")
+            }
+
         } catch (e: Exception) {
             Log.e(TAG, "Error checking USB content: ${e.message}")
             emitUsbState(UsbRuntimeState.Disconnected)

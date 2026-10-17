@@ -124,6 +124,10 @@ class MainActivity : ComponentActivity() {
                 mainViewModelRef?.onUsbDisconnected()
             }
 
+            // 错误态自动重试需要一条从 ViewModel 回到服务的通道：
+            // 错误由 ViewModel 判定（如空间不足），扫描能力在服务里。
+            mainViewModelRef?.onRequestUsbRescan = { service.triggerScan() }
+
             when (val currentState = service.getCurrentUsbState()) {
                 is UsbRuntimeState.Connected -> {
                     mainViewModelRef?.syncUsbConnected(
@@ -139,7 +143,9 @@ class MainActivity : ComponentActivity() {
                     mainViewModelRef?.syncUsbDisconnected()
                 }
                 is UsbRuntimeState.Error -> {
-                    mainViewModelRef?.syncUsbDisconnected()
+                    // 此前把 Error 降级成 Disconnected，导致「存储空间不足」
+                    // 在界面上表现为「U盘未连接」，掩盖了真实原因。
+                    mainViewModelRef?.syncUsbState(currentState)
                 }
             }
         }
@@ -441,6 +447,7 @@ class MainActivity : ComponentActivity() {
                 usbMonitorService?.onUsbStateChanged = null
                 usbMonitorService?.onUsbConnected = null
                 usbMonitorService?.onUsbDisconnected = null
+                mainViewModelRef?.onRequestUsbRescan = null
                 unbindService(serviceConnection)
             } catch (e: Exception) {
                 // 未真正绑定时 unbindService 会抛 IllegalArgumentException，视为已解绑

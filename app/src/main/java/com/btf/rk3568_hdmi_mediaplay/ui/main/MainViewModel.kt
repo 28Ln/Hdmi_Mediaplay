@@ -17,6 +17,7 @@ import com.btf.rk3568_hdmi_mediaplay.ui.components.ToastData
 import com.btf.rk3568_hdmi_mediaplay.util.FileUtils
 import com.btf.rk3568_hdmi_mediaplay.util.StringResources
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -35,6 +36,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     companion object {
         private const val TAG = "MainViewModel"
         private const val PLAYBACK_ERROR_CODE = 5001
+
+        /** U盘错误态自动重试的首次等待；之后每次翻倍 */
+        private const val USB_RETRY_INITIAL_MS = 5_000L
+        /** 单次等待上限，避免退避到几乎不重试 */
+        private const val USB_RETRY_MAX_MS = 60_000L
+        /** 最多自动重试次数 */
+        private const val USB_RETRY_MAX_ATTEMPTS = 6
 
         internal fun decideUsbCopyDecision(
             hasMediaContent: Boolean,
@@ -85,6 +93,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     
     // 待处理的U盘路径
     private var pendingUsbPath: File? = null
+
+    /**
+     * 请求重新扫描U盘的通道。
+     *
+     * 「扫描」能力在 [com.btf.rk3568_hdmi_mediaplay.service.UsbMonitorService] 里，
+     * 而错误态（如空间不足）由 ViewModel 判定 —— 两层需要一条回传路径。
+     * MainActivity 绑定服务后把 `service::triggerScan` 挂上来。
+     */
+    var onRequestUsbRescan: (() -> Unit)? = null
+
+    /** 错误态自动重试任务；新状态到来时取消，避免重复排队 */
+    private var usbRetryJob: Job? = null
     
     data class CopyProgress(
         val playerIndex: Int,
@@ -237,7 +257,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
                     val required = FileUtils.formatFileSize(decision.requiredBytes)
                     val available = FileUtils.formatFileSize(decision.availableBytes)
                     showToast("存储空间不足！需要 $required，可用 $available", MessageType.ERROR)
-                    _usbState.value = UsbRuntimeState.Error("存储空间不足")
+                    enterUsbErrorState("存储空间不足")
                 }
 
                 UsbCopyDecision.RequireOverwriteConfirmation -> {
@@ -259,8 +279,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
      */
     fun onUsbDisconnected() {
         log("U盘已断开")
+        usbRetryJob?.cancel()
+        usbRetryJob = null
         _usbState.value = UsbRuntimeState.Disconnected
         showToast(StringResources.usbDisconnected, MessageType.INFO)
+        // 拔盘后重新加载本地缓存：U盘内容不会被清（下次插入还要用），
+        // 但当前播放列表必须回到本地，否则界面停在已拔掉的U盘内容上。
+        // 这也是「U盘 > 本地」优先级的回落：有U盘时以U盘为准，拔掉即用本地。
+        loadLocalContent()
     }
 
     fun syncUsbScanning(path: File) {
@@ -268,15 +294,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     }
 
     fun syncUsbConnected(path: File, hasMediaContent: Boolean, hasConfig: Boolean) {
+        usbRetryJob?.cancel()
+        usbRetryJob = null
         _usbState.value = UsbRuntimeState.Connected(path, hasMediaContent, hasConfig)
     }
 
     fun syncUsbDisconnected() {
+        usbRetryJob?.cancel()
+        usbRetryJob = null
         _usbState.value = UsbRuntimeState.Disconnected
     }
 
     fun syncUsbState(state: UsbRuntimeState) {
+        // 收到非错误态说明外部已恢复，取消未完成的重试
+        if (state !is UsbRuntimeState.Error) {
+            usbRetryJob?.cancel()
+            usbRetryJob = null
+        }
         _usbState.value = state
+    }
+
+    /**
+     * 进入错误态并安排自动重试。
+     *
+     * 此前错误态没有任何出口 —— 一旦「存储空间不足」就会永久停住，
+     * 即使操作者当场清出了空间，应用也不会自己恢复。
+     *
+     * 采用指数退避（5s → 10s → 20s → 40s，上限 60s，最多 6 次）：
+     * 空间不足往往需要人工清理，重试太密只会刷屏；但也不能不重试。
+     * 退避上限保证即使一直失败，也会以分钟级频率自愈，无需人工干预。
+     */
+    private fun enterUsbErrorState(message: String) {
+        _usbState.value = UsbRuntimeState.Error(message)
+        usbRetryJob?.cancel()
+        usbRetryJob = viewModelScope.launch {
+            var delayMs = USB_RETRY_INITIAL_MS
+            repeat(USB_RETRY_MAX_ATTEMPTS) { attempt ->
+                delay(delayMs)
+                log("U盘错误态自动重试 ${attempt + 1}/$USB_RETRY_MAX_ATTEMPTS（$message）")
+                val rescan = onRequestUsbRescan
+                if (rescan == null) {
+                    log("未绑定重扫通道，停止自动重试")
+                    return@launch
+                }
+                rescan()
+                delayMs = (delayMs * 2).coerceAtMost(USB_RETRY_MAX_MS)
+            }
+            log("U盘错误态自动重试已达上限（$USB_RETRY_MAX_ATTEMPTS 次）")
+        }
     }
     
     /**
@@ -532,8 +597,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
 
     fun updatePlayerCurrentIndex(playerIndex: Int, currentIndex: Int) {
         _playerConfigs.update { configs ->
+            // 「同画面」模式下 P2–P4 是 P1 的镜像，播的必须是**同一个文件**。
+            // 若只更新 P1，其余格的 currentIndex 会停住，而各格又按自己的播放完成
+            // 时刻推进索引 —— 时间一长四格就停在不同视频上。
+            // 因此这里把 P1 的索引广播给所有格子。
+            val mirrorAll = settings.value.layoutMode.mirrorsPrimaryPlayer
             configs.mapIndexed { index, config ->
-                if (index == playerIndex && config.mediaItems.isNotEmpty()) {
+                val shouldUpdate = if (mirrorAll) true else index == playerIndex
+                if (shouldUpdate && config.mediaItems.isNotEmpty()) {
                     val safeIndex = currentIndex.coerceIn(0, config.mediaItems.lastIndex)
                     config.copy(currentIndex = safeIndex)
                 } else config

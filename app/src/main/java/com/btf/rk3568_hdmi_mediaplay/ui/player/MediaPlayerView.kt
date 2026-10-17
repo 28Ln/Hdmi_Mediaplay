@@ -45,7 +45,16 @@ fun MediaPlayerView(
     onError: ((String) -> Unit)? = null,
     onRecovered: (() -> Unit)? = null,
     onNextVideo: ((Int) -> Unit)? = null,
-    onCurrentIndexChanged: ((Int) -> Unit)? = null
+    onCurrentIndexChanged: ((Int) -> Unit)? = null,
+    /**
+     * 是否为「同画面」模式的跟随格（P2–P4）。
+     *
+     * 为 true 时本格**不允许**自行推进播放索引，索引完全由 P1 驱动。
+     * 否则各格按自己的播放完成时刻独立 `currentIndex++`，会渐渐停在不同文件上
+     * —— 这正是客户反馈的「same 模式播着播着不一样了」。
+     * 时间偏移可以靠 [PlaybackSync] 的 seekTo 纠正，**播的文件不同则无法纠正**。
+     */
+    followsPrimary: Boolean = false
 ) {
     val mediaItems = playerConfig.mediaItems
     
@@ -171,7 +180,7 @@ fun MediaPlayerView(
                             scaleMode = settings.videoScaleMode,
                             audioFallbackSilent = settings.audioFallbackSilent,
                             onPlaybackEnded = {
-                                if (videoItems.size > 1) {
+                                if (videoItems.size > 1 && !followsPrimary) {
                                     val nextIndex = when (settings.loopMode) {
                                         LoopMode.SINGLE -> currentVideoIndex
                                         LoopMode.LIST -> (currentVideoIndex + 1) % videoItems.size
@@ -181,7 +190,10 @@ fun MediaPlayerView(
                                     try { onNextVideo?.invoke(nextIndex) } catch (e: Exception) { Log.e(TAG, "onNextVideo error", e) }
                                     try { onCurrentIndexChanged?.invoke(nextIndex) } catch (e: Exception) { Log.e(TAG, "onCurrentIndexChanged error", e) }
                                 }
-                                try { onPlaybackCompleted?.invoke(currentVideo.path, if (videoItems.size > 1) currentVideoIndex else null) } catch (e: Exception) { Log.e(TAG, "onPlaybackCompleted error", e) }
+                                // 跟随格到片尾时不做任何索引推进：
+                                // 它的 currentIndex 会随 P1 的 onCurrentIndexChanged →
+                                // ViewModel 更新 → 这里重新组合而同步到同一个文件。
+                                try { onPlaybackCompleted?.invoke(currentVideo.path, if (videoItems.size > 1 && !followsPrimary) currentVideoIndex else null) } catch (e: Exception) { Log.e(TAG, "onPlaybackCompleted error", e) }
                                 try { onPlaybackEnded?.invoke() } catch (e: Exception) { Log.e(TAG, "onPlaybackEnded error", e) }
                             },
                             onError = { e ->
