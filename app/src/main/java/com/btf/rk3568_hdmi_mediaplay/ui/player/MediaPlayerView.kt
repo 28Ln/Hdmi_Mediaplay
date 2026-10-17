@@ -76,8 +76,13 @@ fun MediaPlayerView(
         }
     }
     
-    // 使用 mediaItems 的 hashCode 作为 key，确保列表变化时重置索引
-    var currentVideoIndex by remember(mediaItems.hashCode(), playerConfig.currentIndex) {
+    // 使用 mediaItems 的 hashCode 作为 key，确保列表变化时重置索引。
+    //
+    // 注意：这里**不能**把 playerConfig.currentIndex 放进 key。
+    // 跟随格（P2–P4）的索引需要由下面的同步逻辑按 P1 的最新值设置；
+    // 若把它作为 key，每次 P1 切换时跟随格的 remember 会被整体重建，
+    // 于是「同步赋值」与「key 重建」互相覆盖，行为不可预测。
+    var currentVideoIndex by remember(mediaItems.hashCode()) {
         mutableIntStateOf(initialVideoIndex)
     }
 
@@ -100,6 +105,17 @@ fun MediaPlayerView(
                 "P${playerConfig.index + 1} 跟随主格：${currentVideoIndex} -> $syncedIndex"
             )
             currentVideoIndex = syncedIndex
+        }
+    } else {
+        // 非跟随格：外部指令会改 playerConfig.currentIndex（远控 stop 重置为 0、
+        // set_media 换新列表），必须显式同步。
+        // 这一语义原本由 remember(key = currentIndex) 实现；把 currentIndex
+        // 从 key 里移除后必须在这里补回来，否则远控 stop 后画面仍停在原条目。
+        if (videoItems.isNotEmpty()) {
+            val desired = playerConfig.currentIndex.coerceIn(0, videoItems.lastIndex)
+            if (desired != currentVideoIndex) {
+                currentVideoIndex = desired
+            }
         }
     }
     
