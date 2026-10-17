@@ -101,6 +101,16 @@ object PlaybackSync {
         }
     }
 
+    /**
+     * 指定格当前注册的是否就是 [player] 这个实例。
+     *
+     * 用于注销时的身份校验：Compose 重建期间可能出现
+     * 「新实例已注册 → 旧实例 onDispose 注销」，若不校验，
+     * 旧实例会把新实例的注册一起清掉，导致同步看不到该格。
+     */
+    fun isRegistered(cellIndex: Int, player: ExoPlayer): Boolean =
+        players[cellIndex] === player
+
     /** 清空全部注册（退出同画面模式或页面销毁时调用） */
     fun clear() {
         players.clear()

@@ -255,10 +255,8 @@ fun VideoPlayerView(
                     Player.STATE_READY -> {
                         isLoading = false
                         hasError = false
-                        // 注册到同步器：仅「同画面」模式需要，其它模式 enabled=false 时无副作用
-                        if (cellIndex >= 0) {
-                            PlaybackSync.register(cellIndex, exoPlayer)
-                        }
+                        // 注：不在此处注册到同步器。切换布局时播放器早已 READY，
+                        // 该回调不会再触发，注册会漏；统一由下方 SideEffect 负责。
                         // 播放已恢复正常：通知上层把 ERROR 状态清掉。
                         // 否则 MainViewModel 的 state 会永久停在 ERROR（其状态机没有其他出口），
                         // 导致格子即使已经能播也仍显示报错、远控一直上报 error。
@@ -326,18 +324,15 @@ fun VideoPlayerView(
         
         exoPlayer.addListener(listener)
 
-        // 立即注册到同步器。
-        //
-        // 不能在 STATE_READY 回调里注册：切换布局时播放器早已 READY，
-        // 该回调不会再触发一次，于是 P2–P4 永远注册不上，
-        // syncOnce 只能看到主格 —— 同步形同虚设。
-        if (cellIndex >= 0) {
-            PlaybackSync.register(cellIndex, exoPlayer)
-        }
+        // 注册统一由 SideEffect 负责（见上方），此处不再重复。
 
         onDispose {
             try {
-                if (cellIndex >= 0) {
+                // 只在"当前注册的确实是本实例"时才注销。
+                // 否则旧实例销毁时会把新实例的注册一起清掉：
+                //   SideEffect(重组) → register(i, newPlayer)
+                //   onDispose(旧实例) → register(i, null)   ← 误删新的
+                if (cellIndex >= 0 && PlaybackSync.isRegistered(cellIndex, exoPlayer)) {
                     PlaybackSync.register(cellIndex, null)
                 }
                 exoPlayer.removeListener(listener)
