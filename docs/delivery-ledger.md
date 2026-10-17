@@ -81,26 +81,30 @@
 
 ### 体验与可维护性（P2）
 
-**本轮修复中**（详见 `docs/audits/2026-10-17-audit-02.md`）：
+**已修复**（2026-10-18 逐项核实代码确认，非凭记忆）：
 
-- `showDebugInfo` 僵尸标志（声明/解析/文档齐全，代码零读取）
-- `batch` 无深度限制，可致 `StackOverflowError` 崩溃主线程
-- `POST_NOTIFICATIONS` 未声明 → Android 13+ 前台服务通知不可见
-- 图标按钮无 `contentDescription`
-- `uppercase()` 受系统语言影响 —— **`UsbConfig.kt` 三处补齐 `Locale.ROOT`**
-  （P1-26 当时只修了 `PlayerCommandHandler`，属**只修一半**，已补回归测试）
-- 死代码：`MainViewModel.getCurrentStoragePath()`、`SingleImageView`、
-  `hdmiEfullOn/Off` 未使用
+| 项 | 核实方式 |
+|---|---|
+| `showDebugInfo` 僵尸标志 | 字段已删；`FEATURE_KEYS` 保留以兼容老配置 |
+| `batch` 无深度限制 | `MAX_BATCH_DEPTH = 3`（`PlayerCommandHandler.kt:39`） |
+| `POST_NOTIFICATIONS` | manifest 已声明（1 处） |
+| 图标按钮无 `contentDescription` | `MainScreen.kt` 有 3 处 |
+| `uppercase()` locale | `UsbConfig.kt` 有 5 处 `Locale.ROOT`。**注：P1-26 原判为误判**，Kotlin 无参版本本就是 ROOT 语义 |
+| 死代码 `SingleImageView` / `hdmiEfullOn/Off` | 全仓 grep 无引用 |
+| `strings.xml` 死资源 | 41 项 → 1 项（仅 `app_name`） |
+| `Connected` 不重扫 / `Error` 无出口 | 已实现重扫 + 错误自动重试（退避 5→60s） |
+| U 盘拔插不刷新 | 已实现内容签名闸门 + 拔盘回落本地 |
 
-**待决策（已诊断到根因，属产品取舍，勿重复扫）**：
+**仍未修复（已诊断，需排期或外部输入）**：
 
-- `Connected` 状态不重扫；`Error` 状态无退出路径
-- 底部触发区吞掉最后 96dp 内所有点击（含播放器点击）
-  —— `detectTapGestures(onPress=…)` 消费按下事件。**改为只响应滑动会破坏
-  「点底部唤起控制栏」这一现有交互**，需产品确认
-- 15s 自动隐藏与 ✕ 计时竞态
-- 主线程阻塞 I/O，万级文件目录扫描有 ANR 风险 —— 需先确认目标 U 盘规模
-- `MainViewModel` 职责过载（900 行 / 8 类职责），无法单测 —— 重构面大，需排期
+| 项 | 现状 | 为什么没做 |
+|---|---|---|
+| 底部触发区吞掉最后 96dp 点击 | `MainScreen.kt:145` `onPress` 消费按下事件 | **产品取舍**：点底部唤起控制栏是现有交互，改成只响应滑动会破坏它 |
+| 15s 自动隐藏与 ✕ 竞态 | `BOTTOM_BAR_VISIBLE_MS = 15000` | 与上条一起定 |
+| 主线程阻塞 I/O | `MainViewModel` 有 9 处 `withContext(Dispatchers.IO)`，主要路径已覆盖 | 剩余风险在万级文件目录扫描，需先确认目标 U 盘规模 |
+| `MainViewModel` 职责过载 | **1074 行**（原记 900，实际更多） | 重构面大，且当前真机验证未完成，不宜同时动结构 |
+| release 未开代码裁剪 | `isMinifyEnabled = false`（debug 与 release 都是） | 开启有反射崩溃风险，需真机验证后再评估 |
+| `gap = 2` 像素非 dp | `QuadPlayerLayout.kt:159` | 已加注释说明是刻意为之；换密度屏才需改 |
 
 > **已从本列表移除**：「`WALL_MODE_8` 是臆造别名」——
 > 它是**有意保留的兼容别名**（非硬件编号，拼接板只有 1–7），
@@ -108,11 +112,14 @@
 
 ### 打磨（P3）
 
-- `gap = 2` 用像素非 dp，换密度屏会露缝
-- 布局与裁剪各有一套并行行列模型
-- `res/values/strings.xml` 九成死资源
-- release 未开启代码裁剪，APK 96% 是未处理 dex
-- `TASK_LIST.md`、`btf_config_sample.json` 与代码漂移
+| 项 | 现状 |
+|---|---|
+| `gap = 2` 用像素非 dp | 仍在（`QuadPlayerLayout.kt:159`），已加注释说明刻意为之 |
+| 布局与裁剪各有一套并行行列模型 | 仍在，属架构重复 |
+| ~~`res/values/strings.xml` 九成死资源~~ | ✅ 已清理：41 项 → 1 项 |
+| release 未开启代码裁剪 | 仍在（`isMinifyEnabled = false`），需真机验证后再评估 |
+| ~~`TASK_LIST.md` 与代码漂移~~ | ✅ 已修正（配置样例补全、默认值表纠正） |
+| `btf_config_sample.json` 与代码漂移 | ✅ 已核对，双向完全一致（settings 15/15、features 25/26） |
 
 ---
 
