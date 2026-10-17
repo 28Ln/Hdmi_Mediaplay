@@ -40,6 +40,57 @@ class UsbMonitorService : Service() {
         private const val CHANNEL_ID = "usb_monitor_channel"
         private const val NOTIFICATION_ID = 1001
         private const val SCAN_INTERVAL_MS = 3000L
+
+        /**
+         * 计算U盘内容签名（供实例方法与单测共用）。
+         *
+         * 见实例方法 [contentSignature] 的说明。做成 companion 函数是为了能在
+         * JVM 单测里直接验证「内容不变签名不变 / 内容一变签名就变」这条核心约束
+         * —— 该约束一旦写错，表现是每 3 秒弹一次覆盖确认框，插件无法使用。
+         */
+        internal fun contentSignatureForTest(usbPath: File, folderName: String): String {
+            return buildContentSignature(usbPath, folderName)
+        }
+
+        private fun buildContentSignature(usbPath: File, folderName: String): String {
+            return try {
+                val sb = StringBuilder(usbPath.absolutePath)
+                val mediaDir = UsbUtils.getUsbMediaDir(usbPath, folderName)
+                if (mediaDir.exists() && mediaDir.isDirectory) {
+                    FileUtils.PLAYER_FOLDERS.forEach { playerFolder ->
+                        val dir = File(mediaDir, playerFolder)
+                        if (dir.isDirectory) {
+                            // 目录自身 mtime：FAT32 文件时间戳精度仅 2 秒，
+                            // 2 秒内替换同名同大小文件时逐文件签名可能不变。
+                            // 增删文件一定会改变目录 mtime，作为补充判据。
+                            sb.append('|').append(playerFolder).append(":dir@")
+                                .append(dir.lastModified())
+                            dir.listFiles()
+                                ?.filter { it.isFile }
+                                ?.sortedBy { it.name }
+                                ?.forEach { f ->
+                                    sb.append('|').append(playerFolder)
+                                        .append('/').append(f.name)
+                                        .append(':').append(f.length())
+                                        .append('@').append(f.lastModified())
+                                }
+                        }
+                    }
+                }
+                // 配置文件变化也要触发重扫（客户可能只改 btf_config.json 不动媒体）
+                val configFile = File(usbPath, UsbConfig.CONFIG_FILE_NAME)
+                if (configFile.exists()) {
+                    sb.append("|cfg:").append(configFile.length())
+                        .append('@').append(configFile.lastModified())
+                }
+                sb.toString()
+            } catch (e: Exception) {
+                Log.w(TAG, "contentSignature failed: ${e.message}")
+                // 返回固定标记而非每次不同的值：若每次不同，"内容未变"永远不成立，
+                // 每 3 秒都会通知上层 → 反复弹覆盖框，比漏一次更新更糟。
+                "unavailable"
+            }
+        }
     }
     
     private val binder = LocalBinder()
@@ -347,44 +398,13 @@ class UsbMonitorService : Service() {
     /**
      * 计算U盘内容签名。
      *
-     * 包含：路径、扫描目录下每个文件的「名字+大小+修改时间」，以及配置文件的 mtime。
-     * 只要内容有任何变化，签名就不同 —— 用于判断「是否需要重新通知上层」。
+     * 包含：路径、每个 playerN 目录的 mtime、目录内每个文件的「名字+大小+mtime」，
+     * 以及配置文件的 mtime。内容有任何变化，签名就不同。
      *
-     * 只读目录元数据，不读文件内容，开销与一次 `listFiles` 同级（毫秒级）。
+     * 只读目录元数据、不读文件内容，开销与一次 `listFiles` 同级。
      */
-    private fun contentSignature(usbPath: File, folderName: String): String {
-        return try {
-            val sb = StringBuilder(usbPath.absolutePath)
-            val mediaDir = UsbUtils.getUsbMediaDir(usbPath, folderName)
-            if (mediaDir.exists() && mediaDir.isDirectory) {
-                FileUtils.PLAYER_FOLDERS.forEach { playerFolder ->
-                    val dir = File(mediaDir, playerFolder)
-                    if (dir.isDirectory) {
-                        dir.listFiles()
-                            ?.filter { it.isFile }
-                            ?.sortedBy { it.name }
-                            ?.forEach { f ->
-                                sb.append('|').append(playerFolder)
-                                    .append('/').append(f.name)
-                                    .append(':').append(f.length())
-                                    .append('@').append(f.lastModified())
-                            }
-                    }
-                }
-            }
-            // 配置文件变化也要触发重扫（客户可能只改 btf_config.json 不动媒体）
-            val configFile = File(usbPath, UsbConfig.CONFIG_FILE_NAME)
-            if (configFile.exists()) {
-                sb.append("|cfg:").append(configFile.length())
-                    .append('@').append(configFile.lastModified())
-            }
-            sb.toString()
-        } catch (e: Exception) {
-            Log.w(TAG, "contentSignature failed: ${e.message}")
-            // 计算不出签名时退化为「总是需要检查」，宁可多查一次也不要漏掉变化
-            "unavailable:${System.nanoTime()}"
-        }
-    }
+    private fun contentSignature(usbPath: File, folderName: String): String =
+        contentSignatureForTest(usbPath, folderName)
 
     private suspend fun checkUsbContentAsync(usbPath: File) {
         Log.i(TAG, "Checking USB content: ${usbPath.absolutePath}")
