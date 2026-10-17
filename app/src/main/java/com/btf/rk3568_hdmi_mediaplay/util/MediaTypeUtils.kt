@@ -2,6 +2,7 @@ package com.btf.rk3568_hdmi_mediaplay.util
 
 import com.btf.rk3568_hdmi_mediaplay.data.model.MediaType
 import java.io.File
+import java.util.Locale
 
 object MediaTypeUtils {
     
@@ -18,7 +19,7 @@ object MediaTypeUtils {
      * 根据文件扩展名获取媒体类型
      */
     fun getMediaType(fileName: String): MediaType {
-        val extension = fileName.substringAfterLast('.', "").lowercase()
+        val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
         return when {
             VIDEO_EXTENSIONS.contains(extension) -> MediaType.VIDEO
             IMAGE_EXTENSIONS.contains(extension) -> MediaType.IMAGE

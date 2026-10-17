@@ -63,7 +63,7 @@ git diff --stat 1cdb969..HEAD
 | HDMI 节点 EACCES | ROM 侧权限问题，App 已支持 su 回退 | `docs/device-verification.md` |
 | AC3 视频无声 | 设备无 AC3 直通，已降级静音播视频 | `CHANGELOG.md` |
 | CI 硬编码 java.home | 已移除 | `gradle.properties` |
-| `uppercase()` 受 locale 影响 | **已修**（`PlayerCommandHandler` + `UsbConfig` 全部改 `Locale.ROOT`），并有 tr-TR 回归测试。**再次「发现」即为漏看测试** | `docs/audits/2026-10-17-audit-02.md` |
+| `uppercase()` 受 locale 影响 | **⚠️ 原判断有误**。Kotlin 无参 `lowercase()`/`uppercase()` **自 1.5 起就用 `Locale.ROOT`**，与 Java 的 `toLowerCase()` 不同。实测 tr-TR 下 `"AVI".lowercase()` == `"avi"`（正确），只有显式传 `Locale.getDefault()` 才会得到 `"avı"`。**原有的 tr-TR 回归测试抓不到任何 bug，因为本来就等价**。保留显式 `Locale.ROOT` 仅为表达意图；**不要再来"修"这个** | `MediaTypeLocaleTest` 顶部注释 |
 | `WALL_MODE_8` 是「臆造别名」 | **不是缺陷** —— 是有意保留的兼容别名，仅支持别名表，非硬件编号；契约文档已说明 | `docs/remote-command-contract.md:77` |
 | `hide` 命令不生效 | **已修**（改用 `AppForegroundState` 发送前判定）。**注意**：回执方案是死路，别再试一次 —— `onReceive` 里 `registerReceiver` 必抛异常 | `docs/audits/2026-10-17-audit-02.md` 新发现 2 |
 | U 盘拷贝永久失败 | **已修** —— 备份清理条件曾被写反成 `if (!backupDir.exists())`。**该处不能加任何 `exists` 条件** | `LocalStorageManager.kt:127-145` |
@@ -90,5 +90,6 @@ git diff --stat 1cdb969..HEAD
 | **文档结论要核代码，不凭记忆** | 契约文档把 `players[].index` 写成 `player_index` → 接入方按文档写会直接取不到值 |
 | **`@return` 语义要落到实现** | `play(index): Boolean` 的注释写「不在当前布局中返回 false」，实现却只查了「有没有媒体」。注释与实现不符时，**以实现为准并立刻补齐** |
 | **未使用告警可能是漏接线，不是死代码** | `HelpTip(lang)` 的 `lang` 被判为 unused；实际它是语言切换时**唯一**的重组触发源，删掉会把「切语言不刷新」变成永久缺陷 |
+| **修「缺陷」前先在测试里复现它** | P1-26（locale 大小写）从未被复现过就当成 bug 修了，后续还"补全"了两处。后来实测发现 Kotlin 无参 `lowercase()` 本就是 ROOT 语义 —— **修的是不存在的问题**，还附带了永远抓不到 bug 的测试。没有失败先行的测试，就等于没验证 |
 | **修一个模式要 grep 全部同类调用点** | P1-26 只修了报出问题的那一处，`UsbConfig.kt` 的同类裸调用被漏掉近一个月，且无任何症状 |
 | **状态文档要有唯一权威来源** | 三份审计文档给出 4/11/11 三种 P0 计数，无法判断谁对 |

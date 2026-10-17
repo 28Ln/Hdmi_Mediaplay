@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Locale
 
 class MainViewModel(application: Application) : AndroidViewModel(application), PlayerCommandHandler.ViewModelCallback {
 
@@ -712,7 +713,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
 
         configSettings.language?.let { lang ->
             try {
-                val appLang = when (lang.lowercase()) {
+                val appLang = when (lang.lowercase(Locale.ROOT)) {
                     "zh", "chinese" -> AppLanguage.CHINESE
                     "en", "english" -> AppLanguage.ENGLISH
                     else -> null
@@ -1054,7 +1055,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
                     PlayerState.LOADING -> "loading"
                     PlayerState.ERROR -> "error"
                 },
-                mediaType = currentMedia?.type?.name?.lowercase(),
+                mediaType = currentMedia?.type?.name?.lowercase(Locale.ROOT),
                 mediaPath = currentMedia?.path,
                 mediaCount = config.mediaItems.size,
                 currentIndex = config.currentIndex,

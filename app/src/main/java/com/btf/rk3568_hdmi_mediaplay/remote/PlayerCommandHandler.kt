@@ -661,7 +661,7 @@ object PlayerCommandHandler {
         )
         
         dir.listFiles()?.filter { file ->
-            file.isFile && file.extension.lowercase() in supportedExtensions
+            file.isFile && file.extension.lowercase(Locale.ROOT) in supportedExtensions
         }?.sortedBy { it.name }?.forEach { file ->
             createMediaItem(file.absolutePath)?.let { items.add(it) }
         }

@@ -1,6 +1,7 @@
 package com.btf.rk3568_hdmi_mediaplay.hardware
 
 import android.util.Log
+import java.util.Locale
 
 /**
  * RK HDMI 旋转全屏属性。
@@ -41,7 +42,7 @@ object HdmiSystemProperties {
     }
 
     fun parseBoolean(value: String?): Boolean {
-        val normalized = value?.trim()?.lowercase().orEmpty()
+        val normalized = value?.trim()?.lowercase(Locale.ROOT).orEmpty()
         return normalized == "true" || normalized == "1"
     }
 
