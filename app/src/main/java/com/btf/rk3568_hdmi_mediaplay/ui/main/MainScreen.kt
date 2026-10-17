@@ -271,19 +271,42 @@ fun MainScreen(
  */
 @Composable
 private fun HelpTip(lang: AppLanguage) {
-    // StringResources 是普通单例、不是 Compose State，语言切换不会自动触发重组。
-    // `lang` 本身不参与文案取值（文案都走 StringResources），但它是本组件唯一
-    // 会随语言变化的入参，故用 key() 把它作为重组键——否则点「切换语言」后
-    // 帮助提示会停留在旧语言，直到下一次因其他原因重组。
-    key(lang) {
-        HelpTipContent()
-    }
+    // ## 为什么需要显式处理 lang
+    //
+    // `StringResources` 是普通单例，不是 Compose State。语言切换的时序是：
+    //   1. settings.language 变化 → 本组件重组（此时 StringResources 仍是旧语言）
+    //   2. LaunchedEffect(settings.language) 才调用 setLanguage 更新它
+    //   3. 没有第三次重组 → 文案停在旧语言
+    //
+    // 因此必须用 lang 主动触发一次重组。
+    //
+    // ## 为什么不用 key(lang)
+    //
+    // 曾经用 `key(lang) { HelpTipContent() }`，但那会重建整个子树，
+    // 把 `remember { mutableStateOf(true) }` 一起重置 ——
+    // 表现为"切换语言后，用户已经关掉的帮助提示又弹出来"。
+    //
+    // 正确做法：把 lang 作为 remember 的 key 之一，既让读取发生在
+    // lang 变化后的重组里，又保留用户关闭过的事实。
+    val helpTitle = remember(lang) { StringResources.helpTitle }
+    val helpTapPlayer = remember(lang) { StringResources.helpTapPlayer }
+    val helpLongPress = remember(lang) { StringResources.helpLongPressPlayer }
+    val helpTouchBottom = remember(lang) { StringResources.helpTouchBottom }
+    val helpClose = remember(lang) { StringResources.helpTapToClose }
+    HelpTipContent(helpTitle, helpTapPlayer, helpLongPress, helpTouchBottom, helpClose)
 }
 
 @Composable
-private fun HelpTipContent() {
+private fun HelpTipContent(
+    helpTitle: String,
+    helpTapPlayer: String,
+    helpLongPress: String,
+    helpTouchBottom: String,
+    helpClose: String
+) {
+    // 不随语言重置：用户关掉就不再弹出
     var showHelp by remember { mutableStateOf(true) }
-    
+
     if (showHelp) {
         Surface(
             color = Color.Black.copy(alpha = 0.8f),
@@ -292,15 +315,15 @@ private fun HelpTipContent() {
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 Text(
-                    text = "💡 ${StringResources.helpTitle}",
+                    text = "💡 $helpTitle",
                     color = Color.Cyan,
                     fontSize = 12.sp
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(text = StringResources.helpTapPlayer, color = Color.White, fontSize = 10.sp)
-                Text(text = StringResources.helpLongPressPlayer, color = Color.White, fontSize = 10.sp)
-                Text(text = StringResources.helpTouchBottom, color = Color.White, fontSize = 10.sp)
-                Text(text = StringResources.helpTapToClose, color = Color.Gray, fontSize = 10.sp)
+                Text(text = helpTapPlayer, color = Color.White, fontSize = 10.sp)
+                Text(text = helpLongPress, color = Color.White, fontSize = 10.sp)
+                Text(text = helpTouchBottom, color = Color.White, fontSize = 10.sp)
+                Text(text = helpClose, color = Color.Gray, fontSize = 10.sp)
             }
         }
     }
