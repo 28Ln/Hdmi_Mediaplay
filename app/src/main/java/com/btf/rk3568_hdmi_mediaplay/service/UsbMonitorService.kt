@@ -301,11 +301,9 @@ class UsbMonitorService : Service() {
             
             UsbBroadcastReceiver.onUsbUnmounted = { path ->
                 Log.i(TAG, "Broadcast: USB unmounted from $path")
-                lastDetectedUsb = null
-                lastLoadedConfig = null
-                // 清空内容签名：这样「拔了再插同一个盘」会被判定为内容变化，
-                // 从而正常触发一次刷新（否则重插同盘不会重新拷贝）
-                lastContentSignature = null
+                // 清空全部缓存（含内容签名）：这样「拔了再插同一个盘」
+                // 会被判定为内容变化，从而正常触发一次刷新
+                clearUsbCaches()
                 emitUsbState(UsbRuntimeState.Disconnected)
                 // 清除U盘配置
                 FeatureManager.applyUsbConfig(null)
@@ -351,12 +349,8 @@ class UsbMonitorService : Service() {
             if (usbPaths.isEmpty()) {
                 if (_usbState.value !is UsbRuntimeState.Disconnected) {
                     Log.i(TAG, "No USB detected, setting disconnected")
-                    lastDetectedUsb = null
-                    lastLoadedConfig = null
-                    // 必须与广播路径（onUsbUnmounted）保持一致：清空签名。
-                    // 否则「拔盘走轮询、重插同一个盘」时签名相同 → unchanged=true
-                    // → 不回调上层 → 重插后不刷新（内容可能有变）。
-                    lastContentSignature = null
+                    // 与广播路径保持一致，统一走 clearUsbCaches()
+                    clearUsbCaches()
                     emitUsbState(UsbRuntimeState.Disconnected)
                     // 清除U盘配置
                     FeatureManager.applyUsbConfig(null)
@@ -408,6 +402,20 @@ class UsbMonitorService : Service() {
         }
     }
     
+    /**
+     * 清空全部「已检测U盘」缓存。
+     *
+     * 抽成单一函数的原因：此前有三处独立重置（广播拔出、轮询未检测到、
+     * 手动重扫），其中两处漏掉了 [lastContentSignature]，导致
+     * 「拔了再插同一个盘」被判为内容未变而不刷新。
+     * 以后新增重置路径时，只需调用本函数，不会再漏字段。
+     */
+    private fun clearUsbCaches() {
+        lastDetectedUsb = null
+        lastLoadedConfig = null
+        lastContentSignature = null
+    }
+
     /**
      * 计算U盘内容签名。
      *
@@ -523,16 +531,27 @@ class UsbMonitorService : Service() {
     /**
      * 手动触发扫描
      */
+    /**
+     * 手动/自动重试触发的扫描。
+     *
+     * 与轮询扫描的关键区别：**必须绕过内容签名闸门**。
+     * 调用方（手动扫描、错误态自动重试）的意图就是「再试一次」，
+     * 若因内容未变而早退，重试就毫无意义 —— 尤其「空间不足」场景，
+     * U 盘内容本来就没变，变的是本地可用空间。
+     */
     fun triggerScan() {
         Log.i(TAG, "Manual scan triggered")
         serviceScope?.launch {
-            // 强制重新扫描
             val usbPaths = UsbUtils.getMountedUsbPaths(this@UsbMonitorService)
             if (usbPaths.isNotEmpty()) {
+                // 只清签名、保留 lastDetectedUsb / lastLoadedConfig：
+                // 目的是"强制再检查一次同一个盘"，而不是把它当成新插入的盘。
+                // 若这里走 clearUsbCaches()，会把已检测状态也清掉，
+                // 上层可能误判为新盘插入。
+                lastContentSignature = null
                 checkUsbContentAsync(usbPaths.first())
             } else {
-                lastDetectedUsb = null
-                lastLoadedConfig = null
+                clearUsbCaches()
                 emitUsbState(UsbRuntimeState.Disconnected)
                 FeatureManager.applyUsbConfig(null)
                 notifyUsbDisconnected()
