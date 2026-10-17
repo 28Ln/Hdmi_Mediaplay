@@ -46,6 +46,11 @@
 | P1-19 | 裁剪结果不落布局，用户看不到拼接效果 | `SplitLayout.matchingLayoutMode` + 保存后自动切布局与 STRETCH |
 | P1-20 | 轨道无上限，4 路 4K 有 OOM 风险 | `PlaybackConfig.kt` + `setMaxVideoSize/Bitrate/FrameRate` |
 | P1-21 | 模式按钮文字可能被硬裁 | `heightIn(min=)` + `TextOverflow.Ellipsis` |
+| P1-22 | 远控 11 种事件未文档化（**对接前置条件**） | `docs/remote-command-contract.md` 重写：9 种事件、19 命令、错误码、layout_mode 全取值与别名、接入示例 |
+| P1-23 | `set_loop_mode` 缺省值 `"ALL"` 是枚举中不存在的值 | 改为 `LIST`；非法值返回错误而非静默降级 |
+| P1-24 | `set_interval` 回报未 clamp 的原始值 | 回执显示实际生效值 |
+| P1-25 | `hide` 发完广播即报成功，未确认是否生效 | 等待 Activity 回执（超时 1 秒），未生效时返回错误 |
+| P1-26 | 布局解析受系统语言影响（tr-TR 下 `pip` 失败） | `uppercase()` → `uppercase(Locale.ROOT)` |
 
 ---
 
@@ -55,12 +60,9 @@
 
 | 编号 | 问题 | 位置 | 说明 |
 |---|---|---|---|
-| P1-20 | 远控 11 种状态事件全部未文档化 | `docs/remote-command-contract.md` | 客户无法编写接收端，**对接前置条件** |
 | P1-24 | 状态载荷泄漏本地绝对路径 | `PlayerStatusBroadcaster.kt` | 含 U 盘挂载点 |
-| P1-26 | `set_loop_mode` 静默降级 / `set_interval` 回报未 clamp | `PlayerCommandHandler.kt` | 缺省值 `"ALL"` 枚举中不存在 |
 | P1-27 | 播放器级命令对无效索引仍报成功 | `PlayerCommandHandler.kt` | 广播虚假 `playing` 状态 |
 | P1-28 | 错误码塌缩，1004/1005 永不触发 | `PlayerCommandHandler.kt` | 三类失败折叠为同一码 |
-| P1-29 | `hide`/`show` 无投递确认即报成功 | `PlayerCommandHandler.kt` | Activity 不在前台时无人接收 |
 | P1-31 | 样式无单一来源（4 种按钮高度 / 3 套字号） | `SettingsScreen.kt` | 无 `SettingsDimens` |
 
 ### 体验与可维护性（P2）

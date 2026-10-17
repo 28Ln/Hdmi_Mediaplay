@@ -1,7 +1,10 @@
 package com.btf.rk3568_hdmi_mediaplay.remote
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import androidx.core.content.ContextCompat
 import android.content.Intent
+import android.content.IntentFilter
 import android.util.Log
 import com.btf.rk3568_hdmi_mediaplay.MainActivity
 import com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode
@@ -11,6 +14,9 @@ import com.btf.rk3568_hdmi_mediaplay.data.model.MediaSource
 import com.btf.rk3568_hdmi_mediaplay.data.model.MediaType
 import org.json.JSONObject
 import java.io.File
+import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * 播放器命令处理器
@@ -32,6 +38,9 @@ object PlayerCommandHandler {
         const val JSON_PARSE_ERROR = 2001
         const val UNKNOWN_ACTION = 2002
     }
+
+    /** hide 命令等待 Activity 回执的超时（毫秒） */
+    private const val HIDE_ACK_TIMEOUT_MS = 1_000L
     
     // ViewModel 引用，由 MainActivity 设置
     private var viewModelCallback: ViewModelCallback? = null
@@ -308,9 +317,17 @@ object PlayerCommandHandler {
     
     private fun handleSetInterval(context: Context, json: JSONObject): Boolean {
         val callback = requireCallback(context) ?: return false
-        val interval = json.optInt("interval", 5)
-        callback.setInterval(interval.coerceIn(1, 60))
-        PlayerStatusBroadcaster.sendCommandSuccess(context, "set_interval", "间隔设置为 ${interval}秒")
+        val requested = json.optInt("interval", 5)
+        val applied = requested.coerceIn(1, 60)
+        callback.setInterval(applied)
+        // 回报实际生效值：此前写的是原始请求值，导致 set_interval 999 时
+        // 回执显示 999 而实际是 60，调用方无从察觉
+        val note = if (applied != requested) {
+            "间隔设置为 ${applied}秒（请求 $requested 已限制到 1-60）"
+        } else {
+            "间隔设置为 ${applied}秒"
+        }
+        PlayerStatusBroadcaster.sendCommandSuccess(context, "set_interval", note)
         return true
     }
     
@@ -338,13 +355,21 @@ object PlayerCommandHandler {
     
     private fun handleSetLoopMode(context: Context, json: JSONObject): Boolean {
         val callback = requireCallback(context) ?: return false
-        val loopModeStr = json.optString("loop_mode", "ALL")
+
+        // 缺省用枚举中真实存在的值。此前写 "ALL"（枚举无此值）→ valueOf 抛异常
+        // 被 catch 成 LIST，非法输入也因此静默降级、调用方收到「成功」。
+        val loopModeStr = json.optString("loop_mode", LoopMode.LIST.name)
         val loopMode = try {
-            LoopMode.valueOf(loopModeStr.uppercase())
+            LoopMode.valueOf(loopModeStr.uppercase(Locale.ROOT))
         } catch (e: Exception) {
-            LoopMode.LIST
+            sendError(
+                context,
+                ErrorCode.UNKNOWN_ACTION,
+                "无效的 loop_mode: $loopModeStr（可选 ${LoopMode.entries.joinToString("/")}）"
+            )
+            return false
         }
-        
+
         callback.setLoopMode(loopMode)
         PlayerStatusBroadcaster.sendCommandSuccess(context, "set_loop_mode")
         return true
@@ -369,17 +394,54 @@ object PlayerCommandHandler {
     }
     
     private fun handleHide(context: Context): Boolean {
-        try {
-            // 发送广播让 Activity 自己处理后台
-            val intent = Intent(PlayerBroadcastContract.ACTION_MOVE_TO_BACK).apply {
-                setPackage(context.packageName)
+        // 等待 Activity 的回执，确认确实退到后台。
+        // 此前发完广播即报成功——Activity 不在前台时无人接收 MOVE_TO_BACK，
+        // app 实际没退后台，调用方却收到 command_success。
+        val latch = CountDownLatch(1)
+        val ackReceiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                if (intent?.action == PlayerBroadcastContract.ACTION_MOVE_TO_BACK_ACK) {
+                    latch.countDown()
+                }
             }
-            context.sendBroadcast(intent)
-            PlayerStatusBroadcaster.sendCommandSuccess(context, "hide")
-            return true
+        }
+
+        return try {
+            ContextCompat.registerReceiver(
+                context,
+                ackReceiver,
+                IntentFilter(PlayerBroadcastContract.ACTION_MOVE_TO_BACK_ACK),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+
+            context.sendBroadcast(
+                Intent(PlayerBroadcastContract.ACTION_MOVE_TO_BACK)
+                    .setPackage(context.packageName)
+            )
+
+            val acked = latch.await(HIDE_ACK_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            if (acked) {
+                PlayerStatusBroadcaster.sendCommandSuccess(context, "hide")
+                true
+            } else {
+                // Activity 不在前台（或未注册接收器），未真正退到后台
+                sendError(
+                    context,
+                    ErrorCode.MEDIA_LOAD_FAILED,
+                    "hide 未生效：应用当前不在前台，无接收方确认"
+                )
+                false
+            }
         } catch (e: Exception) {
             Log.e(TAG, "隐藏应用失败", e)
-            return false
+            sendError(context, ErrorCode.MEDIA_LOAD_FAILED, "隐藏应用失败: ${e.message}")
+            false
+        } finally {
+            try {
+                context.unregisterReceiver(ackReceiver)
+            } catch (e: Exception) {
+                Log.d(TAG, "unregister ack receiver: ${e.message}")
+            }
         }
     }
     
@@ -451,7 +513,7 @@ object PlayerCommandHandler {
     }
     
     private fun parseLayoutMode(str: String): LayoutMode? {
-        return when (str.uppercase()) {
+        return when (str.uppercase(Locale.ROOT)) {
             "SINGLE" -> LayoutMode.SINGLE
             "WALL_MODE_1", "LANDSCAPE_1X2", "DUAL_HORIZONTAL", "GRID_1X2" -> LayoutMode.GRID_1X2
             "WALL_MODE_2", "LANDSCAPE_1X3", "SPLIT_1X3", "GRID_1X3" -> LayoutMode.GRID_1X3
@@ -465,7 +527,7 @@ object PlayerCommandHandler {
             "SPLIT_4X1", "COLUMN_4X1" -> LayoutMode.COLUMN_4X1
             "PIP" -> LayoutMode.PIP
             else -> try {
-                LayoutMode.valueOf(str.uppercase())
+                LayoutMode.valueOf(str.uppercase(Locale.ROOT))
             } catch (e: Exception) {
                 null
             }

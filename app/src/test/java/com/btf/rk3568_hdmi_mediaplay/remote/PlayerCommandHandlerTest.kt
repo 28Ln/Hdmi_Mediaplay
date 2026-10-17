@@ -63,4 +63,31 @@ class PlayerCommandHandlerTest {
         method.isAccessible = true
         return method.invoke(PlayerCommandHandler, path) as? com.btf.rk3568_hdmi_mediaplay.data.model.MediaItem
     }
+
+    @Test
+    fun `loop mode default value exists in the enum`() {
+        // 回归守卫：此前 handleSetLoopMode 的缺省值写成 "ALL"，
+        // 而 LoopMode 枚举只有 SINGLE/LIST/RANDOM —— valueOf 抛异常后被
+        // catch 成 LIST，导致非法输入静默降级、调用方收到「成功」。
+        val default = com.btf.rk3568_hdmi_mediaplay.data.model.LoopMode.LIST.name
+        assertNotNull(
+            "缺省 loop_mode 必须是枚举中真实存在的值",
+            com.btf.rk3568_hdmi_mediaplay.data.model.LoopMode.entries
+                .firstOrNull { it.name == default }
+        )
+    }
+
+    @Test
+    fun `layout mode parsing is locale independent`() {
+        // 土耳其语环境下 "pip".uppercase() 会得到 "PİP"（带点大写 I），
+        // 导致解析失败。必须用 uppercase(Locale.ROOT)。
+        val original = java.util.Locale.getDefault()
+        try {
+            java.util.Locale.setDefault(java.util.Locale.forLanguageTag("tr-TR"))
+            assertEquals(LayoutMode.PIP, invokeParseLayoutMode("pip"))
+            assertEquals(LayoutMode.GRID_2X2, invokeParseLayoutMode("quad"))
+        } finally {
+            java.util.Locale.setDefault(original)
+        }
+    }
 }

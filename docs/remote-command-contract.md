@@ -50,9 +50,9 @@ sendBroadcast(intent)
 | `set_interval` | `interval`（秒） | 图片轮播间隔，范围 1–60 |
 | `set_volume` | `player_index`, `volume`（0–100） | 音量 |
 | `set_mute` | `player_index`, `mute`（bool） | 静音 |
-| `set_loop_mode` | `loop_mode` | `SINGLE` / `LIST` / `RANDOM` |
+| `set_loop_mode` | `loop_mode` | `SINGLE` / `LIST` / `RANDOM`；非法值返回错误，缺省为 `LIST` |
 | `show` | — | 把应用拉到前台 |
-| `hide` | — | 退到后台 |
+| `hide` | — | 退到后台。**需 Activity 在前台**，等待回执（超时 1 秒）；不在前台时返回错误 |
 | `get_status` | — | 请求状态回传 |
 | `batch` | `commands[]` | 批量执行 |
 
@@ -176,16 +176,19 @@ registerReceiver(receiver, filter,
 
 ## 六、待补强（已记录，勿视为已实现）
 
-以下项在代码中存在但不完整，接入前请知悉：
+以下项**已在 1.1.2 中修复**（不再列为问题）：
+
+- ✅ `hide` 现在等待 Activity 回执，超时返回错误而非盲目报成功
+- ✅ `set_loop_mode` 非法值返回错误，缺省值改为枚举中真实存在的 `LIST`
+- ✅ `set_interval` 回执显示实际生效值（clamp 后）
+
+以下项仍在，接入前请知悉：
 
 | 项 | 状态 |
 |---|---|
 | 1004 / 1005 错误码 | 已声明但不会发出，见第四节 |
 | `state` 取值 `stopped` vs `idle` | 两个事件中不一致，见第三节 |
-| `hide` / `show` 的投递确认 | 发送广播即报成功，Activity 不在前台时实际未生效 |
 | 播放器级命令对无效索引 | 仍上报成功并广播 `playing` 状态 |
-| `set_loop_mode` 缺字段 | 静默降级为 `LIST` 而非报错 |
-| `set_interval` 超范围 | 实际 clamp 到 1–60，但回执中显示原始值 |
 | `batch` 嵌套深度 | 无限制，深层嵌套有栈溢出风险 |
 | 状态载荷中的 `media_path` | 为本地绝对路径（含 U 盘挂载点），未脱敏 |
 

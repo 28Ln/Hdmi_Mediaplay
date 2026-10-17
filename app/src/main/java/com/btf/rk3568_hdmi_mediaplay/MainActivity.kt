@@ -73,6 +73,15 @@ class MainActivity : ComponentActivity() {
             if (intent.action == PlayerBroadcastContract.ACTION_MOVE_TO_BACK) {
                 Log.d(TAG, "收到 MOVE_TO_BACK 广播")
                 moveTaskToBack(true)
+                // 回执：让 hide 命令知道确实生效了（否则发送方只能盲目报成功）
+                try {
+                    sendBroadcast(
+                        Intent(PlayerBroadcastContract.ACTION_MOVE_TO_BACK_ACK)
+                            .setPackage(packageName)
+                    )
+                } catch (e: Exception) {
+                    Log.e(TAG, "发送 MOVE_TO_BACK 回执失败", e)
+                }
             }
         }
     }
