@@ -353,6 +353,10 @@ class UsbMonitorService : Service() {
                     Log.i(TAG, "No USB detected, setting disconnected")
                     lastDetectedUsb = null
                     lastLoadedConfig = null
+                    // 必须与广播路径（onUsbUnmounted）保持一致：清空签名。
+                    // 否则「拔盘走轮询、重插同一个盘」时签名相同 → unchanged=true
+                    // → 不回调上层 → 重插后不刷新（内容可能有变）。
+                    lastContentSignature = null
                     emitUsbState(UsbRuntimeState.Disconnected)
                     // 清除U盘配置
                     FeatureManager.applyUsbConfig(null)
@@ -368,15 +372,24 @@ class UsbMonitorService : Service() {
                 //   或拔插后重新挂载到同一路径
                 // - **Error 态**：给出一条自动恢复路径，否则永远卡在错误态
                 //
-                // 注意：这里"重扫"只做媒体/配置的**探测**，是否回调上层
-                // 由 [checkUsbContentAsync] 里的内容签名决定，不会每 3 秒打扰用户。
+                // 是否进入「检查」流程。
+                //
+                // 这里只做**廉价**判断（状态与路径），不计算内容签名：
+                // 签名是「是否通知上层」的闸门，统一由 [checkUsbContentAsync]
+                // 计算一次。若两处都算，两次计算之间目录 mtime 可能已变，
+                // 会得出不一致结论，反而造成多余的检查或漏检。
+                //
+                // Connected 同一路径时仍然每轮进入检查：这样 U 盘内容变化
+                // （用户往里拷文件）能被发现；是否真正通知上层由签名决定，
+                // 不会每 3 秒打扰用户。
                 val needCheck = when (currentState) {
                     is UsbRuntimeState.Disconnected -> true
                     is UsbRuntimeState.Error -> true
-                    is UsbRuntimeState.Connected ->
-                        currentState.path.absolutePath != usbPath.absolutePath ||
-                            contentSignature(usbPath, settingsRepository?.settingsFlow?.first()?.usbScanFolderName ?: "media") !=
-                            lastContentSignature
+                    // 已连接（无论是否同一路径）都进入检查：
+                    // 同一路径下 U 盘内容仍可能变化（用户往里拷了文件）。
+                    // 是否真的通知上层由 [checkUsbContentAsync] 的签名闸门决定。
+                    is UsbRuntimeState.Connected -> true
+                    // Scanning 时不重入，避免上一轮尚未结束时叠加
                     is UsbRuntimeState.Scanning -> false
                 }
 
@@ -417,12 +430,27 @@ class UsbMonitorService : Service() {
                 "media"
             }
 
-            // 内容未变 → 只刷新状态、**不回调上层**，
-            // 避免每 3 秒弹一次覆盖确认框。
-            // 注意：拔盘时会把 lastContentSignature 置空，因此「拔了再插同一个盘」
-            // 签名必然不同 → 会正常触发刷新。
+            // 内容未变 → 只把状态恢复成 Connected，**直接返回**。
+            //
+            // 必须在这里早退，而不是等到最后才判断「要不要回调」：
+            // 下面还有 hasValidMediaStructure 与 loadConfig 两次 IO，
+            // 若每 3 秒都跑一遍，在 U 盘有大量文件时会造成持续的无谓磁盘访问。
+            //
+            // 注意：拔盘时会把 lastContentSignature 置空（广播与轮询两条路径都置），
+            // 因此「拔了再插同一个盘」签名必然不同 → 会正常走完整流程。
             val signature = contentSignature(usbPath, folderName)
             val unchanged = signature == lastContentSignature
+            if (unchanged) {
+                Log.d(TAG, "U盘内容未变化，跳过重复检查")
+                emitUsbState(
+                    UsbRuntimeState.Connected(
+                        usbPath,
+                        lastDetectedUsb?.second ?: false,
+                        lastLoadedConfig != null
+                    )
+                )
+                return
+            }
 
             val hasMediaContent = withContext(Dispatchers.IO) {
                 UsbUtils.hasValidMediaStructure(usbPath, folderName)
@@ -454,12 +482,8 @@ class UsbMonitorService : Service() {
             lastContentSignature = signature
             emitUsbState(UsbRuntimeState.Connected(usbPath, hasMediaContent, hasConfig))
 
-            // 通知回调：仅在内容变化时触发，避免轮询重复打扰
-            if (!unchanged) {
-                notifyUsbConnected(usbPath, hasMediaContent)
-            } else {
-                Log.i(TAG, "U盘内容未变化，跳过重复通知")
-            }
+            // 走到这里说明内容确实变了（未变的情况已在上面早退）
+            notifyUsbConnected(usbPath, hasMediaContent)
 
         } catch (e: Exception) {
             Log.e(TAG, "Error checking USB content: ${e.message}")
