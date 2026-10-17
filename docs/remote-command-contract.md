@@ -80,11 +80,31 @@ sendBroadcast(intent)
 
 ### 兼容别名
 
-为兼容旧接入方，以下别名同样被接受：
+以下别名同样被接受（**大小写不敏感**，内部统一 `uppercase(Locale.ROOT)` 后匹配）。
 
-- `LANDSCAPE_1X2` / `LANDSCAPE_1X3` / `LANDSCAPE_2X1` / `LANDSCAPE_3X1` / `LANDSCAPE_2X2`
-- `SPLIT_1X3` / `SPLIT_3X1` / `SPLIT_1X4` / `SPLIT_4X1`
-- `DUAL_HORIZONTAL` / `DUAL_VERTICAL` / `QUAD` / `MIRROR_2X2`
+| 别名 | 实际布局 | 说明 |
+|---|---|---|
+| `LANDSCAPE_1X2` | `GRID_1X2` | 旧版命名 |
+| `LANDSCAPE_1X3` | `GRID_1X3` | 旧版命名 |
+| `LANDSCAPE_2X1` | `GRID_2X1` | 旧版命名 |
+| `LANDSCAPE_3X1` | `GRID_3X1` | 旧版命名 |
+| `LANDSCAPE_2X2` | `GRID_2X2` | 旧版命名 |
+| `SPLIT_1X3` | `GRID_1X3` | 与图片裁剪的布局名对齐 |
+| `SPLIT_3X1` | `GRID_3X1` | 同上 |
+| `SPLIT_1X4` / `ROW_1X4` | `ROW_1X4` | **1 行 × 4 列**（4 路左右并列） |
+| `SPLIT_4X1` / `COLUMN_4X1` | `COLUMN_4X1` | **4 行 × 1 列**（4 路上下分布） |
+| `PIP` | `PIP` | 画中画布局（2×2 网格排布方式，与 `GRID_2X2` 不同） |
+| `DUAL_HORIZONTAL` | `GRID_1X2` | 同上 |
+| `DUAL_VERTICAL` | `GRID_2X1` | 同上 |
+| `QUAD` | `GRID_2X2` | 同上 |
+| `MIRROR_2X2` | `GRID_2X2_SAME` | 同画面 |
+
+> 除上表外，**枚举名本身也直接可用**（`SINGLE`、`GRID_1X2`、`GRID_1X2_PORTRAIT`、
+> `GRID_1X3_PORTRAIT`、`GRID_2X1`、`GRID_3X1`、`GRID_2X2`、`GRID_2X2_SAME`、
+> `ROW_1X4`、`COLUMN_4X1`、`PIP`）——解析器在别名表未命中时会回退到
+> `LayoutMode.valueOf(...)`。
+>
+> **无法识别的值**会返回错误码 `1002`（`INVALID_LAYOUT_MODE`），不会静默忽略。
 
 ---
 
@@ -182,6 +202,23 @@ val filter = IntentFilter("com.btf.player.status.CALLBACK")
 registerReceiver(receiver, filter,
     "com.btf.rk3568_hdmi_mediaplay.permission.RECEIVE_PLAYER_STATUS", null)
 ```
+
+### `set_media` 的两种参数在失败时行为**不同**（重要）
+
+| 参数形式 | 某个文件无效时的行为 |
+|---|---|
+| `media_path`（单个） | **立即返回错误**（`1003`/`1004`/`1005`），该路内容不变 |
+| `media_paths[]`（多个） | **跳过无效项并继续**，其余有效项照常设置；回执仍是 `command_success` |
+
+也就是说，用 `media_paths` 批量下发时，**必须自行核对回执中的 `media_count`**
+与下发的数量是否一致，否则会以为全部成功、实际少了几路：
+
+```
+下发 5 个 → 回执 media_loaded{media_count: 3} → 说明有 2 个被跳过
+```
+
+被跳过的具体原因会写入设备日志（`跳过（1003）: …`），但不单独回调。
+若需要逐项确认，请改用 `media_path` 逐个下发（失败会立即报错）。
 
 ---
 
