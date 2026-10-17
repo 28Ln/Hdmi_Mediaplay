@@ -191,7 +191,8 @@ APPUID=$("$ADB" shell dumpsys package com.btf.rk3568_hdmi_mediaplay | grep -m1 "
 
 ```bash
 # 读取可用字节数
-AVAIL=$("$ADB" shell df --output=avail /storage/emulated/0 | tail -1 | tr -d ' ')
+AVAIL=$("$ADB" shell df --output=avail /storage/emulated/0 | tail -1 | tr -d ' 
+')
 # 写入比可用空间略大的文件（会占用大量时间与空间，测完必须删）
 "$ADB" shell su root dd if=/dev/zero of=/mnt/media_rw/FAKEUSB/media/player1/huge.mp4     bs=1M count=$(( AVAIL / 1024 + 200 ))
 ```
@@ -244,3 +245,51 @@ AVAIL=$("$ADB" shell df --output=avail /storage/emulated/0 | tail -1 | tr -d ' 
 测完把结果写进 `docs/device-verification.md`，并在
 `docs/delivery-ledger.md` 的「真机验证记录」表中更新。
 **任何一项失败都不要标为「已修复」** —— 先修复再重测。
+
+---
+
+## 附：失败时的回退路径
+
+**最后一次真机验证通过的提交**：`1107eac`（2026-10-17 13:15）
+「SAME 模式四格必须播同一文件 + U盘拔插刷新 + 错误自动重试」
+
+**当前待验证版本**：tag `v1.1.3-unverified`（24 个提交，909 行净增）
+
+### 什么时候该回退
+
+只有当出现**无法快速定位的严重问题**时才考虑回退，例如：
+- 应用反复崩溃，且日志指向多个模块
+- U 盘拷贝彻底不可用
+- 播放完全无法启动
+
+### 怎么回退
+
+```bash
+git checkout 1107eac
+./gradlew.bat assembleRelease --console=plain --no-daemon
+```
+
+> ⚠️ 回退会**丢失后续 20 余项修复**，包括：
+> U 盘拷贝数据丢失 P0、`hide` 前台判定、无效索引误报、
+> 裁剪切布局谎报成功、通知语言等。
+> 因此回退只应作为**临时止血**，定位到具体问题后仍应修复并重新验证。
+
+### 更好的做法：二分定位
+
+若怀疑是某一批改动引入，按批次回退更精准：
+
+| 提交 | 内容 |
+|---|---|
+| `1107eac` | 最后验证过的基线 |
+| `a247cfa` | 挂载广播绕过签名闸门 |
+| `7390037` | triggerScan 绕过闸门 |
+| `1c16582` | U 盘状态机一致性 |
+| `bbd2e42` | 签名闸门前移（避免状态闪烁） |
+| `b0875e8` | U 盘状态机规则抽纯函数 + 测试 |
+| `00388f0` | locale 误判纠正 |
+| `2672228` | HelpTip 切语言 |
+| `4a935af` | 裁剪切布局不谎报 |
+| `9f71fd8` | 通知语言 |
+
+优先怀疑 **U 盘相关**（`1c16582`~`b0875e8` 集中在 `UsbMonitorService`，
+该文件改动 269 行，是全项目改动最密集的地方）。
