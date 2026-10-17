@@ -454,9 +454,6 @@ class UsbMonitorService : Service() {
      * 导致功能静默失效（手动扫描无效、错误自动重试永远恢复不了）。
      */
     private suspend fun checkUsbContentAsync(usbPath: File) {
-        Log.i(TAG, "Checking USB content: ${usbPath.absolutePath}")
-        emitUsbState(UsbRuntimeState.Scanning(usbPath))
-
         try {
             val folderName = try {
                 settingsRepository?.settingsFlow?.first()?.usbScanFolderName ?: "media"
@@ -464,27 +461,25 @@ class UsbMonitorService : Service() {
                 "media"
             }
 
-            // 内容未变 → 只把状态恢复成 Connected，**直接返回**。
+            // 先算签名，命中「内容未变」直接返回 —— **连 Scanning 状态都不发**。
             //
-            // 必须在这里早退，而不是等到最后才判断「要不要回调」：
-            // 下面还有 hasValidMediaStructure 与 loadConfig 两次 IO，
-            // 若每 3 秒都跑一遍，在 U 盘有大量文件时会造成持续的无谓磁盘访问。
+            // 这里曾经是先 emit(Scanning) 再算签名，结果是轮询每 3 秒把状态
+            // 打回 Scanning 一次：界面右上角的 U 盘指示器周期性闪烁、日志被刷屏。
+            // 状态广播只应反映真实的状态迁移，不应反映"例行巡检"。
             //
-            // 注意：拔盘时会把 lastContentSignature 置空（广播与轮询两条路径都置），
-            // 因此「拔了再插同一个盘」签名必然不同 → 会正常走完整流程。
+            // 早退还能省掉下面 hasValidMediaStructure 与 loadConfig 两次 IO。
+            //
+            // 注意：拔盘/挂载广播/手动重扫都会把 lastContentSignature 置空，
+            // 因此这些"需要真正检查"的路径不受此闸门影响。
             val signature = contentSignature(usbPath, folderName)
-            val unchanged = signature == lastContentSignature
-            if (unchanged) {
-                Log.d(TAG, "U盘内容未变化，跳过重复检查")
-                emitUsbState(
-                    UsbRuntimeState.Connected(
-                        usbPath,
-                        lastDetectedUsb?.second ?: false,
-                        lastLoadedConfig != null
-                    )
-                )
+            if (signature == lastContentSignature) {
+                Log.d(TAG, "U盘内容未变化，跳过检查")
                 return
             }
+
+            // 确认内容确有变化，此刻才对外表现为"正在扫描"
+            Log.i(TAG, "Checking USB content: ${usbPath.absolutePath}")
+            emitUsbState(UsbRuntimeState.Scanning(usbPath))
 
             val hasMediaContent = withContext(Dispatchers.IO) {
                 UsbUtils.hasValidMediaStructure(usbPath, folderName)
@@ -497,7 +492,7 @@ class UsbMonitorService : Service() {
 
             val hasConfig = usbConfig != null
 
-            Log.i(TAG, "USB check result: path=${usbPath.absolutePath}, hasMedia=$hasMediaContent, hasConfig=$hasConfig, unchanged=$unchanged")
+            Log.i(TAG, "USB check result: path=${usbPath.absolutePath}, hasMedia=$hasMediaContent, hasConfig=$hasConfig")
 
             // 应用U盘配置到 FeatureManager
             if (usbConfig != null) {
