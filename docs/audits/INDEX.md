@@ -65,7 +65,7 @@ git diff --stat 1cdb969..HEAD
 | CI 硬编码 java.home | 已移除 | `gradle.properties` |
 | `uppercase()` 受 locale 影响 | **⚠️ 原判断有误**。Kotlin 无参 `lowercase()`/`uppercase()` **自 1.5 起就用 `Locale.ROOT`**，与 Java 的 `toLowerCase()` 不同。实测 tr-TR 下 `"AVI".lowercase()` == `"avi"`（正确），只有显式传 `Locale.getDefault()` 才会得到 `"avı"`。**原有的 tr-TR 回归测试抓不到任何 bug，因为本来就等价**。保留显式 `Locale.ROOT` 仅为表达意图；**不要再来"修"这个** | `MediaTypeLocaleTest` 顶部注释 |
 | `WALL_MODE_8` 是「臆造别名」 | **不是缺陷** —— 是有意保留的兼容别名，仅支持别名表，非硬件编号；契约文档已说明 | `docs/remote-command-contract.md:77` |
-| `hide` 命令不生效 | **已修**（改用 `AppForegroundState` 发送前判定）。**注意**：回执方案是死路，别再试一次 —— `onReceive` 里 `registerReceiver` 必抛异常 | `docs/audits/2026-10-17-audit-02.md` 新发现 2 |
+| `hide` 命令不生效 | **部分修复**：已改为发送前判定前台，不再谎报成功。但**本应用注册为 HOME（桌面）**，`moveTaskToBack` 对桌面应用通常无效 —— 操作本身是否生效**从未在真机验证过**。待验证项，勿当作"已修完" | `docs/audits/2026-10-17-audit-02.md` 专题 |
 | U 盘拷贝永久失败 | **已修** —— 备份清理条件曾被写反成 `if (!backupDir.exists())`。**该处不能加任何 `exists` 条件** | `LocalStorageManager.kt:127-145` |
 | 无效索引命令报成功 | **已修**（`play/pause/stop/set_volume/set_mute` 校验是否在当前布局内；`*_all` 按实际生效返回） | `docs/audits/2026-10-17-audit-02.md` 新发现 3 |
 | `players[].index` 字段名 | 契约文档曾误写为 `player_index`，**已订正** | `docs/remote-command-contract.md` 第三节 |
