@@ -80,6 +80,28 @@ fun MediaPlayerView(
     var currentVideoIndex by remember(mediaItems.hashCode(), playerConfig.currentIndex) {
         mutableIntStateOf(initialVideoIndex)
     }
+
+    // 跟随格（「同画面」模式的 P2–P4）：播放项**完全由 P1 驱动**。
+    //
+    // 关键点：不能用本格自己的 remember 状态决定播哪个文件。
+    // 四格各自 remember 时，初始值只在首次组合时取一次；之后 P1 切到下一首，
+    // P2–P4 的状态不会跟着变，于是各自按自己的节奏循环 ——
+    // 表现就是客户看到的「1、4、3、2 顺序播放」。
+    //
+    // 这里把 playerConfig.currentIndex 当作唯一真值来源：
+    // 它由 ViewModel 在 SAME 模式下广播给所有格（见 updatePlayerCurrentIndex），
+    // 也就是 P1 的当前项。只要它变了，跟随格立即同步。
+    if (followsPrimary) {
+        val syncedIndex = playerConfig.currentIndex
+            .coerceIn(0, videoItems.lastIndex.coerceAtLeast(0))
+        if (syncedIndex != currentVideoIndex) {
+            Log.d(
+                TAG,
+                "P${playerConfig.index + 1} 跟随主格：${currentVideoIndex} -> $syncedIndex"
+            )
+            currentVideoIndex = syncedIndex
+        }
+    }
     
     // 编号徽章（左上角 1/2/3/4）：初始显示 3 秒后自动隐藏，触摸该格再显示 3 秒。
     // 播放时常显会遮挡画面；触摸显示用于确认「这是第几路」。
@@ -179,6 +201,7 @@ fun MediaPlayerView(
                             isLooping = videoItems.size == 1 && settings.loopMode != LoopMode.RANDOM,
                             scaleMode = settings.videoScaleMode,
                             audioFallbackSilent = settings.audioFallbackSilent,
+                            followsPrimary = followsPrimary,
                             onPlaybackEnded = {
                                 if (videoItems.size > 1 && !followsPrimary) {
                                     val nextIndex = when (settings.loopMode) {

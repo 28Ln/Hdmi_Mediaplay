@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -56,7 +57,18 @@ fun VideoPlayerView(
     onPlaybackEnded: (() -> Unit)? = null,
     onError: ((Exception) -> Unit)? = null,
     /** 播放从出错恢复正常时回调，用于让上层清除 ERROR 状态 */
-    onRecovered: (() -> Unit)? = null
+    onRecovered: (() -> Unit)? = null,
+    /**
+     * 跟随模式：本格只作为主格（P1）的镜像，播放进度由 P1 驱动。
+     *
+     * 四格是**四个独立 ExoPlayer**（同一个 player 无法渲染到多个 Surface，
+     * 这是 Media3 的限制），因此无法共享实例。但各自播放必然漂移：
+     * 启动有先后、缓冲速度不同、设备热降频后解码速率还会变化。
+     *
+     * 为 true 时，本格就绪后会立即 seek 到 P1 的当前进度，并在播放期间
+     * 持续跟随（由 [PlaybackSync] 的轮询兜底）。
+     */
+    followsPrimary: Boolean = false
 ) {
     // 空路径检查
     if (mediaPath.isBlank()) {
@@ -123,14 +135,14 @@ fun VideoPlayerView(
             isLoading = true
             hasError = false
             errorMessage = ""
-            
+
             exoPlayer.stop()
             exoPlayer.clearMediaItems()
-            
+
             val mediaItem = MediaItem.fromUri(mediaPath)
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
-            
+
             Log.d(TAG, "Media prepared: $mediaPath")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to prepare media: $mediaPath", e)
@@ -139,7 +151,42 @@ fun VideoPlayerView(
             onError?.invoke(e)
         }
     }
-    
+
+    // 「同画面」模式的跟随格：媒体源换好后**对齐一次**到主格进度。
+    //
+    // 受 PlaybackSync.ENABLED_BY_DEFAULT 控制，默认关闭 ——
+    // 对齐会触发 seek 与重新缓冲，实测表现为画面反复转圈。
+    LaunchedEffect(mediaPath, followsPrimary) {
+        if (!followsPrimary || cellIndex < 0) return@LaunchedEffect
+        if (!PlaybackSync.ENABLED_BY_DEFAULT) return@LaunchedEffect
+        try {
+            val deadline = System.currentTimeMillis() + 8_000L
+            while (exoPlayer.playbackState != ExoPlayer.STATE_READY &&
+                System.currentTimeMillis() < deadline
+            ) {
+                delay(50)
+            }
+            if (exoPlayer.playbackState == ExoPlayer.STATE_READY) {
+                if (PlaybackSync.alignToPrimary(cellIndex)) {
+                    Log.d(TAG, "P${cellIndex + 1} 已对齐到主格进度")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "对齐主格失败: ${e.message}")
+        }
+    }
+
+    // 每次重组都刷新注册表。
+    //
+    // 用 SideEffect 而不是只在 STATE_READY 注册：切换布局时播放器早已 READY，
+    // 该回调不会再触发，P2–P4 会永远注册不上（实测日志「syncOnce: P2 未注册」）。
+    // 这里只是往 ConcurrentHashMap 写一次，开销与一次属性读取同级。
+    SideEffect {
+        if (cellIndex >= 0) {
+            PlaybackSync.register(cellIndex, exoPlayer)
+        }
+    }
+
     // 更新播放状态
     LaunchedEffect(isPlaying) {
         try {
@@ -278,7 +325,16 @@ fun VideoPlayerView(
         }
         
         exoPlayer.addListener(listener)
-        
+
+        // 立即注册到同步器。
+        //
+        // 不能在 STATE_READY 回调里注册：切换布局时播放器早已 READY，
+        // 该回调不会再触发一次，于是 P2–P4 永远注册不上，
+        // syncOnce 只能看到主格 —— 同步形同虚设。
+        if (cellIndex >= 0) {
+            PlaybackSync.register(cellIndex, exoPlayer)
+        }
+
         onDispose {
             try {
                 if (cellIndex >= 0) {

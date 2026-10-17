@@ -66,9 +66,13 @@ fun MainScreen(
     }
 
     // 「2×2 同画面」多路同步：四格是独立播放器，会各自漂移导致越播越不同步。
-    // 以 P1 为主时钟，每 5 秒检查一次，偏差超过 1.5 秒才 seek 对齐（见 PlaybackSync）。
+    //
+    // **默认关闭**（PlaybackSync.ENABLED_BY_DEFAULT = false）：
+    // 同步依赖 seekTo，每次 seek 都会重新缓冲，实测表现为「播 1 秒转一次圈」，
+    // 比不同步更难用。保留代码作为实验路径，需要时改常量即可开启。
     LaunchedEffect(settings.layoutMode) {
-        PlaybackSync.enabled = settings.layoutMode.mirrorsPrimaryPlayer
+        PlaybackSync.enabled = PlaybackSync.ENABLED_BY_DEFAULT &&
+            settings.layoutMode.mirrorsPrimaryPlayer
         if (!PlaybackSync.enabled) {
             PlaybackSync.clear()
             return@LaunchedEffect
