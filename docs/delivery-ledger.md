@@ -51,6 +51,8 @@
 | P1-24 | `set_interval` 回报未 clamp 的原始值 | 回执显示实际生效值 |
 | P1-25 | `hide` 发完广播即报成功，未确认是否生效 | 等待 Activity 回执（超时 1 秒），未生效时返回错误 |
 | P1-26 | 布局解析受系统语言影响（tr-TR 下 `pip` 失败） | `uppercase()` → `uppercase(Locale.ROOT)` |
+| P1-27 | 播放器级命令对无效索引仍报成功并广播虚假 `playing` | `play`/`pause`/`stop` 回调改返回 `Boolean`，handler 据此报成败 |
+| P1-28 | 错误码塌缩，1004/1005 永不触发 | `MediaResult` 区分「不存在/不可读/格式不支持」→ 1003/1004/1005 |
 
 ---
 
@@ -60,9 +62,7 @@
 
 | 编号 | 问题 | 位置 | 说明 |
 |---|---|---|---|
-| P1-24 | 状态载荷泄漏本地绝对路径 | `PlayerStatusBroadcaster.kt` | 含 U 盘挂载点 |
-| P1-27 | 播放器级命令对无效索引仍报成功 | `PlayerCommandHandler.kt` | 广播虚假 `playing` 状态 |
-| P1-28 | 错误码塌缩，1004/1005 永不触发 | `PlayerCommandHandler.kt` | 三类失败折叠为同一码 |
+| P1-24 | 状态载荷含本地绝对路径 | — | **待客户确认**：改动会变更对外契约，已在契约文档说明；接入方应用文件名匹配 |
 | P1-31 | 样式无单一来源（4 种按钮高度 / 3 套字号） | `SettingsScreen.kt` | 无 `SettingsDimens` |
 
 ### 体验与可维护性（P2）

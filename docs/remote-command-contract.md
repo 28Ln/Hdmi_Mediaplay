@@ -190,6 +190,20 @@ registerReceiver(receiver, filter,
 | `state` 取值 `stopped` vs `idle` | 两个事件中不一致，见第三节 |
 | 播放器级命令对无效索引 | 仍上报成功并广播 `playing` 状态 |
 | `batch` 嵌套深度 | 无限制，深层嵌套有栈溢出风险 |
-| 状态载荷中的 `media_path` | 为本地绝对路径（含 U 盘挂载点），未脱敏 |
+| 状态载荷中的 `media_path` | 为**本地绝对路径**（如 `/storage/emulated/0/RK3568MediaPlayer/player1/video.mp4`），含 U 盘挂载点。当前版本**有意保持**该行为，因为部分接入方用它做内容匹配。若要脱敏需与接入方约定后统一变更，见下方说明 |
+
+### 关于 `media_path` 的说明
+
+`media_path` 返回的是设备本地绝对路径，**不是**接入方下发时的原始路径 ——
+本应用会把 U 盘媒体复制到本地缓存目录后再播放，因此：
+
+- 接入方下发的 `/mnt/media_rw/XXXX/media/player1/a.mp4`
+- 在状态回传中会变成 `/storage/emulated/0/RK3568MediaPlayer/player1/a.mp4`
+
+**若接入方需要把状态与下发内容对应，建议用文件名（末段）或自定义的媒体 ID 匹配，
+不要用完整路径比对。**
+
+脱敏（去掉挂载点前缀或只返回文件名）是可选改进，但会改变现有契约，
+需与接入方确认后统一升级，故当前版本未改动。
 
 完整清单与优先级见 `docs/delivery-ledger.md`。

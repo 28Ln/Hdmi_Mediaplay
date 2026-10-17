@@ -774,29 +774,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
         log("远程控制: 停止全部")
     }
     
-    override fun play(playerIndex: Int) {
+    /**
+     * 播放指定路。
+     * @return 是否真正生效。无媒体的路无法播放，返回 false 让调用方回报错误，
+     *         而不是广播一个虚假的 playing 状态。
+     */
+    override fun play(playerIndex: Int): Boolean {
+        val target = _playerConfigs.value.getOrNull(playerIndex)
+        if (target == null || target.mediaItems.isEmpty()) {
+            log("远程控制: 播放播放器 $playerIndex 失败（无媒体或索引无效）")
+            return false
+        }
         _playerConfigs.update { configs ->
             configs.mapIndexed { index, config ->
-                if (index == playerIndex && config.mediaItems.isNotEmpty()) {
-                    config.copy(state = PlayerState.PLAYING)
-                } else config
+                if (index == playerIndex) config.copy(state = PlayerState.PLAYING) else config
             }
         }
         log("远程控制: 播放播放器 $playerIndex")
+        return true
     }
     
-    override fun pause(playerIndex: Int) {
+    override fun pause(playerIndex: Int): Boolean {
+        if (_playerConfigs.value.getOrNull(playerIndex) == null) {
+            log("远程控制: 暂停播放器 $playerIndex 失败（索引无效）")
+            return false
+        }
         _playerConfigs.update { configs ->
             configs.mapIndexed { index, config ->
-                if (index == playerIndex) {
-                    config.copy(state = PlayerState.PAUSED)
-                } else config
+                if (index == playerIndex) config.copy(state = PlayerState.PAUSED) else config
             }
         }
         log("远程控制: 暂停播放器 $playerIndex")
+        return true
     }
     
-    override fun stop(playerIndex: Int) {
+    override fun stop(playerIndex: Int): Boolean {
+        if (_playerConfigs.value.getOrNull(playerIndex) == null) {
+            log("远程控制: 停止播放器 $playerIndex 失败（索引无效）")
+            return false
+        }
         _playerConfigs.update { configs ->
             configs.mapIndexed { index, config ->
                 if (index == playerIndex) {
@@ -805,6 +821,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             }
         }
         log("远程控制: 停止播放器 $playerIndex")
+        return true
     }
     
     override fun setLayout(layoutMode: LayoutMode) {

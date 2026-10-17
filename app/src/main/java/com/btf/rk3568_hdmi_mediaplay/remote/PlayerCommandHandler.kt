@@ -49,9 +49,10 @@ object PlayerCommandHandler {
         fun playAll()
         fun pauseAll()
         fun stopAll()
-        fun play(playerIndex: Int)
-        fun pause(playerIndex: Int)
-        fun stop(playerIndex: Int)
+        /** @return 是否真正生效（无媒体的路返回 false） */
+        fun play(playerIndex: Int): Boolean
+        fun pause(playerIndex: Int): Boolean
+        fun stop(playerIndex: Int): Boolean
         fun setLayout(layoutMode: LayoutMode)
         fun setMedia(playerIndex: Int, mediaItems: List<MediaItem>)
         fun clearMedia(playerIndex: Int)
@@ -168,8 +169,19 @@ object PlayerCommandHandler {
         val playerIndex = json.optInt("player_index", -1)
         if (!validatePlayerIndex(context, playerIndex)) return false
         val callback = requireCallback(context) ?: return false
-        
-        callback.play(playerIndex)
+
+        // 依据实际是否生效回报，而不是无条件广播状态。
+        // 此前 SINGLE 布局下发 play(player_index=3) 会报成功并广播 playing，
+        // 但 ViewModel 那边是无媒体/越界的空操作，接入方被误导。
+        val ok = callback.play(playerIndex)
+        if (!ok) {
+            sendError(
+                context,
+                ErrorCode.INVALID_PLAYER_INDEX,
+                "播放未生效：第 $playerIndex 路无媒体或不在当前布局中"
+            )
+            return false
+        }
         PlayerStatusBroadcaster.sendPlaybackChanged(context, playerIndex, "playing")
         return true
     }
@@ -178,8 +190,19 @@ object PlayerCommandHandler {
         val playerIndex = json.optInt("player_index", -1)
         if (!validatePlayerIndex(context, playerIndex)) return false
         val callback = requireCallback(context) ?: return false
-        
-        callback.pause(playerIndex)
+
+        // 依据实际是否生效回报，而不是无条件广播状态。
+        // 此前 SINGLE 布局下发 play(player_index=3) 会报成功并广播 playing，
+        // 但 ViewModel 那边是无媒体/越界的空操作，接入方被误导。
+        val ok = callback.pause(playerIndex)
+        if (!ok) {
+            sendError(
+                context,
+                ErrorCode.INVALID_PLAYER_INDEX,
+                "暂停未生效：第 $playerIndex 路无媒体或不在当前布局中"
+            )
+            return false
+        }
         PlayerStatusBroadcaster.sendPlaybackChanged(context, playerIndex, "paused")
         return true
     }
@@ -188,8 +211,19 @@ object PlayerCommandHandler {
         val playerIndex = json.optInt("player_index", -1)
         if (!validatePlayerIndex(context, playerIndex)) return false
         val callback = requireCallback(context) ?: return false
-        
-        callback.stop(playerIndex)
+
+        // 依据实际是否生效回报，而不是无条件广播状态。
+        // 此前 SINGLE 布局下发 play(player_index=3) 会报成功并广播 playing，
+        // 但 ViewModel 那边是无媒体/越界的空操作，接入方被误导。
+        val ok = callback.stop(playerIndex)
+        if (!ok) {
+            sendError(
+                context,
+                ErrorCode.INVALID_PLAYER_INDEX,
+                "停止未生效：第 $playerIndex 路无媒体或不在当前布局中"
+            )
+            return false
+        }
         PlayerStatusBroadcaster.sendPlaybackChanged(context, playerIndex, "stopped")
         return true
     }
@@ -223,12 +257,13 @@ object PlayerCommandHandler {
         // 单个文件
         val mediaPath = json.optString("media_path", "")
         if (mediaPath.isNotBlank()) {
-            val item = createMediaItem(mediaPath)
-            if (item != null) {
-                mediaItems.add(item)
-            } else {
-                sendError(context, ErrorCode.MEDIA_NOT_FOUND, "文件不存在: $mediaPath")
-                return false
+            when (val result = createMediaItemResult(mediaPath)) {
+                is MediaResult.Ok -> mediaItems.add(result.item)
+                else -> {
+                    val (code, msg) = describeFailure(mediaPath, result)
+                    sendError(context, code, msg)
+                    return false
+                }
             }
         }
         
@@ -238,11 +273,12 @@ object PlayerCommandHandler {
             for (i in 0 until mediaPaths.length()) {
                 val path = mediaPaths.optString(i, "")
                 if (path.isNotBlank()) {
-                    val item = createMediaItem(path)
-                    if (item != null) {
-                        mediaItems.add(item)
-                    } else {
-                        Log.w(TAG, "文件不存在，跳过: $path")
+                    when (val result = createMediaItemResult(path)) {
+                        is MediaResult.Ok -> mediaItems.add(result.item)
+                        else -> {
+                            val (code, msg) = describeFailure(path, result)
+                            Log.w(TAG, "跳过（$code）: $msg")
+                        }
                     }
                 }
             }
@@ -534,26 +570,52 @@ object PlayerCommandHandler {
         }
     }
     
-    private fun createMediaItem(path: String): MediaItem? {
+    /**
+     * 创建媒体的结果。
+     *
+     * 区分失败原因是为了让接入方能对症处理（文件不存在 / 无读权限 / 格式不支持），
+     * 而不是一律收到「文件不存在」。
+     */
+    private sealed interface MediaResult {
+        data class Ok(val item: MediaItem) : MediaResult
+        object NotExist : MediaResult
+        object NotReadable : MediaResult
+        object Unsupported : MediaResult
+    }
+
+    private fun createMediaItemResult(path: String): MediaResult {
         val file = File(path)
-        if (!file.exists() || !file.canRead()) {
-            return null
-        }
-        
-        val extension = file.extension.lowercase()
+        if (!file.exists()) return MediaResult.NotExist
+        if (!file.canRead()) return MediaResult.NotReadable
+
+        val extension = file.extension.lowercase(Locale.ROOT)
         val type = when (extension) {
             "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "3gp" -> MediaType.VIDEO
             "jpg", "jpeg", "png", "bmp", "gif", "webp" -> MediaType.IMAGE
-            else -> return null
+            else -> return MediaResult.Unsupported
         }
-        
-        return MediaItem(
-            path = path,
-            name = file.name,
-            type = type,
-            source = MediaSource.MANUAL,
-            size = file.length()
+
+        return MediaResult.Ok(
+            MediaItem(
+                path = path,
+                name = file.name,
+                type = type,
+                source = MediaSource.MANUAL,
+                size = file.length()
+            )
         )
+    }
+
+    /** 兼容包装：仅需成败时使用。 */
+    private fun createMediaItem(path: String): MediaItem? =
+        (createMediaItemResult(path) as? MediaResult.Ok)?.item
+
+    /** 把失败原因映射到对应的错误码与提示。 */
+    private fun describeFailure(path: String, result: MediaResult): Pair<Int, String> = when (result) {
+        is MediaResult.Ok -> ErrorCode.MEDIA_LOAD_FAILED to "未知错误"
+        MediaResult.NotExist -> ErrorCode.MEDIA_NOT_FOUND to "文件不存在: $path"
+        MediaResult.NotReadable -> ErrorCode.MEDIA_NOT_READABLE to "文件不可读（权限不足）: $path"
+        MediaResult.Unsupported -> ErrorCode.UNSUPPORTED_FORMAT to "不支持的格式: $path"
     }
     
     private fun scanDirectory(dir: File): List<MediaItem> {

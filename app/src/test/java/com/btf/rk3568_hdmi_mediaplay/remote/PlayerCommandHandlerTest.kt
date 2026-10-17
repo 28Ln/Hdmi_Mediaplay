@@ -4,6 +4,7 @@ import com.btf.rk3568_hdmi_mediaplay.data.model.LayoutMode
 import com.btf.rk3568_hdmi_mediaplay.data.model.MediaType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.io.File
@@ -89,5 +90,36 @@ class PlayerCommandHandlerTest {
         } finally {
             java.util.Locale.setDefault(original)
         }
+    }
+
+    @Test
+    fun `media failure reasons map to distinct error codes`() {
+        // P1-28 回归守卫：三种失败原因必须映射到不同错误码。
+        // 此前 createMediaItem 一律返回 null，调用方只能收到 MEDIA_NOT_FOUND，
+        // 接入方无法区分「不存在」「无权限」「格式不支持」。
+        val notExist = File("/tmp/definitely-not-exists-${System.nanoTime()}.mp4")
+        val unsupported = File.createTempFile("player-command", ".txt")
+        unsupported.writeText("x")
+        unsupported.deleteOnExit()
+
+        assertNull("不存在的文件应创建失败", invokeCreateMediaItem(notExist.absolutePath))
+        assertNull("不支持的扩展名应创建失败", invokeCreateMediaItem(unsupported.absolutePath))
+
+        // 通过反射直接验证结果类型区分了原因
+        val clazz = Class.forName(
+            "com.btf.rk3568_hdmi_mediaplay.remote.PlayerCommandHandler"
+        )
+        val method = clazz.getDeclaredMethod("createMediaItemResult", String::class.java)
+        method.isAccessible = true
+        val instance = clazz.getDeclaredField("INSTANCE").get(null)
+
+        val r1 = method.invoke(instance, notExist.absolutePath)
+        val r2 = method.invoke(instance, unsupported.absolutePath)
+        assertEquals("NotExist", r1::class.java.simpleName)
+        assertEquals("Unsupported", r2::class.java.simpleName)
+        assertNotEquals(
+            "不同失败原因必须得到不同的结果类型",
+            r1::class.java, r2::class.java
+        )
     }
 }
