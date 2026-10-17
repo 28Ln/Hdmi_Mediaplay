@@ -24,6 +24,7 @@ import com.btf.rk3568_hdmi_mediaplay.receiver.UsbBroadcastReceiver
 import com.btf.rk3568_hdmi_mediaplay.util.FileUtils
 import com.btf.rk3568_hdmi_mediaplay.util.UsbConfigLoader
 import com.btf.rk3568_hdmi_mediaplay.util.UsbUtils
+import com.btf.rk3568_hdmi_mediaplay.util.StringResources
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -259,10 +260,10 @@ class UsbMonitorService : Service() {
             try {
                 val channel = NotificationChannel(
                     CHANNEL_ID,
-                    getString(R.string.notification_channel_name),
+                    StringResources.notificationChannelName,
                     NotificationManager.IMPORTANCE_LOW
                 ).apply {
-                    description = "监听U盘插入和拔出"
+                    description = StringResources.notificationChannelDescription
                     setShowBadge(false)
                 }
                 getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
@@ -287,8 +288,8 @@ class UsbMonitorService : Service() {
         
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle(getString(R.string.notification_title))
-                .setContentText(getString(R.string.notification_text))
+                .setContentTitle(StringResources.notificationTitle)
+                .setContentText(StringResources.notificationText)
                 .setSmallIcon(R.drawable.ic_launcher_foreground)
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)
@@ -296,8 +297,8 @@ class UsbMonitorService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle(getString(R.string.notification_title))
-                .setContentText(getString(R.string.notification_text))
+                .setContentTitle(StringResources.notificationTitle)
+                .setContentText(StringResources.notificationText)
                 .setSmallIcon(R.drawable.ic_launcher_foreground)
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)

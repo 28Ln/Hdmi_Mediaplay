@@ -320,4 +320,26 @@ object StringResources {
         com.btf.rk3568_hdmi_mediaplay.data.model.PlayerState.PAUSED -> statePaused
         com.btf.rk3568_hdmi_mediaplay.data.model.PlayerState.ERROR -> stateError
     }
+
+    // ========== 前台服务通知 ==========
+    //
+    // 通知文案不能走 R.string：Android 按**系统语言**解析资源，
+    // 而本应用的语言是应用内设置（见 setLanguage）。
+    // 「系统中文 + 应用内英文」时，R.string 会给出中文，与实际界面不一致。
+    //
+    // 期望的解法是 AppCompatDelegate/LocaleManager.setApplicationLocales，
+    // 但：
+    //   - LocaleManager 需要 API 33+，本机是 Android 11 (API 30)
+    //   - AppCompatDelegate 需要 appcompat 依赖，本项目是纯 Compose，未引入
+    // 因此改为直接从 StringResources 取文案，与界面语言保持一致。
+    val notificationChannelName: String
+        get() = if (isEn) "USB Monitor Service" else "U盘监听服务"
+    val notificationTitle: String
+        get() = if (isEn) "Media Player" else "媒体播放器"
+    val notificationText: String
+        get() = if (isEn) "Monitoring USB drive…" else "正在监听U盘…"
+    val notificationChannelDescription: String
+        get() = if (isEn) "Monitors USB drive insertion and removal"
+        else "监听U盘插入和拔出"
+
 }

@@ -1,14 +1,13 @@
 <resources>
-    <string name="app_name">媒体播放器</string>
-
     <!--
-        说明：本文件只保留被 Android 资源系统实际引用的字符串。
-        App 内的用户可见文本由 util/StringResources.kt 统一提供（中英双语）。
-        新增条目时请确认存在 R.string.* / @string/* 引用，否则会被 lint 判为死资源。
-    -->
+        本文件只保留被 Android 资源系统真正引用的字符串。
 
-    <!-- 通知（UsbMonitorService.kt） -->
-    <string name="notification_channel_name">U盘监听服务</string>
-    <string name="notification_title">媒体播放器</string>
-    <string name="notification_text">正在监听U盘…</string>
+        - app_name：AndroidManifest 的 android:label（桌面图标名）
+        - 其余用户可见文本一律由 util/StringResources.kt 提供（中英双语），
+          包括前台服务通知 —— 理由见该文件 notificationXxx 的注释：
+          资源系统按**系统语言**解析，而本应用的语言是应用内设置。
+
+        新增条目时请确认存在 @string/* 或 R.string.* 引用，否则会被 lint 判为死资源。
+    -->
+    <string name="app_name">媒体播放器</string>
 </resources>

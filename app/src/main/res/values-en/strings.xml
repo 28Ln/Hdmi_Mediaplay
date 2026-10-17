@@ -1,10 +1,5 @@
 <resources>
-    <!-- 英文资源：仅覆盖被 Android 资源系统直接引用的字符串 -->
-
+    <!-- 仅覆盖被 Android 资源系统引用的字符串（目前只有桌面图标名）。
+         通知文案走 StringResources，不在此处 —— 见 values/strings.xml 注释。 -->
     <string name="app_name">Media Player</string>
-
-    <!-- 通知（UsbMonitorService.kt） -->
-    <string name="notification_channel_name">USB Monitor Service</string>
-    <string name="notification_title">Media Player</string>
-    <string name="notification_text">Monitoring USB drive…</string>
 </resources>
