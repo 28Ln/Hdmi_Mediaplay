@@ -41,8 +41,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
         private const val USB_RETRY_INITIAL_MS = 5_000L
         /** 单次等待上限，避免退避到几乎不重试 */
         private const val USB_RETRY_MAX_MS = 60_000L
-        /** 最多自动重试次数 */
-        private const val USB_RETRY_MAX_ATTEMPTS = 6
+
+        /**
+         * 计算第 [attempt] 次重试前应等待的毫秒数（从 0 开始）。
+         *
+         * 抽取成函数是为了可测：退避策略一旦写错（例如每次都重置回初始值），
+         * 表现是「每 5 秒重试一次」，与「指数退避」的意图完全相反，
+         * 而这种现象在真机上很难看出来。
+         */
+        internal fun usbRetryDelayMs(attempt: Int): Long {
+            if (attempt <= 0) return USB_RETRY_INITIAL_MS
+            // 移位实现 2 的幂；限制最多左移 4 位（×16），再与上限取小
+            val multiplier = 1L shl attempt.coerceAtMost(4)
+            return (USB_RETRY_INITIAL_MS * multiplier).coerceAtMost(USB_RETRY_MAX_MS)
+        }
 
         internal fun decideUsbCopyDecision(
             hasMediaContent: Boolean,
@@ -105,6 +117,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
 
     /** 错误态自动重试任务；新状态到来时取消，避免重复排队 */
     private var usbRetryJob: Job? = null
+
+    /**
+     * 本轮错误已经重试过多少次。
+     *
+     * 必须跨 [enterUsbErrorState] 的多次调用保留，否则每次重试都会把退避
+     * 重置回最短间隔，指数退避失效（见该函数注释）。
+     */
+    private var usbRetryAttempt = 0
     
     data class CopyProgress(
         val playerIndex: Int,
@@ -279,8 +299,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
      */
     fun onUsbDisconnected() {
         log("U盘已断开")
-        usbRetryJob?.cancel()
-        usbRetryJob = null
+        resetUsbRetryBackoff()
         _usbState.value = UsbRuntimeState.Disconnected
         showToast(StringResources.usbDisconnected, MessageType.INFO)
         // 拔盘后重新加载本地缓存：U盘内容不会被清（下次插入还要用），
@@ -294,22 +313,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     }
 
     fun syncUsbConnected(path: File, hasMediaContent: Boolean, hasConfig: Boolean) {
-        usbRetryJob?.cancel()
-        usbRetryJob = null
+        resetUsbRetryBackoff()
         _usbState.value = UsbRuntimeState.Connected(path, hasMediaContent, hasConfig)
     }
 
     fun syncUsbDisconnected() {
-        usbRetryJob?.cancel()
-        usbRetryJob = null
+        resetUsbRetryBackoff()
         _usbState.value = UsbRuntimeState.Disconnected
     }
 
     fun syncUsbState(state: UsbRuntimeState) {
-        // 收到非错误态说明外部已恢复，取消未完成的重试
+        // 收到非错误态说明外部已恢复，取消重试并清零退避
         if (state !is UsbRuntimeState.Error) {
-            usbRetryJob?.cancel()
-            usbRetryJob = null
+            resetUsbRetryBackoff()
         }
         _usbState.value = state
     }
@@ -320,28 +336,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
      * 此前错误态没有任何出口 —— 一旦「存储空间不足」就会永久停住，
      * 即使操作者当场清出了空间，应用也不会自己恢复。
      *
-     * 采用指数退避（5s → 10s → 20s → 40s，上限 60s，最多 6 次）：
-     * 空间不足往往需要人工清理，重试太密只会刷屏；但也不能不重试。
-     * 退避上限保证即使一直失败，也会以分钟级频率自愈，无需人工干预。
+     * **退避状态必须跨重试保留**：重试会触发 rescan → 若仍失败会再次进入本函数。
+     * 若每次进来都把 delay 重置成初始值，就变成「永远 5 秒一次」，
+     * 指数退避完全失效（这是本函数第一版的缺陷）。
+     * 因此用 [usbRetryAttempt] 记录本轮错误已经重试过多少次，
+     * 仅在真正恢复（[resetUsbRetryBackoff]）时清零。
+     *
+     * 达到上限后**不放弃**，而是退化为固定的最长间隔继续重试：
+     * 空间不足这类问题要等人工处理后才能恢复，一旦清理完成，
+     * 下一轮重试就能自愈 —— 停止重试等于让设备永久卡死。
      */
     private fun enterUsbErrorState(message: String) {
         _usbState.value = UsbRuntimeState.Error(message)
+
+        val delayMs = usbRetryDelayMs(usbRetryAttempt)
+
         usbRetryJob?.cancel()
         usbRetryJob = viewModelScope.launch {
-            var delayMs = USB_RETRY_INITIAL_MS
-            repeat(USB_RETRY_MAX_ATTEMPTS) { attempt ->
-                delay(delayMs)
-                log("U盘错误态自动重试 ${attempt + 1}/$USB_RETRY_MAX_ATTEMPTS（$message）")
-                val rescan = onRequestUsbRescan
-                if (rescan == null) {
-                    log("未绑定重扫通道，停止自动重试")
-                    return@launch
-                }
-                rescan()
-                delayMs = (delayMs * 2).coerceAtMost(USB_RETRY_MAX_MS)
+            delay(delayMs)
+            val rescan = onRequestUsbRescan
+            if (rescan == null) {
+                log("未绑定重扫通道，停止自动重试")
+                return@launch
             }
-            log("U盘错误态自动重试已达上限（$USB_RETRY_MAX_ATTEMPTS 次）")
+            usbRetryAttempt++
+            log("U盘错误态自动重试第 $usbRetryAttempt 次（等待 ${delayMs}ms，原因：$message）")
+            rescan()
         }
+    }
+
+    /** 恢复到正常状态时清空退避计数，让下一次故障重新从最短间隔开始 */
+    private fun resetUsbRetryBackoff() {
+        usbRetryAttempt = 0
+        usbRetryJob?.cancel()
+        usbRetryJob = null
     }
     
     /**
