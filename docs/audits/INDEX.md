@@ -71,7 +71,9 @@ git diff --stat 1cdb969..HEAD
 | `players[].index` 字段名 | 契约文档曾误写为 `player_index`，**已订正** | `docs/remote-command-contract.md` 第三节 |
 | `HelpTip` 的 `lang` 参数 | **不是死参数** —— 它是语言切换的唯一重组键，已用 `key(lang)` 接入。**删掉会造成永久缺陷** | `docs/audits/2026-10-17-audit-02.md` 新发现 5 |
 | `values-en` 不生效 | **已知未完成**：需接 `setApplicationLocales`，不是「已修」 | `docs/audits/2026-10-17-audit-02.md` 第三节 |
-| 底部触发区吞点击 / `Connected` 不重扫 / `Error` 无退出 / 15s 竞态 | **已诊断到根因，属产品取舍**，等客户确认，**不要重复扫** | `docs/audits/2026-10-17-audit-02.md` 第四节 |
+| 底部触发区吞点击 / 15s 竞态 | **已诊断到根因，属产品取舍**，等客户确认，**不要重复扫** | `docs/audits/2026-10-17-audit-02.md` 第四节 |
+| 设备过热 85°C / 四路越播越不同步 | **热设计问题，非 App 逻辑缺陷**。关键线索：`DynamicANWBuffer failed -1010` 使硬解无法零拷贝。需 ROM 方核对解码 HAL。App 侧降分辨率等手段**未经 A/B 验证，勿盲改** | 同上，第四节专题 |
+| SAME 四格不同步 | **默认关闭同步**（`ENABLED_BY_DEFAULT=false`）。根因是四个独立 ExoPlayer 各自缓冲/循环；seek 纠正必然转圈。**除非做单解码器多 Surface 的架构改动，否则别再尝试调参** | `PlaybackSync.kt` 顶部注释 |
 
 ---
 
