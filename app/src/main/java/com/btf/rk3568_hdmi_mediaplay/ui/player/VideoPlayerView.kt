@@ -154,11 +154,15 @@ fun VideoPlayerView(
 
     // 「同画面」模式的跟随格：媒体源换好后**对齐一次**到主格进度。
     //
-    // 受 PlaybackSync.ENABLED_BY_DEFAULT 控制，默认关闭 ——
-    // 对齐会触发 seek 与重新缓冲，实测表现为画面反复转圈。
+    // 由 PlaybackSync.ALIGN_ON_START 控制（默认开启）。
+    //
+    // 与周期同步（ENABLED_BY_DEFAULT）解耦：周期同步会反复 seek、导致画面
+    // 每隔几秒转圈，故保持关闭；但**起始这一次**对齐是必要的 ——
+    // 实测不做的后果是进入 SAME 模式即带 ~10 秒固定偏差，且永不收敛。
+    // 只有真正偏离阈值时才 seek，正常情况（各格几乎同时就绪）不会触发。
     LaunchedEffect(mediaPath, followsPrimary) {
         if (!followsPrimary || cellIndex < 0) return@LaunchedEffect
-        if (!PlaybackSync.ENABLED_BY_DEFAULT) return@LaunchedEffect
+        if (!PlaybackSync.ALIGN_ON_START) return@LaunchedEffect
         try {
             val deadline = System.currentTimeMillis() + 8_000L
             while (exoPlayer.playbackState != ExoPlayer.STATE_READY &&

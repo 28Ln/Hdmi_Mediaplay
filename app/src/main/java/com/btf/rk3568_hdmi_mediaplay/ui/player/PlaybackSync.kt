@@ -40,14 +40,60 @@ object PlaybackSync {
     private const val TAG = "PlaybackSync"
 
     /**
-     * 总开关 —— **默认关闭**。
+     * 周期同步总开关 —— **默认开启**。
      *
-     * 同步靠 `seekTo` 实现，而每次 seek 都会让播放器重新缓冲，
-     * 实测表现是「播放 1 秒转一次圈」，比不同步更难用。
-     * 在找到不打断解码的对齐方案（例如只对齐启动时刻、运行期不干预）之前，
-     * 默认不启用；需要实验时把这里改成 true。
+     * ⚠️ 但这只在本文件采用**速度纠偏**后成立（见 [USE_SPEED_TRIM]）。
+     * 旧实现用 `seekTo` 纠正，每次 seek 都重新缓冲，表现为「播 1 秒转一次圈」，
+     * 因此当时只能默认关闭。速度纠偏不重新缓冲，才使得周期同步可以常开。
+     *
+     * 若把 [USE_SPEED_TRIM] 关掉，必须同时把本常量改回 false ——
+     * 否则会退回「周期性转圈」那套行为。
      */
-    const val ENABLED_BY_DEFAULT = false
+    const val ENABLED_BY_DEFAULT = true
+
+    /**
+     * 「进入同画面时对齐一次」开关 —— **默认开启**，与 [ENABLED_BY_DEFAULT] 独立。
+     *
+     * 两者解决的是不同问题：
+     * - 周期同步（[ENABLED_BY_DEFAULT]）会**反复 seek**，导致画面每隔几秒转一次圈，
+     *   已实测不可接受，保持关闭；
+     * - 起始对齐**只在跟随格刚进入 READY 时 seek 一次**，之后完全不干预。
+     *
+     * 为什么需要：进入 SAME 模式时 P1 沿用原实例继续播，P2–P4 需要重新 prepare
+     * （软解约 2 秒）。等它们 READY 时 P1 已经多播了 2 秒，加上各自启动耗时差，
+     * 实测固定偏差达 10 秒（API30 模拟器，30s 计数视频：P1=13.4s 时 P2–P4 已 23~24s）。
+     * 该偏差不会自行收敛 —— 四个独立 ExoPlayer 之间没有任何时钟联系。
+     *
+     * 一次 seek 的代价可控：只在进入模式的那一刻发生，不形成周期性重新缓冲。
+     */
+    const val ALIGN_ON_START = true
+
+    /**
+     * 用**微调播放速度**收敛漂移，而不是 seek —— 默认开启。
+     *
+     * 这是本轮（2026-10-19）的关键改动。此前的问题不是「阈值没调好」，
+     * 而是**手段选错了**：
+     * - `seekTo` 必然触发重新缓冲 → 每纠正一次画面转一次圈，
+     *   所以周期同步只能默认关闭，漂移也就无人治理；
+     * - `setPlaybackSpeed` 只改渲染节奏，**不重新缓冲、不丢帧**。
+     *   跟随格略慢时用 1.05×、略快时用 0.95×，几秒内即可收敛，
+     *   收敛后立刻回到 1.0×，听感/观感上无差别（音画同速变化）。
+     *
+     * 速度纠偏能处理的范围有限（约 ±3 秒需要 60 秒收敛），
+     * 超过 [SEEK_FALLBACK_MS] 才退回一次 seek —— 那种情况通常意味着
+     * 刚换过媒体源，一次 seek 是合理的。
+     */
+    const val USE_SPEED_TRIM = true
+
+    /** 漂移超过该值才启动速度纠偏（毫秒）。低于此值视为已同步。 */
+    const val TRIM_THRESHOLD_MS = 120L
+
+    /** 速度纠偏使用的倍率（略快 / 略慢） */
+    const val TRIM_FAST = 1.05f
+    const val TRIM_SLOW = 0.95f
+
+    /** 漂移超过该值时放弃速度纠偏，直接 seek（毫秒） */
+    const val SEEK_FALLBACK_MS = 3_000L
 
     /**
      * 同步检查间隔（毫秒）。
@@ -114,6 +160,7 @@ object PlaybackSync {
     /** 清空全部注册（退出同画面模式或页面销毁时调用） */
     fun clear() {
         players.clear()
+        trimming.clear()
     }
 
     /**
@@ -126,7 +173,10 @@ object PlaybackSync {
      * @return 是否真的执行了对齐
      */
     fun alignToPrimary(cellIndex: Int): Boolean {
-        if (!enabled || cellIndex <= PRIMARY_INDEX) return false
+        // 注意：这里**不检查 [enabled]**。
+        // 起始对齐由 [ALIGN_ON_START] 单独控制 —— 周期同步关闭时仍需这一次对齐，
+        // 否则进入 SAME 模式会带着约 10 秒的固定偏差开始播（已实测）。
+        if (cellIndex <= PRIMARY_INDEX) return false
         val primary = players[PRIMARY_INDEX] ?: return false
         val follower = players[cellIndex] ?: return false
         if (primary.playbackState != ExoPlayer.STATE_READY) return false
@@ -135,8 +185,38 @@ object PlaybackSync {
         val target = primary.currentPosition
         val drift = follower.currentPosition - target
         if (kotlin.math.abs(drift) > SYNC_THRESHOLD_MS) {
+            // 起始偏差通常有数秒，直接 seek 一次最干净；
+            // 之后的残余漂移交给速度纠偏（不重新缓冲）。
             follower.seekTo(target)
             Log.d(TAG, "alignToPrimary: P${cellIndex + 1} 偏差 ${drift}ms → 对齐到 ${target}ms")
+            return true
+        }
+        return false
+    }
+
+    /** 各格当前是否处于速度纠偏状态（用于收敛后复位到 1.0×） */
+    private val trimming = ConcurrentHashMap<Int, Boolean>()
+
+    /**
+     * 用播放速度把跟随格拉向主格。
+     *
+     * @return 是否调整了速度
+     */
+    private fun trimBySpeed(cellIndex: Int, player: ExoPlayer, driftMs: Long): Boolean {
+        if (kotlin.math.abs(driftMs) < TRIM_THRESHOLD_MS) {
+            // 已进入同步窗口：恢复常速（只需做一次）
+            if (trimming.remove(cellIndex) == true) {
+                player.setPlaybackSpeed(1.0f)
+                Log.d(TAG, "P${cellIndex + 1} 漂移 ${driftMs}ms 已收敛，恢复 1.0×")
+            }
+            return false
+        }
+        // drift > 0：跟随格跑在主格**前面** → 放慢
+        val speed = if (driftMs > 0) TRIM_SLOW else TRIM_FAST
+        if (player.playbackParameters.speed != speed) {
+            player.setPlaybackSpeed(speed)
+            trimming[cellIndex] = true
+            Log.d(TAG, "P${cellIndex + 1} 漂移 ${driftMs}ms → 速度 ${speed}×")
             return true
         }
         return false
@@ -213,10 +293,19 @@ object PlaybackSync {
                 continue
             }
 
-            // 只有偏差确实超过阈值才 seek —— 每次 seek 都会重新缓冲，
-            // 频繁 seek 比不同步更难用（表现为画面每隔几秒转一次圈）。
+            // 首选：微调速度收敛（不重新缓冲）。
+            if (USE_SPEED_TRIM && kotlin.math.abs(drift) <= SEEK_FALLBACK_MS) {
+                if (trimBySpeed(index, player, drift)) corrected++
+                continue
+            }
+
+            // 兜底：漂移过大（通常是刚换源）才 seek 一次。
+            // 旧实现在此处对**任何**超过阈值的偏差都 seek，导致周期性重新缓冲，
+            // 这正是「每播几秒转一次圈」的根因，也是周期同步被迫默认关闭的原因。
             if (kotlin.math.abs(drift) > SYNC_THRESHOLD_MS) {
-                Log.d(TAG, "P${index + 1} 偏差 ${drift}ms 超过阈值，纠正")
+                Log.d(TAG, "P${index + 1} 偏差 ${drift}ms 过大，seek 纠正")
+                trimming.remove(index)
+                player.setPlaybackSpeed(1.0f)
                 player.seekTo(referencePosition)
                 corrected++
             }

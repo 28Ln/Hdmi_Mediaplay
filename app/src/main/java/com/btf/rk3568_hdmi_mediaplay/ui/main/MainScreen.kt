@@ -76,10 +76,19 @@ fun MainScreen(
     LaunchedEffect(settings.layoutMode) {
         PlaybackSync.enabled = PlaybackSync.ENABLED_BY_DEFAULT &&
             settings.layoutMode.mirrorsPrimaryPlayer
-        if (!PlaybackSync.enabled) {
+
+        // 只有**离开**「同画面」模式才清空注册表。
+        //
+        // 这里不能写成 `if (!enabled) { clear(); return }` ——
+        // 周期同步默认关闭，那样会在进入 SAME 模式时立刻清空注册表，
+        // 使起始对齐（ALIGN_ON_START）拿不到主格与跟随格，对齐必然失败。
+        // 注册由 VideoPlayerView 的 SideEffect 在每次组合时刷新。
+        if (!settings.layoutMode.mirrorsPrimaryPlayer) {
             PlaybackSync.clear()
             return@LaunchedEffect
         }
+        if (!PlaybackSync.enabled) return@LaunchedEffect
+
         while (true) {
             delay(PlaybackSync.CHECK_INTERVAL_MS)
             val corrected = PlaybackSync.syncOnce()
