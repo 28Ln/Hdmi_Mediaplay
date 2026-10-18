@@ -13,6 +13,14 @@ import java.io.IOException
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 class SettingsRepository(private val context: Context) {
+
+    /**
+     * 供 [UsbConfigOverrideStore] 持久化「U 盘配置覆盖快照」。
+     *
+     * 复用同一个 DataStore：快照与设置必须在同一次事务语义下才能保持一致
+     * （分开存会出现「设置回滚了、快照没了」或反之）。key 是独立的，互不影响。
+     */
+    internal val preferenceStore: DataStore<Preferences> get() = context.dataStore
     
     companion object {
         // 基础设置

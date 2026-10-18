@@ -9,6 +9,7 @@ import com.btf.rk3568_hdmi_mediaplay.FeatureManager
 import com.btf.rk3568_hdmi_mediaplay.data.local.LocalStorageManager
 import com.btf.rk3568_hdmi_mediaplay.data.model.*
 import com.btf.rk3568_hdmi_mediaplay.data.repository.SettingsRepository
+import com.btf.rk3568_hdmi_mediaplay.data.repository.UsbConfigOverrideStore
 import com.btf.rk3568_hdmi_mediaplay.remote.PlayerCommandHandler
 import com.btf.rk3568_hdmi_mediaplay.remote.PlayerStatusBroadcaster
 import com.btf.rk3568_hdmi_mediaplay.remote.PlayerStatusInfo
@@ -161,6 +162,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
         
         // 启动时加载本地内容
         loadLocalContent()
+
+        // 启动时如果**没有** U 盘配置，说明上次可能是「带着 U 盘配置关机、
+        // 再空机开机」—— 状态里仍是 U 盘下发的那套值，需要回滚。
+        // 有 U 盘时由 onUsbConnected → applyUsbConfigSettings 重新下发，无需回滚。
+        if (!FeatureManager.hasUsbConfig()) {
+            revertUsbConfigOverrides()
+        }
 
         // 发送应用启动广播
         PlayerStatusBroadcaster.sendAppStarted(getApplication())
@@ -346,6 +354,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     fun onUsbDisconnected() {
         log("U盘已断开")
         resetUsbRetryBackoff()
+        usbErrorActive = false
+        // U 盘拔掉后，把本次由它下发的设置回滚（运维手动改过的键不动）
+        revertUsbConfigOverrides()
         _usbState.value = UsbRuntimeState.Disconnected
         showToast(StringResources.usbDisconnected, MessageType.INFO)
         // 拔盘后重新加载本地缓存：U盘内容不会被清（下次插入还要用），
@@ -880,10 +891,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             log("  音频不支持时静音播放: $fallback")
         }
 
-        // 如果有变化，更新设置
+        // 如果有变化，更新设置，并记录「哪些键被 U 盘改过、原值是什么」。
+        //
+        // 没有这份快照，拔盘后这些值会**永久留驻**（客户在 app 内看不到来源，
+        // 也无法区分是自己设的还是 U 盘下发的），只能整机重置设置才能回到出厂状态。
         if (newSettings != currentSettings) {
+            val entries = UsbConfigOverrideStore.SUPPORTED_KEYS.mapNotNull { key ->
+                val before = UsbConfigOverrideStore.readKey(currentSettings, key)
+                val after = UsbConfigOverrideStore.readKey(newSettings, key)
+                if (before != null && after != null && before != after) {
+                    UsbConfigOverrideStore.Entry(key, original = before, applied = after)
+                } else null
+            }
+            safeLaunch {
+                UsbConfigOverrideStore.saveSnapshot(settingsRepository.preferenceStore, entries)
+            }
             updateSettings(newSettings)
             showToast("已应用U盘配置", MessageType.SUCCESS)
+        }
+    }
+
+    /**
+     * 拔盘/启动时无 U 盘：回滚上一次 U 盘下发的设置。
+     *
+     * 只回滚「当前值仍等于 U 盘写入值」的键 —— 运维手动改过的不动。
+     */
+    private fun revertUsbConfigOverrides() {
+        safeLaunch {
+            val entries = UsbConfigOverrideStore.loadSnapshot(settingsRepository.preferenceStore)
+            if (entries.isEmpty()) return@safeLaunch
+            val (reverted, keys) = UsbConfigOverrideStore.revert(settings.value, entries)
+            if (keys.isNotEmpty()) {
+                log("U盘配置回滚 ${keys.size} 项: $keys")
+                updateSettings(reverted)
+            }
+            UsbConfigOverrideStore.saveSnapshot(settingsRepository.preferenceStore, emptyList())
         }
     }
     
