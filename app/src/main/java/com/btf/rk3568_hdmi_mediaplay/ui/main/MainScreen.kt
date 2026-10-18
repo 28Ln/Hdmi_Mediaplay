@@ -61,9 +61,12 @@ fun MainScreen(
     val featureFlags by FeatureManager.featureFlags.collectAsState()
     
     // 确保语言同步
-    LaunchedEffect(settings.language) {
-        StringResources.setLanguage(settings.language)
-    }
+    // 必须在**组合期间**同步设置，不能放进 LaunchedEffect ——
+    // LaunchedEffect 在组合完成后才执行，因此本次组合里所有
+    // StringResources.xxx 读到的仍是旧语言，界面会先用旧文案渲染一帧，
+    // 下一帧才更新（HelpTip 的 remember(lang) 也是在这一帧读到旧值）。
+    // 这里只是给一个单例字段赋值，无副作用、可在组合期安全执行。
+    StringResources.setLanguage(settings.language)
 
     // 「2×2 同画面」多路同步：四格是独立播放器，会各自漂移导致越播越不同步。
     //

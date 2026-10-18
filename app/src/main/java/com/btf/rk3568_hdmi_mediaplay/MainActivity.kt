@@ -330,9 +330,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                LaunchedEffect(settings.language) {
-                    StringResources.setLanguage(settings.language)
-                }
+                // 同 MainScreen：在组合期同步设置，避免先用旧语言渲染一帧
+                StringResources.setLanguage(settings.language)
                 
                 when (currentScreen) {
                     Screen.Main -> {

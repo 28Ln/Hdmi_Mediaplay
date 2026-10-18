@@ -86,6 +86,12 @@ fun MediaPlayerView(
         mutableIntStateOf(initialVideoIndex)
     }
 
+    // 上一次见到的「外部索引」（playerConfig.currentIndex）。
+    // 用于区分"这是外部指令"还是"本格刚推进、外部还没跟上"。
+    var lastSeenExternalIndex by remember(mediaItems.hashCode()) {
+        mutableIntStateOf(playerConfig.currentIndex)
+    }
+
     // 跟随格（「同画面」模式的 P2–P4）：播放项**完全由 P1 驱动**。
     //
     // 关键点：不能用本格自己的 remember 状态决定播哪个文件。
@@ -107,15 +113,26 @@ fun MediaPlayerView(
             currentVideoIndex = syncedIndex
         }
     } else {
-        // 非跟随格：外部指令会改 playerConfig.currentIndex（远控 stop 重置为 0、
-        // set_media 换新列表），必须显式同步。
-        // 这一语义原本由 remember(key = currentIndex) 实现；把 currentIndex
-        // 从 key 里移除后必须在这里补回来，否则远控 stop 后画面仍停在原条目。
-        if (videoItems.isNotEmpty()) {
-            val desired = playerConfig.currentIndex.coerceIn(0, videoItems.lastIndex)
-            if (desired != currentVideoIndex) {
-                currentVideoIndex = desired
+        // 非跟随格：只在**外部主动改** playerConfig.currentIndex 时才跟随
+        // （远控 stop 重置为 0、set_media 换新列表）。
+        //
+        // 不能无条件跟随，否则会与本格自己的推进打架：
+        //   1. 视频播完 → currentVideoIndex = next（本格 state 变了，触发重组）
+        //   2. 重组发生在 ViewModel 收到 onCurrentIndexChanged **之前**
+        //   3. 此时 playerConfig.currentIndex 仍是旧值 → 把本格改回去
+        //   4. 画面跳回上一集，然后 ViewModel 才更新到 next
+        //
+        // 判据：只有当 playerConfig.currentIndex 相对**上次见到的值**发生变化时，
+        // 才认为这是外部指令。这样本格推进期间（外部值尚未更新）不会被回滚。
+        val external = playerConfig.currentIndex.coerceIn(0, videoItems.lastIndex.coerceAtLeast(0))
+        if (videoItems.isNotEmpty() && external != lastSeenExternalIndex) {
+            lastSeenExternalIndex = external
+            if (external != currentVideoIndex) {
+                Log.d(TAG, "P${playerConfig.index + 1} 外部索引变更 -> $external")
+                currentVideoIndex = external
             }
+        } else {
+            lastSeenExternalIndex = external
         }
     }
     
