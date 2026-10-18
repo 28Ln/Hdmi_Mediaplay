@@ -55,21 +55,35 @@ enum class SplitLayout(
 
     companion object {
         /**
-         * 根据图片尺寸推荐最佳布局
+         * 裁剪页**允许用户选择**的布局。
+         *
+         * 排除 1×4 / 4×1：它们没有拼接板编号，因此不出现在设置页的模式列表
+         * （`LayoutMode.customerModes`）里。若裁剪后切到这两个模式，
+         * 用户会发现设置页找不到它们、**无法切回来** —— 形成"能进不能出"。
+         *
+         * 若后续确定要支持 4 路单排/单列，正确做法是同时把它们加入
+         * `customerModes`，而不是只放开裁剪入口。
+         */
+        val selectableLayouts: List<SplitLayout> = listOf(
+            SPLIT_1X2, SPLIT_2X1, SPLIT_1X3, SPLIT_3X1, SPLIT_2X2
+        )
+
+        /**
+         * 根据图片尺寸推荐最佳布局。
+         *
+         * 只会返回 [selectableLayouts] 中的值 —— 推荐值必须是用户能选到的，
+         * 否则默认选中项会是一个界面上不存在的卡片。
          */
         fun recommendLayout(imageWidth: Int, imageHeight: Int): SplitLayout {
             val aspectRatio = imageWidth.toFloat() / imageHeight.toFloat()
 
-            // 根据宽高比推荐
             return when {
-                aspectRatio >= 3.5f -> SPLIT_1X4  // 超宽 4:1
-                aspectRatio >= 2.5f -> SPLIT_1X3  // 宽 3:1
-                aspectRatio >= 1.8f -> SPLIT_1X2  // 宽 2:1
+                aspectRatio >= 2.5f -> SPLIT_1X3   // 宽 3:1 及以上
+                aspectRatio >= 1.8f -> SPLIT_1X2   // 宽 2:1
                 aspectRatio >= 0.8f && aspectRatio <= 1.2f -> SPLIT_2X2  // 接近方形
-                aspectRatio <= 0.3f -> SPLIT_4X1  // 超高 1:4
-                aspectRatio <= 0.4f -> SPLIT_3X1  // 高 1:3
-                aspectRatio <= 0.6f -> SPLIT_2X1  // 高 1:2
-                else -> SPLIT_2X2  // 默认
+                aspectRatio <= 0.4f -> SPLIT_3X1   // 高 1:3 及以上
+                aspectRatio <= 0.6f -> SPLIT_2X1   // 高 1:2
+                else -> SPLIT_2X2                  // 默认
             }
         }
     }

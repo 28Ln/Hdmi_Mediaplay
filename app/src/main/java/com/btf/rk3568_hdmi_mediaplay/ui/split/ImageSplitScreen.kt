@@ -127,7 +127,9 @@ fun ImageSplitScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        SplitLayout.entries.forEach { layout ->
+                        // 只展示用户能切换到的布局（1×4 / 4×1 没有拼接板编号，
+                        // 不在设置页模式列表中，放进来会造成"能进不能出"）
+                        SplitLayout.selectableLayouts.forEach { layout ->
                             LayoutOptionItem(
                                 layout = layout,
                                 isSelected = layout == selectedLayout,

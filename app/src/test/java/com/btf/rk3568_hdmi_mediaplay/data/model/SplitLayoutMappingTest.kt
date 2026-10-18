@@ -2,6 +2,7 @@ package com.btf.rk3568_hdmi_mediaplay.data.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -48,5 +49,56 @@ class SplitLayoutMappingTest {
         assertEquals(LayoutMode.GRID_2X1, SplitLayout.SPLIT_2X1.matchingLayoutMode)  // 2行1列
         assertEquals(LayoutMode.GRID_1X3, SplitLayout.SPLIT_1X3.matchingLayoutMode)  // 1行3列
         assertEquals(LayoutMode.GRID_3X1, SplitLayout.SPLIT_3X1.matchingLayoutMode)  // 3行1列
+    }
+
+    /**
+     * 裁剪页只允许选择「用户之后还能在设置页切回」的布局。
+     *
+     * 1×4 / 4×1 虽然映射存在（上一条测试仍覆盖它们），但它们没有拼接板编号，
+     * 不出现在 `LayoutMode.customerModes` 里。若在裁剪页可选，用户裁剪后会
+     * 被切到设置页**看不到**的布局 —— 能进去、却切不回来。
+     *
+     * 这条测试锁死「可选布局必须是设置页可见模式的子集」这个不变式。
+     */
+    @Test
+    fun `selectable split layouts are all reachable from the settings page`() {
+        val customerModes = LayoutMode.customerModes.toSet()
+
+        SplitLayout.selectableLayouts.forEach { split ->
+            val mode = split.matchingLayoutMode
+            assertNotNull("${split.name} 没有对应播放模式", mode)
+            assertTrue(
+                "${split.name} 会切到 ${mode!!.name}，但该模式不在设置页的模式列表中，" +
+                    "用户裁剪后无法切回",
+                mode in customerModes
+            )
+        }
+    }
+
+    /**
+     * 推荐布局必须落在可选范围内，否则"默认选中项"会是界面上不存在的卡片。
+     */
+    @Test
+    fun `recommended layout is always selectable`() {
+        // 覆盖从超宽到超高的各种宽高比
+        val cases = listOf(
+            4000 to 600,   // 超宽 ≈6.7:1（曾经会推荐 1×4）
+            2400 to 800,   // 3:1
+            1600 to 800,   // 2:1
+            1000 to 1000,  // 1:1
+            800 to 1600,   // 1:2
+            800 to 2400,   // 1:3
+            600 to 4000    // 超高 ≈1:6.7（曾经会推荐 4×1）
+        )
+
+        cases.forEach { (w, h) ->
+            val recommended = SplitLayout.recommendLayout(w, h)
+            assertTrue(
+                "推荐 ${recommended.name}（${w}x$h）不在可选列表 ${
+                    SplitLayout.selectableLayouts.map { it.name }
+                } 中",
+                recommended in SplitLayout.selectableLayouts
+            )
+        }
     }
 }
