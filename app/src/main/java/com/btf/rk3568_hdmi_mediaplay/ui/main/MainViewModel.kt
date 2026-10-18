@@ -120,6 +120,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     private var usbRetryJob: Job? = null
 
     /**
+     * 是否处于「U 盘错误态（空间不足）」。
+     *
+     * **不能只看 `_usbState.value is Error`**：服务的轮询/重试会先 emit
+     * `Scanning` / `Connected`，把状态覆盖掉，而空间决策（要读磁盘、统计目录大小）
+     * 往往几秒后才把状态重新置回 Error。若用状态值判断，退避计数会在每次重试后
+     * 被清零 → **指数退避永远退化为固定 5 秒**（2026-10-19 实测缺陷）。
+     *
+     * 这个标志只由「明确的恢复信号」清除：
+     * - `onUsbConnected` 的决策不再是 InsufficientSpace；
+     * - 拔盘（`syncUsbDisconnected` / 服务报 Disconnected）。
+     */
+    private var usbErrorActive: Boolean = false
+
+    /**
      * 本轮错误已经重试过多少次。
      *
      * 必须跨 [enterUsbErrorState] 的多次调用保留，否则每次重试都会把退避
@@ -270,11 +284,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
                 )
             ) {
                 UsbCopyDecision.NoMediaContent -> {
+                    // 清掉可能残留的覆盖确认框：上一次插入留下的 pending 状态
+                    // 若不清理，新盘插入时仍会弹出一个指向旧路径的对话框。
+                    dismissPendingOverwrite()
+                    // 走到这里说明「盘在、但目录结构不对」，不是错误态；
+                    // 顺带把上一个错误态的退避清零。
+                    usbErrorActive = false
+                    resetUsbRetryBackoff()
                     val folderName = settings.value.usbScanFolderName
                     showToast("U盘已连接，未找到 /$folderName 目录", MessageType.WARNING)
                 }
 
                 is UsbCopyDecision.InsufficientSpace -> {
+                    // 同上。实测（2026-10-19 API30 模拟器）：先出现
+                    // 「存储空间不足」红色提示，同时**旧对话框仍盖在画面上** ——
+                    // 因为 showOverwriteDialog 是独立 StateFlow，决策改为
+                    // InsufficientSpace 时没有任何代码把它复位。
+                    dismissPendingOverwrite()
                     val required = FileUtils.formatFileSize(decision.requiredBytes)
                     val available = FileUtils.formatFileSize(decision.availableBytes)
                     showToast("存储空间不足！需要 $required，可用 $available", MessageType.ERROR)
@@ -282,16 +308,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
                 }
 
                 UsbCopyDecision.RequireOverwriteConfirmation -> {
+                    // 空间已够、可以继续操作：这是「错误已解除」的可靠信号
+                    usbErrorActive = false
+                    resetUsbRetryBackoff()
                     showToast(StringResources.usbConnected, MessageType.SUCCESS)
                     pendingUsbPath = path
                     _showOverwriteDialog.value = true
                 }
 
                 UsbCopyDecision.CopyImmediately -> {
+                    usbErrorActive = false
+                    resetUsbRetryBackoff()
+                    dismissPendingOverwrite()
                     showToast(StringResources.usbConnected, MessageType.SUCCESS)
                     copyFromUsb(path, settings.value.usbScanFolderName)
                 }
             }
+        }
+    }
+
+    /**
+     * 关闭覆盖确认框并丢弃待处理的 U 盘路径。
+     *
+     * 只在「本次决策不是 RequireOverwriteConfirmation」时调用 —— 否则会把
+     * 刚弹出的确认框立刻关掉。
+     */
+    private fun dismissPendingOverwrite() {
+        if (_showOverwriteDialog.value || pendingUsbPath != null) {
+            _showOverwriteDialog.value = false
+            pendingUsbPath = null
         }
     }
     
@@ -314,7 +359,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     }
 
     fun syncUsbConnected(path: File, hasMediaContent: Boolean, hasConfig: Boolean) {
-        resetUsbRetryBackoff()
+        // 错误态下 Service 的 Connected 只表示「盘还在」，不代表空间问题已解决。
+        if (!usbErrorActive) resetUsbRetryBackoff()
         _usbState.value = UsbRuntimeState.Connected(path, hasMediaContent, hasConfig)
     }
 
@@ -324,9 +370,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     }
 
     fun syncUsbState(state: UsbRuntimeState) {
-        // 收到非错误态说明外部已恢复，取消重试并清零退避
-        if (state !is UsbRuntimeState.Error) {
-            resetUsbRetryBackoff()
+        when {
+            // 拔盘是明确的"错误已不适用"信号
+            state is UsbRuntimeState.Disconnected -> {
+                usbErrorActive = false
+                resetUsbRetryBackoff()
+            }
+            // 错误态期间的 Scanning/Connected 由服务自动发出（重试的副产物），
+            // 不能据此清零退避 —— 见 enterUsbErrorState 的注释。
+            !usbErrorActive -> resetUsbRetryBackoff()
         }
         _usbState.value = state
     }
@@ -348,6 +400,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
      * 下一轮重试就能自愈 —— 停止重试等于让设备永久卡死。
      */
     private fun enterUsbErrorState(message: String) {
+        usbErrorActive = true
         _usbState.value = UsbRuntimeState.Error(message)
 
         val delayMs = usbRetryDelayMs(usbRetryAttempt)
@@ -364,19 +417,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             log("U盘错误态自动重试第 $usbRetryAttempt 次（等待 ${delayMs}ms，原因：$message）")
             rescan()
 
-            // 重试发出后给服务一点时间完成检查，再看状态是否已脱离 Error。
+            // ## 这里**不能**再根据 _usbState 判断"是否已恢复"并清零计数
+            //    （2026-10-19 实测缺陷）
             //
-            // **为什么必须在这里主动检查**：重试成功后状态会从 Error 变成
-            // Connected，但服务端的 checkUsbContentAsync 在「U盘内容未变」
-            // 时会直接 return、**不发任何状态**（签名闸门）。
-            // 而「空间不足被清理」这个场景下 U 盘内容本来就一点没变，
-            // 所以 syncUsbState 永远不会被调用 → usbRetryAttempt 永不归零
-            // → 退避单调递增到 60 秒并永久停在那里，下次故障响应极慢。
-            delay(3_000)
-            if (_usbState.value !is UsbRuntimeState.Error) {
-                log("U盘错误已解除，退避计数归零（此前重试 $usbRetryAttempt 次）")
-                usbRetryAttempt = 0
-            }
+            // 旧实现在 rescan 后 delay(3s)，若状态不是 Error 就把 attempt 清零。
+            // 但 rescan 是异步的：服务先 emit `Connected`（把状态从 Error 覆盖掉），
+            // 之后才回调 onUsbConnected 做空间决策 —— 而后者要读磁盘、算目录大小，
+            // 往往**超过 3 秒**才把状态重新置回 Error。
+            // 结果 3 秒检查总是看到 Connected → 每次清零 → 退避永远是 5 秒。
+            //
+            // 实测证据：API30 模拟器上 9GB 稀疏文件触发空间不足后，
+            // `Manual scan triggered` 间隔恒为 ~5.3s（5s 退避 + 开销），从不增长。
+            //
+            // 现在计数只由**明确的恢复信号**清零：
+            // - `onUsbConnected` 的决策不再是 InsufficientSpace（空间已够）；
+            // - 拔盘；
+            // - 连接状态被外部重置。
+            // 这些都比"3 秒后看一眼状态"更精确。
         }
     }
 

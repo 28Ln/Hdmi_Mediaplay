@@ -198,9 +198,24 @@ class UsbMonitorService : Service() {
         set(value) {
             Log.i(TAG, "onUsbConnected callback ${if (value != null) "SET" else "CLEARED"}")
             field = value
-            // 设置回调后，如果已经检测到U盘，立即通知
-            if (value != null) {
+            // 设置回调后，如果已经检测到U盘，立即通知。
+            //
+            // ## 为什么需要「只回放一次」的闸门（2026-10-19 实测缺陷）
+            //
+            // 本 setter 会被调用得**很频繁**：Activity 每次 onResume 都要重设回调
+            // （Activity 重建、切前后台都会走）。无条件回放意味着：
+            // 覆盖确认框弹出时按 Home 再切回 → 回放重新触发一遍
+            // 「算空间 → 决策 → 弹框」→ **确认框重新弹出**（API30 模拟器实测）。
+            //
+            // 回放本身是必要的：开机时服务可能先于 Activity 检测到 U 盘，
+            // Activity 绑定后必须补发一次，否则首次插入不弹框。
+            //
+            // 所以用 [replayPending] 控制：每次**真实检测事件**
+            // （notifyUsbConnected）置 true，回放一次后置 false。
+            // 拔盘后置 false —— 没有可回放的内容。
+            if (value != null && replayPending) {
                 lastDetectedUsb?.let { (path, hasMedia) ->
+                    replayPending = false
                     Log.i(TAG, "Notifying cached USB state: $path, hasMedia=$hasMedia")
                     mainHandler.post {
                         try {
@@ -212,6 +227,15 @@ class UsbMonitorService : Service() {
                 }
             }
         }
+
+    /**
+     * 是否还有一次「已检测到但尚未交付给上层」的 U 盘事件需要回放。
+     *
+     * 见 [onUsbConnected] setter 的说明。初值 false：
+     * 服务刚启动时没有任何检测结果。
+     */
+    @Volatile
+    private var replayPending: Boolean = false
     
     @Volatile
     var onUsbDisconnected: (() -> Unit)? = null
@@ -480,6 +504,8 @@ class UsbMonitorService : Service() {
         lastDetectedUsb = null
         lastLoadedConfig = null
         lastContentSignature = null
+        // 已拔盘：没有任何需要补发的事件
+        replayPending = false
     }
 
     /**
@@ -576,6 +602,9 @@ class UsbMonitorService : Service() {
             }
             lastDetectedUsb = Pair(usbPath, hasMediaContent)
             lastContentSignature = signature
+            // 这是一次真实的新检测事件：若此刻上层还没装回调（Activity 尚未绑定），
+            // 下次 set 回调时需要补发一次，否则首次插入不会弹覆盖确认框。
+            replayPending = true
             emitUsbState(UsbRuntimeState.Connected(usbPath, hasMediaContent, hasConfig))
 
             // 走到这里说明内容确实变了（未变的情况已在上面早退）
@@ -590,8 +619,10 @@ class UsbMonitorService : Service() {
     private fun notifyUsbConnected(path: File, hasMedia: Boolean) {
         val callback = onUsbConnected
         Log.i(TAG, "notifyUsbConnected: callback is ${if (callback != null) "SET" else "NULL"}")
-        
+
         if (callback != null) {
+            // 已交付给上层：不再需要在下次 set 回调时补发
+            replayPending = false
             mainHandler.post {
                 try {
                     Log.i(TAG, "Invoking onUsbConnected on main thread")

@@ -24,8 +24,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -36,6 +39,7 @@ import com.btf.rk3568_hdmi_mediaplay.data.model.AppSettings
 import com.btf.rk3568_hdmi_mediaplay.data.model.UsbRuntimeState
 import com.btf.rk3568_hdmi_mediaplay.remote.PlayerBroadcastContract
 import com.btf.rk3568_hdmi_mediaplay.service.UsbMonitorService
+import com.btf.rk3568_hdmi_mediaplay.ui.components.SubScreenHost
 import com.btf.rk3568_hdmi_mediaplay.ui.main.MainScreen
 import com.btf.rk3568_hdmi_mediaplay.ui.main.MainViewModel
 import com.btf.rk3568_hdmi_mediaplay.ui.settings.SettingsScreen
@@ -112,20 +116,40 @@ class MainActivity : ComponentActivity() {
     private fun setupServiceCallbacks() {
         Log.i(TAG, "Setting up service callbacks, viewModel=${mainViewModelRef != null}")
         usbMonitorService?.let { service ->
-            service.onUsbStateChanged = { state ->
-                mainViewModelRef?.syncUsbState(state)
-            }
-            service.onUsbConnected = { path: File, hasMedia: Boolean ->
-                Log.i(TAG, "USB connected callback received: $path, hasMedia=$hasMedia")
-                mainViewModelRef?.onUsbConnected(path, hasMedia, service.getCurrentConfig() != null)
-            }
-            service.onUsbDisconnected = {
-                Log.i(TAG, "USB disconnected callback received")
-                mainViewModelRef?.onUsbDisconnected()
+            // ## 为什么只在首次绑定时安装回调（2026-10-19 实测缺陷）
+            //
+            // `UsbMonitorService.onUsbConnected` 的 setter 有**回放副作用**：
+            // 每次给回调赋值，只要 lastDetectedUsb != null 就会把它再投递一次
+            // （UsbMonitorService.kt 的 setter）。
+            //
+            // 而本方法会在每次 onResume 被调用。实测（API30 模拟器）：
+            // 覆盖确认框弹出时按 Home 再切回，确认框会**重新弹出** ——
+            // 因为回放重新触发了一遍「算空间 → 决策 → 弹框」的完整流程。
+            //
+            // 不能靠"按路径去重"来挡：U 盘内容变更是**同一条回调路径**，
+            // 按路径去重会把真实的重新扫描也挡掉（实测：加上去重后，
+            // 往 U 盘加了 9GB 文件却不再触发检查）。
+            //
+            // 正确做法：回调**只安装一次**；onResume 只做无副作用的状态同步
+            // （getCurrentUsbState），不再重新赋值回调。
+            if (!callbacksInstalled) {
+                service.onUsbStateChanged = { state ->
+                    mainViewModelRef?.syncUsbState(state)
+                }
+                service.onUsbConnected = { path: File, hasMedia: Boolean ->
+                    Log.i(TAG, "USB connected callback received: $path, hasMedia=$hasMedia")
+                    mainViewModelRef?.onUsbConnected(path, hasMedia, service.getCurrentConfig() != null)
+                }
+                service.onUsbDisconnected = {
+                    Log.i(TAG, "USB disconnected callback received")
+                    mainViewModelRef?.onUsbDisconnected()
+                }
+                callbacksInstalled = true
             }
 
             // 错误态自动重试需要一条从 ViewModel 回到服务的通道：
             // 错误由 ViewModel 判定（如空间不足），扫描能力在服务里。
+            // 每次重新指向当前 ViewModel（Activity 重建后旧 VM 可能已销毁）。
             mainViewModelRef?.onRequestUsbRescan = { service.triggerScan() }
 
             when (val currentState = service.getCurrentUsbState()) {
@@ -333,70 +357,86 @@ class MainActivity : ComponentActivity() {
                 // 同 MainScreen：在组合期同步设置，避免先用旧语言渲染一帧
                 StringResources.setLanguage(settings.language)
                 
-                when (currentScreen) {
-                    Screen.Main -> {
-                        MainScreen(
-                            viewModel = mainViewModel,
-                            onNavigateToSettings = { currentScreen = Screen.Settings },
-                            onNavigateToImageSplit = { currentScreen = Screen.ImageSplit },
-                            onScanUsb = { requestUsbScan() },
-                            onSelectFile = { playerIndex ->
-                                selectingPlayerIndex = playerIndex
-                                try {
-                                    // Some RK/embedded file pickers do not reliably map video
-                                    // extensions to video/* MIME types, which makes videos appear
-                                    // disabled. Open all files and let FilePickerHelper filter the
-                                    // selected items to supported image/video formats.
-                                    filePickerLauncher.launch(arrayOf("*/*"))
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                    showToast("无法打开文件选择器")
-                                }
+                // ## 为什么 MainScreen 始终留在组合树里（2026-10-19 修复）
+                //
+                // 旧实现用 `when (currentScreen)` 互斥切换：进入设置页会**离开组合**，
+                // QuadPlayerLayout → MediaPlayerView → VideoPlayerView 的
+                // DisposableEffect.onDispose 随即 stop()+release() 掉四个 ExoPlayer。
+                // 后果：打开设置的那一刻整墙黑屏，返回后每路视频从 0 重新开始
+                // （ViewModel 只保存了 currentIndex，不保存播放位置）。
+                //
+                // 现在改为「主界面常驻 + 子页面覆盖」：SubScreenHost 不透明且
+                // 消费所有指针事件，因此下层播放器既不会重建、也不会被误触。
+                Box(modifier = Modifier.fillMaxSize()) {
+                    MainScreen(
+                        viewModel = mainViewModel,
+                        onNavigateToSettings = { currentScreen = Screen.Settings },
+                        onNavigateToImageSplit = { currentScreen = Screen.ImageSplit },
+                        onScanUsb = { requestUsbScan() },
+                        onSelectFile = { playerIndex ->
+                            selectingPlayerIndex = playerIndex
+                            try {
+                                // Some RK/embedded file pickers do not reliably map video
+                                // extensions to video/* MIME types, which makes videos appear
+                                // disabled. Open all files and let FilePickerHelper filter the
+                                // selected items to supported image/video formats.
+                                filePickerLauncher.launch(arrayOf("*/*"))
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                showToast("无法打开文件选择器")
                             }
-                        )
-                    }
-                    
-                    Screen.Settings -> {
-                        SettingsScreen(
-                            settings = settings,
-                            onSettingsChange = { newSettings -> mainViewModel.updateSettings(newSettings) },
-                            onClearCache = { 
-                                mainViewModel.clearAllCache()
-                                cacheSizeMB = 0
-                            },
-                            onResetSettings = { 
-                                mainViewModel.updateSettings(AppSettings())
-                            },
-                            onBack = { currentScreen = Screen.Main },
-                            onScanUsb = { requestUsbScan() },
-                            onImageSplit = { currentScreen = Screen.ImageSplit },
-                            cacheSizeMB = cacheSizeMB,
-                            featureFlags = featureFlags
-                        )
-                    }
-                    
-                    Screen.ImageSplit -> {
-                        ImageSplitScreen(
-                            viewModel = splitImageViewModel,
-                            onBack = { 
-                                splitImageViewModel.clear()
-                                currentScreen = Screen.Main 
-                            },
-                            onSelectImage = {
-                                try {
-                                    splitImagePickerLauncher.launch(arrayOf("image/*"))
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                    showToast("无法打开文件选择器")
+                        }
+                    )
+
+                    if (currentScreen != Screen.Main) {
+                        SubScreenHost {
+                            when (currentScreen) {
+                                Screen.Settings -> {
+                                    SettingsScreen(
+                                        settings = settings,
+                                        onSettingsChange = { newSettings -> mainViewModel.updateSettings(newSettings) },
+                                        onClearCache = {
+                                            mainViewModel.clearAllCache()
+                                            cacheSizeMB = 0
+                                        },
+                                        onResetSettings = {
+                                            mainViewModel.updateSettings(AppSettings())
+                                        },
+                                        onBack = { currentScreen = Screen.Main },
+                                        onScanUsb = { requestUsbScan() },
+                                        onImageSplit = { currentScreen = Screen.ImageSplit },
+                                        cacheSizeMB = cacheSizeMB,
+                                        featureFlags = featureFlags
+                                    )
                                 }
-                            },
-                            onApplyComplete = {
-                                showToast("裁剪完成，已应用到播放器")
-                                splitImageViewModel.clear()
-                                mainViewModel.loadLocalContent()
-                                currentScreen = Screen.Main
+
+                                Screen.ImageSplit -> {
+                                    ImageSplitScreen(
+                                        viewModel = splitImageViewModel,
+                                        onBack = {
+                                            splitImageViewModel.clear()
+                                            currentScreen = Screen.Main
+                                        },
+                                        onSelectImage = {
+                                            try {
+                                                splitImagePickerLauncher.launch(arrayOf("image/*"))
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                                showToast("无法打开文件选择器")
+                                            }
+                                        },
+                                        onApplyComplete = {
+                                            showToast("裁剪完成，已应用到播放器")
+                                            splitImageViewModel.clear()
+                                            mainViewModel.loadLocalContent()
+                                            currentScreen = Screen.Main
+                                        }
+                                    )
+                                }
+
+                                Screen.Main -> Unit
                             }
-                        )
+                        }
                     }
                 }
             }
@@ -446,6 +486,7 @@ class MainActivity : ComponentActivity() {
                 usbMonitorService?.onUsbStateChanged = null
                 usbMonitorService?.onUsbConnected = null
                 usbMonitorService?.onUsbDisconnected = null
+                callbacksInstalled = false
                 mainViewModelRef?.onRequestUsbRescan = null
                 unbindService(serviceConnection)
             } catch (e: Exception) {
@@ -474,6 +515,15 @@ class MainActivity : ComponentActivity() {
     }
     
     private var lastBackPressTime = 0L
+
+    /**
+     * 服务回调是否已安装。
+     *
+     * **不能**在 onResume 里重复安装：`UsbMonitorService.onUsbConnected` 的 setter
+     * 带回放副作用，重复赋值会重放最近一次 U 盘事件（实测会让覆盖确认框重弹）。
+     * 仅在解绑（onStop）时复位，下次绑定时重新安装一次。
+     */
+    private var callbacksInstalled = false
     
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
