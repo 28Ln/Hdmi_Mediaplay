@@ -33,6 +33,30 @@ cd C:/Users/Administrator/AndroidStudioProjects/rk3568_hdmi_mediaplay
 "$ADB" shell am start -n com.btf.rk3568_hdmi_mediaplay/.MainActivity
 ```
 
+### 远控命令助手（发送 hide / play 等需要签名权限的命令）
+
+普通 `adb shell am broadcast` 会被签名权限拦下（`Permission Denial`），
+必须用 root 以应用身份发送。先部署助手脚本
+（设备重启后 `/data/local/tmp` 可能被清空，需重新 push）：
+
+```bash
+printf '#!/system/bin/sh
+CMD=$(echo "$1" | base64 -d)
+am broadcast -a com.btf.player.action.COMMAND --es command_json "$CMD" -p com.btf.rk3568_hdmi_mediaplay
+' > C:/tmp/send_cmd.sh
+"$ADB" push C:/tmp/send_cmd.sh /data/local/tmp/send_cmd.sh
+"$ADB" shell su root chmod 755 /data/local/tmp/send_cmd.sh
+```
+
+发送任意命令（JSON 先 base64，避免引号被 shell 吃掉）：
+
+```bash
+B=$(printf '%s' '{"action":"get_status"}' | base64 -w0)
+"$ADB" shell su root sh /data/local/tmp/send_cmd.sh "$B"
+```
+
+---
+
 **媒体文件位置**（卸载不会删除，在外部存储）：
 `/storage/emulated/0/RK3568MediaPlayer/player1..4`
 
@@ -190,11 +214,14 @@ APPUID=$("$ADB" shell dumpsys package com.btf.rk3568_hdmi_mediaplay | grep -m1 "
 2. **可用空间较大时**：用 `dd` 写一个真实占位文件，大小略超可用空间
 
 ```bash
-# 读取可用字节数
-AVAIL=$("$ADB" shell df --output=avail /storage/emulated/0 | tail -1 | tr -d ' 
-')
-# 写入比可用空间略大的文件（会占用大量时间与空间，测完必须删）
-"$ADB" shell su root dd if=/dev/zero of=/mnt/media_rw/FAKEUSB/media/player1/huge.mp4     bs=1M count=$(( AVAIL / 1024 + 200 ))
+# 读取可用空间（千字节）。
+# 不要用 df --output=avail —— Android 的 toybox df 不支持该选项，会直接报错。
+AVAIL_KB=$("$ADB" shell df -k /storage/emulated/0 | tail -1 | awk '{print $4}' | tr -d '')
+echo "可用: $(( AVAIL_KB / 1024 )) MB"
+
+# 写入比可用空间略大的文件（真实占用存储，测完必须删）
+"$ADB" shell su root mkdir -p /mnt/media_rw/FAKEUSB/media/player1
+"$ADB" shell su root dd if=/dev/zero     of=/mnt/media_rw/FAKEUSB/media/player1/huge.mp4     bs=1048576 count=$(( AVAIL_KB / 1024 + 200 ))
 ```
 
 > ⚠️ **这会真实占用设备存储**。测完**必须**：
