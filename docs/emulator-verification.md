@@ -61,8 +61,8 @@
 |---|---|
 | `hide` 是否真能退后台 | 需签名权限发广播；且本应用是 HOME 应用的假设在模拟器上不成立 |
 | 远控命令（play/stop/set_layout 等） | 同上 |
-| U 盘插拔刷新 | 模拟器无 `/mnt/media_rw` 挂载点，root 也不可用（production build） |
-| 错误自动重试 | 依赖 U 盘链路 |
+| U 盘插拔刷新 | **已实测确认无法验证**（见下）。模拟器无 `su`、`/mnt/media_rw` 拒绝访问、`/storage` 下无法 mkdir |
+| 错误自动重试 | 依赖 U 盘链路，同上 |
 | SAME 四格同步 | 需通过设置页切换模式，而设置页入口在底部控制栏（见下表"设置页各项"） |
 | 语言切换 | 同上 |
 | 图片裁剪 | 同上 |
@@ -157,3 +157,23 @@ done
 "$ADB" logcat -d | grep -c PlaybackSync          # 期望 0
 "$ADB" logcat -d | grep -c "Checking USB content" # 期望 0
 ```
+
+---
+
+## U 盘链路为何在模拟器上无法验证（已实测）
+
+不要再次尝试，以下是实测结论：
+
+| 检查项 | 结果 |
+|---|---|
+| `adb root` | `adbd cannot run as root in production builds` |
+| `which su` | 不存在 |
+| `ls /mnt/media_rw` | `Permission denied`（存在但不可访问） |
+| `mkdir /mnt/media_rw/TESTUSB` | `Permission denied` |
+| `mkdir /storage/FAKEUSB` | `Permission denied`（`/storage` 是 `drwx--x--- shell everybody`） |
+| `run-as com.btf...` | `package not debuggable`（release 包） |
+| 应用日志 | `Total USB paths found: 0`，始终为 0 |
+
+`UsbUtils` 扫描 `/mnt/media_rw` 与 `/storage` 两处，
+两处在模拟器上都既不可写、应用也读不到可识别目录。
+**结论：U 盘插拔与错误重试只能在真机验证。**
