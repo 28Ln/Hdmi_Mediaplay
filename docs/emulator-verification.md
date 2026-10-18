@@ -1,5 +1,17 @@
 # 模拟器验证记录（Android 15 / API 35）
 
+> ## ⚠️ 2026-10-19 更新：本文档中「模拟器无法验证 U 盘链路」的结论**已作废**
+>
+> 该结论只在 **`google_apis_playstore`** 镜像下成立（adbd 不可 root、SELinux 阻止
+> 访问 `/mnt/media_rw`）。换用 **`google_apis`（userdebug）镜像**后，`adb root` 可用，
+> 用 `mount --bind` 即可造出可读写、应用可见的假 U 盘，
+> **U 盘插拔 / 配置 / 复制 / 空间不足 / 错误重试全部已在模拟器上端到端跑通**。
+>
+> 复现步骤与实测结果见
+> **[`docs/audits/2026-10-19-audit-03.md`](audits/2026-10-19-audit-03.md)** 第一节。
+>
+> 下文保留作历史记录（原文结论仅对 playstore 镜像成立）。
+
 - **日期**：2026-10-18
 - **环境**：Android Studio 模拟器 `Medium_Phone_API_35`（1080×2400 竖屏）
 - **目的**：真机（RK3568 / Android 11）离线 13 小时期间，验证**纯应用层**行为

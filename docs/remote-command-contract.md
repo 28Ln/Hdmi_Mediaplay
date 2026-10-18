@@ -52,7 +52,7 @@ sendBroadcast(intent)
 | `set_mute` | `player_index`, `mute`（bool） | 静音 |
 | `set_loop_mode` | `loop_mode` | `SINGLE` / `LIST` / `RANDOM`；非法值返回错误，缺省为 `LIST` |
 | `show` | — | 把应用拉到前台 |
-| `hide` | — | 退到后台。**需 Activity 在前台**，等待回执（超时 1 秒）；不在前台时返回错误 |
+| `hide` | — | 退到后台。**发送前**同步判定 Activity 是否在前台（`AppForegroundState`），**不回执、不等待**；不在前台时返回 `1006` |
 | `get_status` | — | 请求状态回传 |
 | `batch` | `commands[]` | 批量执行 |
 
@@ -224,7 +224,7 @@ registerReceiver(receiver, filter,
 
 ## 六、命令生效性与错误回报
 
-以下项**已在 1.1.2 中修复**：
+以下项**已在 1.1.3 中修复**（1.1.2 的 `hide` 实现是错的，见下方「曾走过的弯路」）：
 
 - ✅ `set_loop_mode` 非法值返回错误，缺省值改为枚举中真实存在的 `LIST`
 - ✅ `set_interval` 回执显示实际生效值（clamp 后）

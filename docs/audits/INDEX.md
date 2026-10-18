@@ -9,7 +9,8 @@
 | # | 日期 | 代码指纹 | 方法 | 记录文件 | 状态 |
 |---|---|---|---|---|---|
 | 01 | 2026-10-15 | `27f6c0d` + 未提交工作区 | 20 个只读 agent 并发全量扫描 | `2026-10-15-audit-01.md` | ✅ 已归档（结论已并入台账） |
-| 02 | 2026-10-17 | `4acc859` | 2 个验证 agent 验证批量改动 + 3 个实现 agent + 真机复核 | `2026-10-17-audit-02.md` | ✅ 已归档 |
+| 02 | 2026-10-17 | `4acc859` | 2 个验证 agent 验证批量改动 + 3 个实现 agent + 真机复核 | `2026-10-17-audit-02.md` | ⚠️ **结论部分失效**（其后 48 个提交改动面大，按「文件已变则重扫」规则不可直接沿用） |
+| 03 | 2026-10-19 | `c023c4b` | 3 个只读 agent（UI/架构/文档）+ 本机 grep 复核 + **API 30 模拟器端到端实测** | `2026-10-19-audit-03.md` | ✅ 当前有效 |
 
 ---
 
@@ -17,8 +18,8 @@
 
 **优先级从高到低**：
 
-1. **`docs/delivery-ledger.md`** —— **修复状态的唯一权威来源**
-2. **`docs/audits/2026-10-17-audit-02.md`** —— 最近一次验证结论
+1. **`docs/audits/2026-10-19-audit-03.md`** —— 最近一次验证结论（含首次跑通的 U 盘链路）
+2. **`docs/delivery-ledger.md`** —— 修复状态台账（**注意：其版本基线仍写 1.1.2/4，已过时**）
 3. `docs/audit-findings.md` / `audit-checklist.html` —— **仅作过程记录**，
    编号体系不同且部分已过时，**不要据此判断状态**
 
@@ -30,11 +31,14 @@
 # 1. 当前代码指纹
 git rev-parse --short HEAD
 
-# 2. 自上次审计（1cdb969）以来的变更
-git diff --stat 1cdb969..HEAD
+# 2. 自上次审计以来的变更
+git diff --stat c023c4b..HEAD
 
-# 3. 只重扫变更涉及的文件；未变的文件沿用 02 号记录的结论
+# 3. 只重扫变更涉及的文件；未变的文件沿用 03 号记录的结论
 ```
+
+> ⚠️ 旧版本此处写的是 `1cdb969`，与记录表里的 `4acc859` 不一致且已落后 49 个提交。
+> 已更正为 03 号审计的基准 `c023c4b`。
 
 ### 判定
 
@@ -55,8 +59,8 @@ git diff --stat 1cdb969..HEAD
 | 问题 | 既有结论 | 详见 |
 |---|---|---|
 | 设置页无法滚动 | 滚动容器被套多余 `Box(fillMaxSize)`，已删 | `docs/mouse-drag-scroll-fix.md` |
-| 鼠标按住拖动不滚动 | Compose `scrollable` 只处理触摸源；已用 `MouseDragScroll`（Initial pass + consume）修 | 同上 |
-| 同画面四格不同步 | 四个独立 ExoPlayer 无同步机制；已用 `PlaybackSync`（P1 主时钟）修 | `docs/delivery-ledger.md` |
+| 鼠标按住拖动不滚动 | Compose `scrollable` 只处理触摸源；已用 `MouseDragScroll`。**2026-10-19 改版**：不再无条件消费 Press（会与 `awaitFirstDown(requireUnconsumed=true)` 冲突），只在超过 touchSlop 后消费 Move | 同上 + `2026-10-19-audit-03.md` §4.1 |
+| 同画面四格不同步 | 四个独立 ExoPlayer 无同步机制；`PlaybackSync` **默认关闭**（3s 检查 / 800ms 阈值，非文档曾写的 5s/1.5s）。2026-10-19 实测：四格**文件相同**（已成立），时间漂移稳定在 0.4~0.8s | `2026-10-19-audit-03.md` §三 |
 | 样式无单一来源 | **评估后决定不做**（批量替换引入静默视觉回归） | `docs/delivery-ledger.md` |
 | 密钥泄漏到公开历史 | 已知，待执行轮换 | `docs/key-rotation-checklist.md` |
 | `media_path` 含绝对路径 | 已知，待客户确认是否脱敏 | `docs/remote-command-contract.md` |
@@ -71,7 +75,7 @@ git diff --stat 1cdb969..HEAD
 | `players[].index` 字段名 | 契约文档曾误写为 `player_index`，**已订正** | `docs/remote-command-contract.md` 第三节 |
 | `layout_mode` 别名不全 | **已补全**为完整表格（含 `SPLIT_1X4`/`ROW_1X4`/`COLUMN_4X1`/`PIP` 等 14 项）。再次「发现别名不全」= 没看新表 | `docs/remote-command-contract.md` 二·兼容别名 |
 | `set_media` 批量静默跳过 | **已知设计**：`media_path` 单个失败立即报错；`media_paths[]` 部分失败**跳过并继续**、回执仍成功。接入方须核对回执 `media_count`。**不是 bug，勿改** | 同上，五节末尾 |
-| `HelpTip` 的 `lang` 参数 | **不是死参数** —— 它是语言切换的唯一重组键，已用 `key(lang)` 接入。**删掉会造成永久缺陷** | `docs/audits/2026-10-17-audit-02.md` 新发现 5 |
+| `HelpTip` 的 `lang` 参数 | **不是死参数** —— 它是语言切换的唯一重组键，**代码实际用的是 `remember(lang)`**（早先的 `key(lang)` 会重置「用户已关闭」状态，已废弃）。**删掉会造成永久缺陷** | `MainScreen.kt:294` |
 | `values-en` 不生效 | **已解决**：`setApplicationLocales` 在本机不可用（API 33+ 才有 LocaleManager，且未引入 appcompat）。改为通知文案直接取 `StringResources`。仅桌面图标名仍随系统语言，属平台限制 | `docs/audits/2026-10-17-audit-02.md` 第三节 |
 | 底部触发区吞点击 / 15s 竞态 | **已诊断到根因，属产品取舍**，等客户确认，**不要重复扫** | `docs/audits/2026-10-17-audit-02.md` 第四节 |
 | 设备过热 85°C / 四路越播越不同步 | **热设计问题，非 App 逻辑缺陷**。关键线索：`DynamicANWBuffer failed -1010` 使硬解无法零拷贝。需 ROM 方核对解码 HAL。App 侧降分辨率等手段**未经 A/B 验证，勿盲改** | 同上，第四节专题 |
@@ -93,3 +97,6 @@ git diff --stat 1cdb969..HEAD
 | **修「缺陷」前先在测试里复现它** | P1-26（locale 大小写）从未被复现过就当成 bug 修了，后续还"补全"了两处。后来实测发现 Kotlin 无参 `lowercase()` 本就是 ROOT 语义 —— **修的是不存在的问题**，还附带了永远抓不到 bug 的测试。没有失败先行的测试，就等于没验证 |
 | **修一个模式要 grep 全部同类调用点** | P1-26 只修了报出问题的那一处，`UsbConfig.kt` 的同类裸调用被漏掉近一个月，且无任何症状 |
 | **状态文档要有唯一权威来源** | 三份审计文档给出 4/11/11 三种 P0 计数，无法判断谁对 |
+| **「能证明的语义风险」≠「已观测的缺陷」** | 2026-10-19 的 U1：字节码证明 `awaitFirstDown` 要求 unconsumed，父级消费 Press 理应让子级点不动；但 API30 实测鼠标点击**正常**。仍按语义修了，但记录里必须同时写「理论依据」与「实测结果」—— 否则就是 P1-26 的翻版（修不存在的问题） |
+| **模拟器不是不能测，是镜像选错了** | 之前结论「模拟器无法验证 U 盘链路」只在 `google_apis_playstore`（不可 root）下成立。换 `google_apis`（userdebug）后 `adb root` + `mount --bind` 即可完整跑通插拔与复制 |
+| **回调 setter 可能有副作用** | `UsbMonitorService.onUsbConnected` 的 setter 会回放 `lastDetectedUsb`；而 `onResume` 每次都重设回调 → 弹窗重放。**给带副作用的 setter 赋值 = 触发一次事件**，任何在 onResume 里重连的地方都要去重 |

@@ -13,7 +13,8 @@
 | `./gradlew.bat --stop; ./gradlew.bat clean testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease --console=plain --no-daemon` | Passed; adopted as stable verification baseline |
 | `./gradlew.bat :app:assembleDebug --console=plain --no-daemon` | Passed; 确认 1.1.2 改动前工作区可编译 |
 | `./gradlew.bat --stop; ./gradlew.bat clean testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease --console=plain --no-daemon` | Passed; 1.1.2 交付候选构建 |
-| `./gradlew.bat clean testDebugUnitTest assembleDebug assembleRelease --console=plain --no-daemon` | Passed; **1.1.3** 二次审计修复批次（47 个单测全绿，含 2 个新增 tr-TR 回归用例） |
+| `./gradlew.bat clean testDebugUnitTest assembleDebug assembleRelease --console=plain --no-daemon` | Passed; **1.1.3** 二次审计修复批次（当时 47 个单测全绿，含 2 个新增 tr-TR 回归用例） |
+| `./gradlew.bat clean testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease --console=plain --no-daemon` | Passed; **2026-10-19 增量审计后**（**77** 个 JVM 单测，0 failures；lint 0 errors） |
 
 ## CI Baseline
 
@@ -31,20 +32,25 @@ Planned workflow:
 
 版本：**1.1.3**（`gradle/libs.versions.toml`）
 
-单元测试（`app/src/test`，共 **47** 个 `@Test`，0 failures / 0 errors）：
+单元测试（`app/src/test`，共 **77** 个 `@Test`，0 failures / 0 errors；
+数据来自 `app/build/test-results/testDebugUnitTest/*.xml`，15 个测试类）：
 
 | 测试类 | 用例数 | 结果 |
 |---|---|---|
-| `DisplayedPlayerConfigTest` | 2 | 0 failures |
+| `DisplayedPlayerConfigTest` | 4 | 0 failures |
 | `FeatureManagerTest` | 4 | 0 failures |
 | `HdmiSystemPropertiesTest` | 2 | 0 failures |
 | `LayoutModeDescriptionTest` | 6 | 0 failures |
 | `LayoutModeTest` | 4 | 0 failures |
-| `LocalStorageManagerTest` | 2 | 0 failures |
-| `MainViewModelDecisionTest` | 4 | 0 failures |
+| `LocalStorageManagerTest` | 4 | 0 failures |
+| `MainViewModelDecisionTest` | 5 | 0 failures |
 | `PlayerCommandHandlerTest` | 7 | 0 failures |
-| `SplitLayoutMappingTest` | 4 | 0 failures |
+| `SplitLayoutMappingTest` | 6 | 0 failures |
 | `UsbConfigTest` | 11 | 0 failures |
+| `UsbContentSignatureTest` | 6 | 0 failures |
+| `UsbStateMachineTest` | 8 | 0 failures |
+| `MediaTypeLocaleTest` | 5 | 0 failures |
+| `StringResourcesLocaleTest` | 4 | 0 failures |
 | `ExampleUnitTest` | 1 | 0 failures |
 
 构建与静态检查：

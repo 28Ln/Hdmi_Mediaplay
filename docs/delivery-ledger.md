@@ -4,13 +4,23 @@
 > `audit-findings.md` 与 `audit-checklist.html` 是审计过程的记录（编号体系不同、已过时），
 > 状态以本文件为准。
 
-- 版本基线：**1.1.2（versionCode 4）**，见 `gradle/libs.versions.toml`
-- 台账更新日期：2026-10-17
+- 版本基线：**1.1.3（versionCode 5）**，见 `gradle/libs.versions.toml`
+- 台账更新日期：2026-10-19（增量审计 03，见 `docs/audits/2026-10-19-audit-03.md`）
 - 核实方式：逐条 grep 代码中的实际实现，**不采信文档声称**
 
 ---
 
 ## 一、已修复（真机或代码核实）
+
+> **2026-10-19 增量审计新增**（`docs/audits/2026-10-19-audit-03.md`，API 30 模拟器端到端实测）
+
+| 编号 | 问题 | 证据（实际实现） |
+|---|---|---|
+| P0-12 | 进入设置/裁剪页会销毁四个 ExoPlayer，整墙黑屏且视频从头播 | `MainActivity` 改为主界面常驻 + `ui/components/SubScreenHost.kt` 覆盖层；实测进出设置计数器连续 |
+| P0-13 | 空间不足时残留上一次的覆盖确认框 | `MainViewModel.dismissPendingOverwrite()`；三个非确认分支都调用 |
+| P0-14 | 从后台返回时覆盖确认框重放 | `UsbMonitorService.replayPending`（回放只一次）+ `MainActivity.callbacksInstalled`（回调只装一次） |
+| P0-15 | **错误自动重试的指数退避永远退化为 5 秒**（单测绿但端到端错误） | `MainViewModel.usbErrorActive`：只由明确恢复信号清零；实测 5→10→20→40→60s |
+| P1-33 | `mouseDragScroll` 无条件消费鼠标 Press，与 `awaitFirstDown(requireUnconsumed=true)` 冲突 | `MouseDragScroll.kt`：Press 不消费，Move 超过 touchSlop 才消费；鼠标点击/拖动/触摸三种输入均回归通过 |
 
 | 编号 | 问题 | 证据（实际实现） |
 |---|---|---|
@@ -35,7 +45,7 @@
 | P1-08 | Debug 包被强制用 Release 功能矩阵 | `FeatureManager.init(!customerUiMode)` |
 | P1-09 | 设置页完全无法滚动 | 滚动容器恢复为外层 Column 的直接子项 |
 | P1-10 | 鼠标按住拖动无法滚动（设备无触摸屏） | `MouseDragScroll.kt`：Initial pass + consume |
-| P1-11 | 「2×2 同画面」四格越播越不同步（**客户反馈**） | `PlaybackSync.kt`：P1 主时钟，5 秒检查 / 1.5 秒阈值 |
+| P1-11 | 「2×2 同画面」四格越播越不同步（**客户反馈**） | `PlaybackSync.kt`：P1 主时钟，3s 检查 / 800ms 阈值。**默认关闭**（`ENABLED_BY_DEFAULT=false`）。2026-10-19 实测：四格加载**同一文件**已成立；时间漂移约 0.4~0.8s，未解决 |
 | P1-12 | HDMI 硬件按键因节点权限不可用 | `HdmiGpioController` 两级回退：直接写 → `su root sh -c` |
 | P1-13 | 硬件常量散落硬编码 | `HardwareConfig.kt` 集中管理 |
 | P1-14 | 版本号从未变过（1.0/1 自建仓未改） | 统一到 `libs.versions.toml` |
@@ -102,7 +112,7 @@
 | 底部触发区吞掉最后 96dp 点击 | `MainScreen.kt:145` `onPress` 消费按下事件 | **产品取舍**：点底部唤起控制栏是现有交互，改成只响应滑动会破坏它 |
 | 15s 自动隐藏与 ✕ 竞态 | `BOTTOM_BAR_VISIBLE_MS = 15000` | 与上条一起定 |
 | 主线程阻塞 I/O | `MainViewModel` 有 9 处 `withContext(Dispatchers.IO)`，主要路径已覆盖 | 剩余风险在万级文件目录扫描，需先确认目标 U 盘规模 |
-| `MainViewModel` 职责过载 | **1074 行**（原记 900，实际更多） | 重构面大，且当前真机验证未完成，不宜同时动结构 |
+| `MainViewModel` 职责过载 | **约 1100 行**（见 `wc -l`；拆分会同时触及 U 盘/播放/远控三条链路） | 重构面大，且当前真机验证未完成，不宜同时动结构 |
 | release 未开代码裁剪 | `isMinifyEnabled = false`（debug 与 release 都是） | 开启有反射崩溃风险，需真机验证后再评估 |
 | `gap = 2` 像素非 dp | `QuadPlayerLayout.kt:159` | 已加注释说明是刻意为之；换密度屏才需改 |
 
