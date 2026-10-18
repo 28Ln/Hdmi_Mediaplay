@@ -177,3 +177,20 @@ done
 `UsbUtils` 扫描 `/mnt/media_rw` 与 `/storage` 两处，
 两处在模拟器上都既不可写、应用也读不到可识别目录。
 **结论：U 盘插拔与错误重试只能在真机验证。**
+
+---
+
+## SAME 模式为何在模拟器上仍无法验证（已实测）
+
+换用 **Debug 包**（可 `run-as`）后重试，仍走不通：
+
+| 路径 | 结果 |
+|---|---|
+| Debug 包 + `run-as` | ✅ 可访问应用私有目录 |
+| 修改 DataStore 切 `layout_mode` | ✗ 启动时 DataStore 文件尚未创建（应用用默认值）；写入需 UI 操作触发 |
+| DataStore 格式 | protobuf（`settings.preferences_pb`），不宜手写 |
+| `am start` 带 Intent extra | ✗ 应用不读取任何 extra（只有 `ACTION_MOVE_TO_BACK` 广播） |
+| 远控广播 `set_layout` | ✗ 需签名权限，debug 包同样被拒 |
+
+**结论**：在本 AVD 上无法通过命令行把布局切到 `GRID_2X2_SAME`。
+SAME 模式的四格同文件行为只能在真机上验证。
