@@ -45,7 +45,7 @@
 | P1-08 | Debug 包被强制用 Release 功能矩阵 | `FeatureManager.init(!customerUiMode)` |
 | P1-09 | 设置页完全无法滚动 | 滚动容器恢复为外层 Column 的直接子项 |
 | P1-10 | 鼠标按住拖动无法滚动（设备无触摸屏） | `MouseDragScroll.kt`：Initial pass + consume |
-| P1-11 | 「2×2 同画面」四格越播越不同步（**客户反馈**） | `PlaybackSync.kt`：P1 主时钟，3s 检查 / 800ms 阈值。**默认关闭**（`ENABLED_BY_DEFAULT=false`）。2026-10-19 实测：四格加载**同一文件**已成立；时间漂移约 0.4~0.8s，未解决 |
+| P1-11 | 「2×2 同画面」四格越播越不同步（**客户反馈**） | **2026-10-19 实质解决**：起始对齐 + **速度纠偏**（`setPlaybackSpeed` 1.05×/0.95×，不重新缓冲），实测 10s → **≤0.1s**，收敛后 60s 内 0 次干预。周期同步随之恢复默认开启。详见 `docs/audits/2026-10-19-audit-03.md` §三 |
 | P1-12 | HDMI 硬件按键因节点权限不可用 | `HdmiGpioController` 两级回退：直接写 → `su root sh -c` |
 | P1-13 | 硬件常量散落硬编码 | `HardwareConfig.kt` 集中管理 |
 | P1-14 | 版本号从未变过（1.0/1 自建仓未改） | 统一到 `libs.versions.toml` |

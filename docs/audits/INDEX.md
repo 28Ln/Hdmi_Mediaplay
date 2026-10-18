@@ -60,7 +60,7 @@ git diff --stat c023c4b..HEAD
 |---|---|---|
 | 设置页无法滚动 | 滚动容器被套多余 `Box(fillMaxSize)`，已删 | `docs/mouse-drag-scroll-fix.md` |
 | 鼠标按住拖动不滚动 | Compose `scrollable` 只处理触摸源；已用 `MouseDragScroll`。**2026-10-19 改版**：不再无条件消费 Press（会与 `awaitFirstDown(requireUnconsumed=true)` 冲突），只在超过 touchSlop 后消费 Move | 同上 + `2026-10-19-audit-03.md` §4.1 |
-| 同画面四格不同步 | 四个独立 ExoPlayer 无同步机制；`PlaybackSync` **默认关闭**（3s 检查 / 800ms 阈值，非文档曾写的 5s/1.5s）。2026-10-19 实测：四格**文件相同**（已成立），时间漂移稳定在 0.4~0.8s | `2026-10-19-audit-03.md` §三 |
+| 同画面四格不同步 | **2026-10-19 已实质解决**：改用速度纠偏 + 起始对齐，实测 ≤0.1s（原约 10s）。见上条 | `2026-10-19-audit-03.md` §三 |
 | 样式无单一来源 | **评估后决定不做**（批量替换引入静默视觉回归） | `docs/delivery-ledger.md` |
 | 密钥泄漏到公开历史 | 已知，待执行轮换 | `docs/key-rotation-checklist.md` |
 | `media_path` 含绝对路径 | 已知，待客户确认是否脱敏 | `docs/remote-command-contract.md` |
@@ -79,7 +79,7 @@ git diff --stat c023c4b..HEAD
 | `values-en` 不生效 | **已解决**：`setApplicationLocales` 在本机不可用（API 33+ 才有 LocaleManager，且未引入 appcompat）。改为通知文案直接取 `StringResources`。仅桌面图标名仍随系统语言，属平台限制 | `docs/audits/2026-10-17-audit-02.md` 第三节 |
 | 底部触发区吞点击 / 15s 竞态 | **已诊断到根因，属产品取舍**，等客户确认，**不要重复扫** | `docs/audits/2026-10-17-audit-02.md` 第四节 |
 | 设备过热 85°C / 四路越播越不同步 | **热设计问题，非 App 逻辑缺陷**。关键线索：`DynamicANWBuffer failed -1010` 使硬解无法零拷贝。需 ROM 方核对解码 HAL。App 侧降分辨率等手段**未经 A/B 验证，勿盲改** | 同上，第四节专题 |
-| SAME 四格不同步 | **默认关闭同步**（`ENABLED_BY_DEFAULT=false`）。根因是四个独立 ExoPlayer 各自缓冲/循环；seek 纠正必然转圈。**除非做单解码器多 Surface 的架构改动，否则别再尝试调参** | `PlaybackSync.kt` 顶部注释 |
+| SAME 四格不同步 | **2026-10-19 已实质性解决**（不再是「别调参」的状态）。旧结论「seek 纠正必然转圈、只能上单解码器」只对 **seek 方案**成立。改用 **`setPlaybackSpeed` 速度纠偏**（不重新缓冲）+ **起始一次对齐**后，实测 10 秒偏差 → **≤0.1 秒**，收敛后 60 秒内 0 次干预。详见 `2026-10-19-audit-03.md` §三。**注意**：若关闭 `USE_SPEED_TRIM`，必须同时把 `ENABLED_BY_DEFAULT` 改回 false | `PlaybackSync.kt` |
 
 ---
 

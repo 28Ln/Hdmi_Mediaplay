@@ -11,8 +11,10 @@
 |---|---|---|
 | `release-4pane-distinct.png` | release 包，2×2，四格分别为 FILE 1/2/3/4 | ✅ 四路独立内容，无串格 |
 | `usb-copy-4-distinct.png` | U 盘复制完成后四格 | ✅ 四个文件各就各位 |
-| `same-mode-drift.png` | 软件模式（2×2 同画面） | ✅ 四格同一文件；⚠️ 时间差约 10s（已知限制） |
+| `same-mode-synced.png` | 软件模式（2×2 同画面），速度纠偏后 | ✅ **四格 91/90/90/91（0.1s）**，≤0.1s 同步 |
+| `same-mode-drift.png` | 软件模式，**改动前** | ❌ 134/241/231/233，偏差约 10 秒（留作对照） |
 | `insufficient-space.png` | 9GB 稀疏文件触发空间不足 | ✅ 红色提示；修后无残留对话框 |
+| `space-recovered.png` | 清掉超额文件后 | ✅ 自动恢复（重新弹出确认框，未卡死） |
 | `settings-page.png` | 客户版设置页（1024×600） | ✅ 无截断，布局正常 |
 
 ## 未能在此环境验证
