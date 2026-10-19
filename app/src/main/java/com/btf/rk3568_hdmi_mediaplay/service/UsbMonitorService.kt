@@ -1,5 +1,6 @@
 package com.btf.rk3568_hdmi_mediaplay.service
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -43,6 +44,9 @@ class UsbMonitorService : Service() {
         private const val CHANNEL_ID = "usb_monitor_channel"
         private const val NOTIFICATION_ID = 1001
         private const val SCAN_INTERVAL_MS = 3000L
+
+        /** 「进程被杀后恢复主界面」的 PendingIntent 请求码 */
+        private const val RESTORE_UI_REQUEST_CODE = 2001
 
         /**
          * 计算U盘内容签名（供实例方法与单测共用）。
@@ -277,7 +281,62 @@ class UsbMonitorService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+
+        // 系统重启本服务（LMK 杀进程 / 进程崩溃）时，intent 为 null，
+        // flags 里仍带 START_FLAG_REDELIVERY 的兄弟位。
+        // 此时 Activity 也已被杀，前台会落到别的应用上 —— 投放直接中断。
+        // 这里主动把主界面拉回来（应用是 HOME，拉起自己不需要特殊权限）。
+        //
+        // 注意：这只是「尽力而为」。Android 10+ 对后台启动 Activity 有限制，
+        // 因此失败只记日志、不影响服务继续运行；真正的保障仍需
+        // Lock Task Mode / 设备管理配合（见 delivery-ledger 阻塞项）。
+        if (intent == null) {
+            Log.i(TAG, "Service restarted by system, restoring main UI")
+            restoreMainUi()
+        }
         return START_STICKY
+    }
+
+    /**
+     * 进程被杀后把主界面拉回前台。
+     *
+     * 失败是正常情况（后台启动 Activity 可能被系统拒绝），
+     * 因此只在日志里留痕，不抛异常、不影响服务。
+     */
+    private fun restoreMainUi() {
+        // ## 为什么用 PendingIntent + AlarmManager，而不是直接 startActivity
+        //
+        // 真机实测（Android 11）：进程被 kill -9 后服务以 START_STICKY 重启，
+        // 此时直接 `startActivity` 会被系统拒绝：
+        //   W ActivityTaskManager: Background activity start ...
+        //     callingUidProcState: FOREGROUND_SERVICE
+        //     isBgStartWhitelisted: false
+        // 前台服务**不足以**获得后台启动 Activity 的豁免。
+        //
+        // AlarmManager 的 `setAlarmClock` / `setExactAndAllowWhileIdle` 触发
+        // 的 PendingIntent 属于系统投递，不受该限制（这也是闹钟类应用的标准做法）。
+        // 用一个 1 秒后的精确闹钟把主界面拉回来。
+        try {
+            val launch = PendingIntent.getActivity(
+                this,
+                RESTORE_UI_REQUEST_CODE,
+                Intent(this, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val alarm = getSystemService(AlarmManager::class.java)
+            alarm?.setExactAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + 1_000L,
+                launch
+            )
+            Log.i(TAG, "Main UI restore scheduled via AlarmManager")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to schedule main UI restore: ${e.message}")
+        }
     }
 
     override fun onCreate() {

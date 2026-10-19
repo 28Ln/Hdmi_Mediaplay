@@ -90,6 +90,8 @@ git diff --stat c023c4b..HEAD
 
 | 伪造 `BOOT_COMPLETED` 触发自启 | **已核，不是缺陷**。真机实测：`am broadcast -a android.intent.action.BOOT_COMPLETED` 对后台应用的投递被系统拒绝（`Background execution not allowed`）；且 `bootAutoStart` 默认 `false` | `BootReceiver.kt` |
 
+| 进程被杀后界面不恢复 / 无看门狗 | **2026-10-20 已修**：服务 `START_STICKY` 本来会重启，但 Activity 不会。直接 `startActivity` 被系统拒绝（`Background activity start ... isBgStartWhitelisted:false`，前台服务不够）。改用 AlarmManager 精确闹钟投递 PendingIntent，真机实测 kill -9 后界面自动回到 kiosk。**不要再尝试用 startActivity 从服务拉起界面** | `UsbMonitorService.restoreMainUi` |
+
 ## 方法论教训（避免重犯）
 
 | 教训 | 说明 |
