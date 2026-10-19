@@ -668,14 +668,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
      * 更新设置
      */
     fun updateSettings(newSettings: AppSettings) {
-        val previousLayout = settings.value.layoutMode
-        val previousLanguage = settings.value.language
+        // 基线 = 调用方生成 newSettings 时看到的状态。
+        // 传给 Repository 后，落盘时只应用「基线→目标」的增量，
+        // 从而不会覆盖同时发生的另一条写入（U 盘下发 vs 用户操作）。
+        val baseline = settings.value
+        val previousLayout = baseline.layoutMode
+        val previousLanguage = baseline.language
         safeLaunch {
             // 更新存储管理器设置
             localStorageManager.updateStorageSettings(newSettings.storageLocation, newSettings.customStoragePath)
 
             withContext(Dispatchers.IO) {
-                settingsRepository.updateSettings(newSettings)
+                settingsRepository.updateSettings(newSettings, previous = baseline)
             }
         }
         // StringResources 是全局单例：设置页切换语言时会自行更新，
