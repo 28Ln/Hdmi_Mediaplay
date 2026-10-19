@@ -21,6 +21,7 @@
 | P0-14 | 从后台返回时覆盖确认框重放 | `UsbMonitorService.replayPending`（回放只一次）+ `MainActivity.callbacksInstalled`（回调只装一次） |
 | P0-15 | **错误自动重试的指数退避永远退化为 5 秒**（单测绿但端到端错误） | `MainViewModel.usbErrorActive`：只由明确恢复信号清零；实测 5→10→20→40→60s |
 | P0-16 | U 盘拷贝逐路提交，部分失败会留下四路**混合代次**且无法回滚 | 改为两阶段：四路全部暂存成功才统一提交；任一失败则丢弃 staging、缓存原样。实测 player3 缺内容时保留旧缓存，其余三路正常提交 |
+| P0-17 | 伪造 `MEDIA_MOUNTED` 广播可驱动 U 盘处理链（安全） | Manifest 静态声明改 `exported=false`；服务内动态接收器先用 `UsbUtils.getMountedUsbPaths` 核实路径确实已挂载，否则丢弃。真机实测：修复前伪造 `/mnt/media_rw/EVIL2` 走完整检查链；修复后打印 `Ignoring forged mount broadcast`，真实 U 盘仍正常 |
 | P1-33 | `mouseDragScroll` 无条件消费鼠标 Press，与 `awaitFirstDown(requireUnconsumed=true)` 冲突 | `MouseDragScroll.kt`：Press 不消费，Move 超过 touchSlop 才消费；鼠标点击/拖动/触摸三种输入均回归通过 |
 
 | 编号 | 问题 | 证据（实际实现） |

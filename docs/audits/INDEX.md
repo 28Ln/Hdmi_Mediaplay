@@ -84,6 +84,8 @@ git diff --stat c023c4b..HEAD
 
 ---
 
+| 伪造 `MEDIA_MOUNTED` 可驱动 U 盘链 | **2026-10-20 实测复现并修复**。`MEDIA_MOUNTED` 是隐式广播，任何进程都能伪造；真机上 `adb shell am broadcast -a android.intent.action.MEDIA_MOUNTED -d file:///mnt/media_rw/EVIL2` 能让服务对不存在路径走完整检查链并通知上层。修复：① Manifest 静态声明改为 `exported=false`；② 收到挂载/卸载广播后，先用 `UsbUtils.getMountedUsbPaths` 核实该路径**确实在挂载列表**，否则丢弃。实测修复后打印 `Ignoring forged mount broadcast`，真实 U 盘仍正常识别 | `UsbMonitorService.kt` |
+
 ## 方法论教训（避免重犯）
 
 | 教训 | 说明 |

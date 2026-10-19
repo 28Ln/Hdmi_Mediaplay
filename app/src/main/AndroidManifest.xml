@@ -75,19 +75,19 @@
             </intent-filter>
         </receiver>
         
-        <!-- USB广播接收器 -->
+        <!-- USB 广播接收器。
+             2026-10-20 安全修复：
+             `MEDIA_MOUNTED` 等是**隐式广播**，任何应用（含普通第三方 apk）
+             都能 `sendBroadcast` 伪造它 —— 实测可让本应用对
+             `/mnt/media_rw/EVIL` 走完整 U 盘处理链。
+             服务内已有**动态注册**（RECEIVER_NOT_EXPORTED），
+             因此静态声明是冗余的攻击面，直接去掉。
+             若将来需要在服务未运行时收挂载事件，应改用
+             `android:permission` 或校验 `intent.data` 的挂载根，而不是裸导出。 -->
         <receiver
             android:name=".receiver.UsbBroadcastReceiver"
             android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MEDIA_MOUNTED" />
-                <action android:name="android.intent.action.MEDIA_UNMOUNTED" />
-                <action android:name="android.intent.action.MEDIA_REMOVED" />
-                <action android:name="android.intent.action.MEDIA_EJECT" />
-                <data android:scheme="file" />
-            </intent-filter>
-        </receiver>
+            android:exported="false" />
         
         <!-- 远程控制命令接收器 -->
         <receiver

@@ -384,8 +384,29 @@ class UsbMonitorService : Service() {
                 ContextCompat.RECEIVER_NOT_EXPORTED
             )
             
-            UsbBroadcastReceiver.onUsbMounted = { path ->
+            UsbBroadcastReceiver.onUsbMounted = onMounted@{ path ->
                 Log.i(TAG, "Broadcast: USB mounted at $path")
+
+                // ## 信任校验（2026-10-20 安全修复）
+                //
+                // `MEDIA_MOUNTED` 是隐式广播：**任何**进程都能伪造。
+                // 实测在 RK3568 上，`adb shell am broadcast -a ...MEDIA_MOUNTED
+                // -d file:///mnt/media_rw/EVIL2` 能让本服务对一个根本不存在的
+                // 路径走完整检查链（进而通知上层、弹覆盖确认框）。
+                //
+                // 仅靠 manifest 的 exported=false 不够 —— 这里走的是**动态注册**
+                // 的实例，`RECEIVER_NOT_EXPORTED` 不阻止系统/root 发起的广播。
+                //
+                // 因此改为「先核实再采信」：广播只作为**提前唤醒**的信号，
+                // 真正的挂载事实以 [UsbUtils.getMountedUsbPaths] 的实际扫描为准。
+                // 伪造路径不在实际挂载列表里 ⇒ 直接丢弃，一次 IO 都不用做。
+                val actuallyMounted = UsbUtils.getMountedUsbPaths(this@UsbMonitorService)
+                    .any { it.absolutePath == path }
+                if (!actuallyMounted) {
+                    Log.w(TAG, "Ignoring forged mount broadcast for un-mounted path: $path")
+                    return@onMounted
+                }
+
                 // 挂载广播是"新设备已就绪"的权威信号，必须绕过签名闸门。
                 //
                 // 不能只依赖卸载广播清缓存：某些 ROM 在重新挂载同一分区时
@@ -397,8 +418,18 @@ class UsbMonitorService : Service() {
                 checkUsbContent(File(path))
             }
             
-            UsbBroadcastReceiver.onUsbUnmounted = { path ->
+            UsbBroadcastReceiver.onUsbUnmounted = onUnmounted@{ path ->
                 Log.i(TAG, "Broadcast: USB unmounted from $path")
+
+                // 同上：伪造的卸载广播会让本应用误以为盘被拔掉，
+                // 从而清缓存、回滚配置、切回本地内容 —— 干扰现场播放。
+                // 只有「该路径确实已不在挂载列表」时才采信。
+                val stillMounted = UsbUtils.getMountedUsbPaths(this@UsbMonitorService)
+                    .any { it.absolutePath == path }
+                if (stillMounted) {
+                    Log.w(TAG, "Ignoring forged unmount broadcast, path still mounted: $path")
+                    return@onUnmounted
+                }
                 // 清空全部缓存（含内容签名）：这样「拔了再插同一个盘」
                 // 会被判定为内容变化，从而正常触发一次刷新
                 clearUsbCaches()
