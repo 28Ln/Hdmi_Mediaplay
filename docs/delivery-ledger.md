@@ -128,6 +128,7 @@
 | `gap = 2` 用像素非 dp | 仍在（`QuadPlayerLayout.kt:159`），已加注释说明刻意为之 |
 | 布局与裁剪各有一套并行行列模型 | 仍在，属架构重复 |
 | ~~`res/values/strings.xml` 九成死资源~~ | ✅ 已清理：41 项 → 1 项 |
+| ~~低内存时直接删 Coil 缓存目录~~ | ✅ 已修（2026-10-20）：改为 `Coil.imageLoader(ctx).memoryCache/diskCache.clear()`。旧实现 `deleteRecursively()` 会删掉 Coil **正在使用**的 journal，导致此后所有图片请求失败直到重启 |
 | release 未开启代码裁剪 | 仍在（`isMinifyEnabled = false`），需真机验证后再评估 |
 | ~~`TASK_LIST.md` 与代码漂移~~ | ✅ 已修正（配置样例补全、默认值表纠正） |
 | `btf_config_sample.json` 与代码漂移 | ✅ 已核对，双向完全一致（settings 15/15、features 25/26） |

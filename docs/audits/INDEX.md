@@ -78,6 +78,7 @@ git diff --stat c023c4b..HEAD
 | `HelpTip` 的 `lang` 参数 | **不是死参数** —— 它是语言切换的唯一重组键，**代码实际用的是 `remember(lang)`**（早先的 `key(lang)` 会重置「用户已关闭」状态，已废弃）。**删掉会造成永久缺陷** | `MainScreen.kt:294` |
 | `values-en` 不生效 | **已解决**：`setApplicationLocales` 在本机不可用（API 33+ 才有 LocaleManager，且未引入 appcompat）。改为通知文案直接取 `StringResources`。仅桌面图标名仍随系统语言，属平台限制 | `docs/audits/2026-10-17-audit-02.md` 第三节 |
 | 底部触发区吞点击 / 15s 竞态 | **已诊断到根因，属产品取舍**，等客户确认，**不要重复扫** | `docs/audits/2026-10-17-audit-02.md` 第四节 |
+| 设备过热 / 长时间漂移 | **2026-10-20 真机 12 分钟实测**：soc-thermal 稳定 **80–82°C**（未进 85°C 降频区），四格末帧 41/40/41/41，**0 次 seek、0 次速度纠偏、0 崩溃**。旧的「85°C 必然漂移」推断在本轮负载下未复现。仍旧结论：`DynamicANWBuffer` 失败导致硬解无法零拷贝，需 ROM 方核对解码 HAL |
 | 设备过热 85°C / 四路越播越不同步 | **热设计问题，非 App 逻辑缺陷**。关键线索：`DynamicANWBuffer failed -1010` 使硬解无法零拷贝。需 ROM 方核对解码 HAL。App 侧降分辨率等手段**未经 A/B 验证，勿盲改** | 同上，第四节专题 |
 | SAME 四格不同步 | **2026-10-19 已实质性解决**（不再是「别调参」的状态）。旧结论「seek 纠正必然转圈、只能上单解码器」只对 **seek 方案**成立。改用 **`setPlaybackSpeed` 速度纠偏**（不重新缓冲）+ **起始一次对齐**后，实测 10 秒偏差 → **≤0.1 秒**，收敛后 60 秒内 0 次干预。详见 `2026-10-19-audit-03.md` §三。**注意**：若关闭 `USE_SPEED_TRIM`，必须同时把 `ENABLED_BY_DEFAULT` 改回 false | `PlaybackSync.kt` |
 

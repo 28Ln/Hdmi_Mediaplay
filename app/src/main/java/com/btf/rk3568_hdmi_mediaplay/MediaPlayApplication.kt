@@ -120,16 +120,30 @@ class MediaPlayApplication : Application(), ImageLoaderFactory {
     /**
      * 清理缓存
      */
+    /**
+     * 释放内存压力下的缓存。
+     *
+     * ## 为什么不能直接删目录（2026-10-20 修复）
+     *
+     * 旧实现 `cacheDir/image_cache` 直接 `deleteRecursively()` —— 而那个目录
+     * 正是 [newImageLoader] 配置给 Coil 的 `DiskCache` 正在使用的目录。
+     * 在磁盘缓存**未关闭**的情况下把目录（含 journal）删掉，会导致：
+     * - Coil 后续读写命中缺失的 journal，所有图片请求失败；
+     * - 直到进程重启才恢复。
+     *
+     * 正确做法是通过 Coil 自己的 API 清理：它会先关闭/重建 journal，
+     * 保证缓存仍可用。内存缓存同理（`memoryCache?.clear()`）。
+     */
     private fun clearCaches() {
         try {
-            // 清理图片缓存
-            cacheDir.listFiles()?.forEach { file ->
-                if (file.isDirectory && file.name == "image_cache") {
-                    file.deleteRecursively()
-                }
-            }
+            coil.Coil.imageLoader(this).memoryCache?.clear()
         } catch (e: Exception) {
-            Log.e(TAG, "Error clearing caches", e)
+            Log.w(TAG, "Failed to clear memory cache: ${e.message}")
+        }
+        try {
+            coil.Coil.imageLoader(this).diskCache?.clear()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to clear disk cache: ${e.message}")
         }
     }
     
