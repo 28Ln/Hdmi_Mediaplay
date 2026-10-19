@@ -22,6 +22,18 @@ class LocalStorageManager(private val context: Context) {
         private const val TAG = "LocalStorageManager"
     }
 
+    /**
+     * 整批拷贝的结果。
+     *
+     * 此前只返回 Boolean，失败时调用方只能显示笼统的「拷贝失败」，
+     * 具体原因（哪个格子、哪一步失败）只写在日志里 —— 现场无从判断。
+     */
+    data class BatchCopyResult(
+        val success: Boolean,
+        /** 失败时给出可展示的原因；成功时为 null */
+        val reason: String? = null
+    )
+
     private data class PlayerCopyResult(
         val playerIndex: Int,
         val sourceFileCount: Int,
@@ -270,7 +282,14 @@ class LocalStorageManager(private val context: Context) {
         usbPath: File,
         folderName: String,
         onProgress: ((Int, Float) -> Unit)? = null
-    ): Boolean = copyMutex.withLock {
+    ): Boolean = copyAllFromUsbDetailed(usbPath, folderName, onProgress).success
+
+    /** 同 [copyAllFromUsb]，但失败时带可展示的原因。 */
+    suspend fun copyAllFromUsbDetailed(
+        usbPath: File,
+        folderName: String,
+        onProgress: ((Int, Float) -> Unit)? = null
+    ): BatchCopyResult = copyMutex.withLock {
         copyAllFromUsbInternal(usbPath, folderName, onProgress)
     }
 
@@ -278,10 +297,12 @@ class LocalStorageManager(private val context: Context) {
         usbPath: File,
         folderName: String,
         onProgress: ((Int, Float) -> Unit)? = null
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): BatchCopyResult = withContext(Dispatchers.IO) {
         var hasSourceContent = false
         var failedCopies = 0
         val stagedPlayers = mutableListOf<Int>()
+        // 第一处失败的具体描述（哪个格子、哪一步），用于展示给用户
+        var firstFailure: String? = null
 
         Log.i(TAG, "Starting copy from USB: ${usbPath.absolutePath}/$folderName")
 
@@ -309,6 +330,9 @@ class LocalStorageManager(private val context: Context) {
                 } else {
                     if (result.sourceFileCount > 0) {
                         failedCopies++
+                        if (firstFailure == null) {
+                            firstFailure = "P${playerIndex + 1} ${result.error ?: "暂存失败"}"
+                        }
                         Log.e(TAG, "Player $playerIndex: stage failed, error=${result.error}")
                     } else {
                         Log.w(TAG, "Player $playerIndex: no source content")
@@ -317,6 +341,7 @@ class LocalStorageManager(private val context: Context) {
             } catch (e: Exception) {
                 Log.e(TAG, "Error staging player $playerIndex: ${e.message}")
                 failedCopies++
+                if (firstFailure == null) firstFailure = "P${playerIndex + 1} ${e.message ?: "异常"}"
             }
         }
 
@@ -328,7 +353,14 @@ class LocalStorageManager(private val context: Context) {
                     "现有缓存未改动。"
             )
             discardStaged(stagedPlayers)
-            return@withContext false
+            return@withContext BatchCopyResult(
+                success = false,
+                reason = when {
+                    !hasSourceContent -> "U盘中没有可复制的媒体"
+                    firstFailure != null -> "复制失败（$firstFailure）"
+                    else -> "复制失败"
+                }
+            )
         }
 
         // ===== 阶段二：统一提交 =====
@@ -340,12 +372,15 @@ class LocalStorageManager(private val context: Context) {
                 Log.e(TAG, "Commit failed for player $playerIndex, rolling back ${committed.size} players")
                 rollbackCommitted(committed)
                 discardStaged(stagedPlayers.filter { it !in committed })
-                return@withContext false
+                return@withContext BatchCopyResult(
+                    success = false,
+                    reason = "写入本地失败（P${playerIndex + 1}）"
+                )
             }
         }
 
         Log.i(TAG, "Copy all completed: committed ${committed.size} players")
-        true
+        BatchCopyResult(success = true)
     }
 
     private fun stagingDirFor(playerIndex: Int): File {

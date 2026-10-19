@@ -522,11 +522,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             
             _copyProgress.value = CopyProgress(0, 0f)
             
-            val success = withContext(Dispatchers.IO) {
-                localStorageManager.copyAllFromUsb(usbPath, folderName) { playerIndex, progress ->
+            val result = withContext(Dispatchers.IO) {
+                localStorageManager.copyAllFromUsbDetailed(usbPath, folderName) { playerIndex, progress ->
                     _copyProgress.value = CopyProgress(playerIndex, progress)
                 }
             }
+            val success = result.success
             
             if (success) {
                 _copyProgress.value = CopyProgress(3, 1f, isComplete = true)
@@ -536,9 +537,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
                 // 更新U盘状态为已连接且有内容
                 _usbState.value = UsbRuntimeState.Connected(usbPath, true, FeatureManager.hasUsbConfig())
             } else {
-                _copyProgress.value = CopyProgress(0, 0f, error = StringResources.copyFailed)
-                log("拷贝失败")
-                showToast(StringResources.copyFailed, MessageType.ERROR)
+                // 展示**具体原因**（哪个格子、哪一步失败）。
+                // 此前只显示笼统的「拷贝失败」，现场无法判断是盘的问题、
+                // 空间问题还是目标目录问题，只能靠抓日志。
+                val detail = result.reason ?: StringResources.copyFailed
+                _copyProgress.value = CopyProgress(0, 0f, error = detail)
+                log("拷贝失败: $detail")
+                showToast("${StringResources.copyFailed}：$detail", MessageType.ERROR)
             }
             
             delay(1500)

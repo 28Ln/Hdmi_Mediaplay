@@ -24,6 +24,8 @@
 | P0-17 | 伪造 `MEDIA_MOUNTED` 广播可驱动 U 盘处理链（安全） | Manifest 静态声明改 `exported=false`；服务内动态接收器先用 `UsbUtils.getMountedUsbPaths` 核实路径确实已挂载，否则丢弃。真机实测：修复前伪造 `/mnt/media_rw/EVIL2` 走完整检查链；修复后打印 `Ignoring forged mount broadcast`，真实 U 盘仍正常 |
 | P0-18 | 进程被 LMK 杀掉后前台界面不恢复，投放中断 | `UsbMonitorService` 在 `intent == null`（系统重启）时经 **AlarmManager 精确闹钟** 拉起主界面。真机实测：kill -9 后服务重启 → `Main UI restore scheduled via AlarmManager` → `mResumedActivity` 回到 kiosk。**注意**：直接 `startActivity` 会被拒（`Background activity start ... isBgStartWhitelisted:false`），前台服务不足以获得豁免 |
 | P0-19 | **开机自启在客户设备上永远开不了**（功能实际不可用） | `bootAutoStart` 默认 false，唯一 UI 入口在 Debug 的「播放设置」区块（Release `showPlaybackSettings=false`），U 盘配置也不支持该键。修复：① `UsbConfigSettings` 新增 `bootAutoStart`（含回滚快照）；② 客户版设置页「维护操作」区块新增开关。真机实测：勾选后 `boot_auto_start` 由 0 变 1，重启后日志 `BootReceiver: 开机自启：已启动服务与主界面` |
+| P1-34 | 三个设置是**失效开关**（有 UI、无任何代码读取） | `showCopyProgress` / `usbDetectionEnabled` / `maxCacheSizeMB`。其中 `showCopyProgress` 已接上（进度浮层受控）；另两个会改变核心行为（停 U 盘监听、删缓存），需产品确认后接。三者均只在 Debug 区块可见，客户版不受影响 |
+| P1-35 | 拷贝失败只显示笼统「拷贝失败」，现场无法判断原因 | `LocalStorageManager` 新增 `BatchCopyResult`（带原因），`copyFromUsb` 展示具体失败点（哪个格子、哪一步）。实测：`Aborting copy: failedCopies=1` 时日志与 UI 都能定位到 `P3 staging_verification_failed` |
 | P1-33 | `mouseDragScroll` 无条件消费鼠标 Press，与 `awaitFirstDown(requireUnconsumed=true)` 冲突 | `MouseDragScroll.kt`：Press 不消费，Move 超过 touchSlop 才消费；鼠标点击/拖动/触摸三种输入均回归通过 |
 
 | 编号 | 问题 | 证据（实际实现） |

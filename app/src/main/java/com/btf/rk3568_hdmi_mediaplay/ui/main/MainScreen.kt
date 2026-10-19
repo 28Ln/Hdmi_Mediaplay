@@ -184,11 +184,16 @@ fun MainScreen(
                 .padding(top = 60.dp)
         )
         
-        copyProgress?.let { progress ->
-            CopyProgressOverlay(
-                progress = progress,
-                modifier = Modifier.align(Alignment.Center)
-            )
+        // 受 settings.showCopyProgress 控制。
+        // 该开关此前只存在于 Debug 的高级设置里、且**没有任何代码读取** —— 是失效开关。
+        // 现场有时不希望进度浮层遮挡画面（例如演出/展示场景），故接上。
+        if (settings.showCopyProgress) {
+            copyProgress?.let { progress ->
+                CopyProgressOverlay(
+                    progress = progress,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
         }
         
         // 底部控制栏 - 根据功能开关
