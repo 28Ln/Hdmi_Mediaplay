@@ -176,6 +176,22 @@ ls -l /sys/bus/i2c/devices/4-0030/mode
 
 ---
 
+## 8.5 真机环境事实（2026-10-20 实测，RK3568 `rk3568_r`）
+
+| 事实 | 影响 |
+|---|---|
+| 固件**尚未**提供那 14 个节点 | `/sys/bus/i2c/devices/4-0030/` 只有 `modalias`/`name`/`of_node`/`power`/`subsystem`/`uevent` |
+| 旧节点已移除 | `/sys/devices/platform/hdmi-control/` 不存在 |
+| SELinux 为 **Enforcing** | `untrusted_app` 对 `/mnt/media_rw` 的 `getattr` 被拒 → **U 盘扫描返回 0** |
+| `/mnt/media_rw` 权限为 `drwxr-x--- root:external_storage` | 需 `chmod 755` 才能被 app 遍历（与 SELinux 是两个独立门槛） |
+
+> U 盘链路现场排障时，如果日志里是 `Total USB paths found: 0` 且伴随
+> `avc: denied { getattr } for path="/mnt/media_rw"`，说明是 SELinux 策略问题，
+> **不是** App 缺陷。ROM 侧应给 `untrusted_app` 增加 `mnt_media_rw_file` 的读取规则，
+> 或让 vold 把 U 盘挂到 app 可访问的路径。
+
+---
+
 ## 9. 变更记录
 
 | 日期 | 变更 |

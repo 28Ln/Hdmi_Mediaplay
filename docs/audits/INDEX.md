@@ -69,7 +69,7 @@ git diff --stat c023c4b..HEAD
 | CI 硬编码 java.home | 已移除 | `gradle.properties` |
 | `uppercase()` 受 locale 影响 | **⚠️ 原判断有误**。Kotlin 无参 `lowercase()`/`uppercase()` **自 1.5 起就用 `Locale.ROOT`**，与 Java 的 `toLowerCase()` 不同。实测 tr-TR 下 `"AVI".lowercase()` == `"avi"`（正确），只有显式传 `Locale.getDefault()` 才会得到 `"avı"`。**原有的 tr-TR 回归测试抓不到任何 bug，因为本来就等价**。保留显式 `Locale.ROOT` 仅为表达意图；**不要再来"修"这个** | `MediaTypeLocaleTest` 顶部注释 |
 | `WALL_MODE_8` 是「臆造别名」 | **不是缺陷** —— 是有意保留的兼容别名，仅支持别名表，非硬件编号；契约文档已说明 | `docs/remote-command-contract.md:77` |
-| `hide` 命令不生效 | **2026-10-19 已实测证实有效**（API30）。用同证书签的测试发送端实测：应用在前台时 `command_success`，日志出现 `moveTaskToBack: Task{… com.btf.rk3568_hdmi_mediaplay}`，`mResumedActivity` 切到发送端；不在前台时正确返回 `1006`。此前「HOME 应用 moveTaskToBack 无效」的担忧**未成立**（RK3568 真机仍需复核一次） | `2026-10-19-audit-03.md` §二bis |
+| `hide` 命令不生效 | **2026-10-20 已在 RK3568 真机证实有效**（同签名测试端实测：`command_success` + `ActivityTaskManager: moveTaskToBack: Task{… A=10122:com.btf.rk3568_hdmi_mediaplay}`，`mResumedActivity` 切到测试端）。2026-10-19 在 API30 模拟器上同样有效。用同证书签的测试发送端实测：应用在前台时 `command_success`，日志出现 `moveTaskToBack: Task{… com.btf.rk3568_hdmi_mediaplay}`，`mResumedActivity` 切到发送端；不在前台时正确返回 `1006`。此前「HOME 应用 moveTaskToBack 无效」的担忧**未成立**（RK3568 真机仍需复核一次） | `2026-10-19-audit-03.md` §二bis |
 | U 盘拷贝永久失败 | **已修** —— 备份清理条件曾被写反成 `if (!backupDir.exists())`。**该处不能加任何 `exists` 条件** | `LocalStorageManager.kt:127-145` |
 | 无效索引命令报成功 | **已修**（`play/pause/stop/set_volume/set_mute` 校验是否在当前布局内；`*_all` 按实际生效返回） | `docs/audits/2026-10-17-audit-02.md` 新发现 3 |
 | `players[].index` 字段名 | 契约文档曾误写为 `player_index`，**已订正** | `docs/remote-command-contract.md` 第三节 |
