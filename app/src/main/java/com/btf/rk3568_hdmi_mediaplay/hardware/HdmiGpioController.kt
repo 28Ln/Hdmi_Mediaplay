@@ -5,9 +5,14 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * HDMI 拼接板按键控制。
+ * HDMI 拼接板按键控制（**已废弃，仅过渡期回退**）。
  *
  * 通过向 sysfs 节点写入电平来模拟物理按键（按下 → 保持 → 松开）。
+ *
+ * **废弃原因**：2026-10-19 固件起，拼接板改由 I2C 寄存器控制
+ * （见 [HdmiMatrixController] / `docs/hdmi-i2c-abi.md`），
+ * `hdmi_b2` / `hdmi_b3` 节点已从固件中移除。新代码一律使用 I2C 路径；
+ * 本类只在新驱动缺失（ENOENT）的旧 ROM 上由 [HdmiMatrixLegacyFallback] 调用。
  *
  * **权限说明**：控制节点默认属 root，普通应用直接写入会被拒（EACCES）。
  * 处理顺序：
@@ -16,14 +21,24 @@ import java.util.concurrent.TimeUnit
  *
  * 若两者都失败，返回 false，由调用方给出用户可见的失败提示。
  */
+@Deprecated(
+    "Fallback window only; removed with the 2026-10-19 firmware change. Use HdmiMatrixController."
+)
 object HdmiGpioController {
     private const val TAG = "HdmiGpioController"
 
-    /** 「切换模式」节点路径 */
-    const val MODE_KEY = HardwareConfig.MODE_KEY_PATH
+    /**
+     * 旧「切换模式」节点。
+     *
+     * 路径不再从 HardwareConfig 导出：新代码不应引用它，
+     * 保留为私有常量只为让旧 ROM 的回退路径可用。
+     */
+    @Suppress("DEPRECATION")
+    private const val MODE_KEY = HardwareConfig.MODE_KEY_PATH
 
-    /** 「切换分辨率」节点路径 */
-    const val RESOLUTION_KEY = HardwareConfig.RESOLUTION_KEY_PATH
+    /** 旧「切换分辨率」节点。 */
+    @Suppress("DEPRECATION")
+    private const val RESOLUTION_KEY = HardwareConfig.RESOLUTION_KEY_PATH
 
     /**
      * 按下并松开按键。
@@ -33,6 +48,7 @@ object HdmiGpioController {
      * @param holdMs    按下保持时长
      * @return 是否成功；失败时已记录日志，调用方应给出用户提示
      */
+    @Suppress("DEPRECATION")
     fun press(
         path: String,
         activeLow: Boolean = HardwareConfig.KEY_ACTIVE_LOW,

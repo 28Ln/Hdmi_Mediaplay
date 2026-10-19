@@ -21,10 +21,11 @@ import com.btf.rk3568_hdmi_mediaplay.ui.components.mouseDragScroll
 import com.btf.rk3568_hdmi_mediaplay.ui.customerUiMode
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.ClearCacheDialog
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.ResetSettingsDialog
-import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiGpioController
+import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixController
+import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixResult
+import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiResolution
 import com.btf.rk3568_hdmi_mediaplay.ui.components.rememberHdmiEfullUiState
 import com.btf.rk3568_hdmi_mediaplay.util.StringResources
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
@@ -42,7 +43,13 @@ fun SettingsScreen(
     onScanUsb: () -> Unit = {},
     onImageSplit: () -> Unit = {},
     cacheSizeMB: Long = 0,
-    featureFlags: FeatureFlags = FeatureFlags.releaseDefaults()
+    featureFlags: FeatureFlags = FeatureFlags.releaseDefaults(),
+    /**
+     * 布局选择：由 MainViewModel 负责「保存 + 下发硬件模式」的先后顺序。
+     *
+     * 缺省回退到直接保存，保证预览/测试调用不依赖 ViewModel。
+     */
+    onLayoutModeSelected: (LayoutMode) -> Unit = { onSettingsChange(settings.copy(layoutMode = it)) }
 ) {
     // 当语言变化时强制重组
     val lang = settings.language
@@ -114,7 +121,7 @@ fun SettingsScreen(
                     if (effectiveFeatureFlags.allowLayoutChange) {
                         WallLayoutModeSetting(
                             selectedMode = settings.layoutMode,
-                            onModeSelected = { onSettingsChange(settings.copy(layoutMode = it)) }
+                            onModeSelected = { onLayoutModeSelected(it) }
                         )
                     }
 
@@ -528,67 +535,250 @@ private fun HdmiEfullSection() {
 }
 
 /**
- * HDMI 控制区域
+ * HDMI 控制区域（I2C）。
+ *
+ * 与旧 GPIO 版本的区别：
+ * - 不再脉冲按键（没有 `hdmi_b2/b3` 节点，也没有 200ms+ 的按键延时）；
+ * - 布局、分辨率、电源、静音都走 [HdmiMatrixController]，可读回真实生效值；
+ * - 融合带滑杆拖动时只做内存预览，**松手才写 flash**。
  */
 @Composable
 private fun HdmiControlSection() {
+    val controller = remember { HdmiMatrixController.getInstance() }
+    val matrixState by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
-    var lastClickTime by remember { mutableLongStateOf(0L) }
-    var clickResult by remember { mutableStateOf("") }
-    
+
     val isEn = StringResources.getLanguage() == AppLanguage.ENGLISH
-    
-    SettingsSection(title = "🔌 ${if (isEn) "HDMI Control" else "HDMI 控制"}") {
+    val snapshot = matrixState.lastSnapshot
+    val applied = snapshot?.applied
+
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+
+    // 进入设置页时主动读一次；陈旧数据只用于显示，不当作真值
+    LaunchedEffect(Unit) {
+        busy = true
+        scope.launch {
+            controller.probe()
+            controller.readApplied()
+            busy = false
+        }
+    }
+
+    fun runWrite(label: String, block: suspend () -> HdmiMatrixResult<Unit>) {
+        if (busy) return
+        busy = true
+        message = null
+        scope.launch {
+            when (val result = block()) {
+                is HdmiMatrixResult.Success -> {
+                    controller.probe()
+                    controller.readApplied()
+                }
+
+                is HdmiMatrixResult.Failure -> message =
+                    "$label: ${StringResources.hdmiMatrixErrorDetail(result.error)}"
+            }
+            busy = false
+        }
+    }
+
+    SettingsSection(title = "🔌 ${StringResources.hdmiMatrix}") {
+        // ---- 在线状态 ----
+        Text(
+            text = when {
+                busy -> StringResources.loading
+                snapshot == null -> StringResources.hdmiMatrixUnavailable
+                snapshot.online -> "${StringResources.hdmiMatrixOnline} · " +
+                    "${StringResources.hdmiMatrixVersion} ${snapshot.version}"
+                else -> "${StringResources.hdmiMatrixOffline} · " +
+                    "${StringResources.hdmiMatrixVersion} ${snapshot.version}"
+            },
+            color = when {
+                snapshot?.online == true -> Color(0xFF81C784)
+                snapshot == null -> Color(0xFFFF8A80)
+                else -> Color(0xFFFFD54F)
+            },
+            fontSize = if (customerUiMode) 14.sp else 12.sp
+        )
+
+        snapshot?.let { snap ->
+            Spacer(modifier = Modifier.height(6.dp))
+            // 位域徽标：BUSY / POWER / ERROR / OVERFLOW
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatusBadge(StringResources.hdmiMatrixBusy, snap.status.busy, Color(0xFFFFB74D))
+                StatusBadge(StringResources.hdmiMatrixPower, snap.status.power, Color(0xFF81C784))
+                StatusBadge(StringResources.hdmiMatrixErrorFlag, snap.status.error, Color(0xFFE57373))
+                StatusBadge(StringResources.hdmiMatrixOverflow, snap.status.overflow, Color(0xFFBA68C8))
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "${StringResources.hdmiMatrixAppliedMode}: " +
+                    (applied?.mode?.toString() ?: "-") +
+                    " · ${StringResources.hdmiMatrixResolution}: " +
+                    (applied?.resolution?.name ?: "-") +
+                    " · ${StringResources.hdmiMatrixCmdCount}: " +
+                    (snap.cmdCount?.toString() ?: "-"),
+                color = Color(0xFFB0BEC5),
+                fontSize = if (customerUiMode) 12.sp else 10.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // ---- 电源 / 静音 ----
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Button(
-                onClick = {
-                    val now = System.currentTimeMillis()
-                    if (now - lastClickTime > 500) {
-                        lastClickTime = now
-                        scope.launch(Dispatchers.IO) {
-                            val success = HdmiGpioController.press(HdmiGpioController.MODE_KEY)
-                            clickResult = if (success) "✓" else "✗"
-                        }
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2)),
+                onClick = { runWrite("power") { controller.setPower(applied?.power != true) } },
+                enabled = !busy,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (applied?.power == true) Color(0xFF2E7D32) else Color(0xFF455A64)
+                ),
                 modifier = Modifier.weight(1f)
             ) {
-                Text(if (isEn) "Switch Mode" else "切换模式")
+                Text("${StringResources.hdmiMatrixPower}: " +
+                    if (applied?.power == true) "ON" else "OFF")
             }
-            
+
             Button(
-                onClick = {
-                    val now = System.currentTimeMillis()
-                    if (now - lastClickTime > 500) {
-                        lastClickTime = now
-                        scope.launch(Dispatchers.IO) {
-                            val success = HdmiGpioController.press(HdmiGpioController.RESOLUTION_KEY)
-                            clickResult = if (success) "✓" else "✗"
-                        }
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF388E3C)),
+                onClick = { runWrite("mute") { controller.setMute(applied?.mute != true) } },
+                enabled = !busy,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (applied?.mute == true) Color(0xFFC62828) else Color(0xFF455A64)
+                ),
                 modifier = Modifier.weight(1f)
             ) {
-                Text(if (isEn) "Switch Resolution" else "切换分辨率")
+                Text("${StringResources.hdmiMatrixMute}: " +
+                    if (applied?.mute == true) "ON" else "OFF")
             }
         }
-        
-        if (clickResult.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = clickResult,
-                color = if (clickResult == "✓") Color.Green else Color.Red,
-                fontSize = 12.sp
-            )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // ---- 分辨率 ----
+        Text(
+            text = "${StringResources.hdmiMatrixResolution}",
+            color = Color.White,
+            fontSize = if (customerUiMode) 16.sp else 13.sp
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            HdmiResolution.entries.forEach { resolution ->
+                val selected = applied?.resolution == resolution
+                Button(
+                    onClick = { runWrite("resolution") { controller.setResolution(resolution) } },
+                    enabled = !busy,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (selected) Color(0xFF1976D2) else Color(0xFF37474F)
+                    ),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = when (resolution) {
+                            HdmiResolution.P720 -> "720p"
+                            HdmiResolution.P1080 -> "1080p"
+                            HdmiResolution.P2160_30 -> "2160p30"
+                        },
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // ---- 融合带（hfusion / vfusion）----
+        //
+        // 拖动时只更新内存预览；onValueChangeFinished 才提交。
+        // 这不是性能优化，而是硬件保护：每次成功写入都会写 MCU flash。
+        var hFusion by remember(applied?.hfusion) {
+            mutableFloatStateOf((applied?.hfusion ?: 0).toFloat())
+        }
+        var vFusion by remember(applied?.vfusion) {
+            mutableFloatStateOf((applied?.vfusion ?: 0).toFloat())
+        }
+
+        Text(
+            text = "${StringResources.hdmiMatrixFusion} · " +
+                "${StringResources.hdmiMatrixHorizontal} ${hFusion.toInt()} / " +
+                "${StringResources.hdmiMatrixVertical} ${vFusion.toInt()}",
+            color = Color.White,
+            fontSize = if (customerUiMode) 16.sp else 13.sp
+        )
+        Slider(
+            value = hFusion,
+            onValueChange = {
+                hFusion = it
+                controller.stageFusion(it.toInt(), vFusion.toInt())
+            },
+            onValueChangeFinished = {
+                runWrite("hfusion") { controller.commitFusion() }
+            },
+            valueRange = 0f..255f,
+            enabled = !busy
+        )
+        Slider(
+            value = vFusion,
+            onValueChange = {
+                vFusion = it
+                controller.stageFusion(hFusion.toInt(), it.toInt())
+            },
+            onValueChangeFinished = {
+                runWrite("vfusion") { controller.commitFusion() }
+            },
+            valueRange = 0f..255f,
+            enabled = !busy
+        )
+        Text(
+            text = StringResources.hdmiMatrixFusionHint,
+            color = Color.Gray,
+            fontSize = if (customerUiMode) 12.sp else 10.sp
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(
+            onClick = {
+                busy = true
+                message = null
+                scope.launch {
+                    controller.probe()
+                    controller.readApplied()
+                    busy = false
+                }
+            },
+            enabled = !busy,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF455A64)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(StringResources.hdmiMatrixRefresh)
+        }
+
+        message?.let { text ->
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(text = text, color = Color(0xFFFF8A80), fontSize = 12.sp)
         }
     }
 }
 
+/** 状态位徽标：亮 = 位为 1。 */
+@Composable
+private fun StatusBadge(label: String, active: Boolean, activeColor: Color) {
+    Text(
+        text = label,
+        color = if (active) Color.Black else Color(0xFF90A4AE),
+        fontSize = 10.sp,
+        modifier = Modifier
+            .background(
+                if (active) activeColor else Color(0xFF263238),
+                MaterialTheme.shapes.small
+            )
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+    )
+}
 
 @Composable
 private fun StoragePathInfo(storageLocation: StorageLocation) {
@@ -760,9 +950,11 @@ private fun WallLayoutModeSetting(
 
         Text(
             text = if (isEn) {
-                "This sets the player layout. The HDMI wall hardware is still controlled by its mode key."
+                "Choosing a layout also switches the HDMI matrix to its hardware mode over I2C. " +
+                    "Portrait and same-content layouts are software-only and leave the matrix unchanged."
             } else {
-                "此处设置播放器画面布局；HDMI 拼接板仍由“切换模式”按键控制。"
+                "选择布局时会同时通过 I2C 把拼接板切到对应硬件模式；" +
+                    "竖屏与「2×2 同画面」属纯软件布局，不会改动拼接板。"
             },
             color = Color(0xFFFFCC80),
             fontSize = if (customerMode) 13.sp else 10.sp

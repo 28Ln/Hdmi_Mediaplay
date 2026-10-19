@@ -262,8 +262,16 @@ object PlaybackSync {
         // 因此在片头/片尾附近跳过同步：等所有格都稳定在同一轮再说。
         val duration = primary.duration
         if (duration > 0) {
-            val nearEdge = referencePosition < LOOP_GUARD_MS ||
-                referencePosition > duration - LOOP_GUARD_MS
+            // 用「循环内位置」而不是原始 position 判断边界。
+            //
+            // 实测（API30，30 秒单文件 REPEAT_MODE_ONE）：`currentPosition` 会
+            // 单调增长到 52 秒以上而不回绕（ExoPlayer 在某些 timeline 下如此）。
+            // 旧写法 `referencePosition > duration - GUARD` 在 position 超过
+            // duration 后**恒为真**，于是每一轮都跳过同步 → P3/P4 漂移累积到
+            // 16~19 秒，随后又触发超大 seek，来回拉锯、画面转圈。
+            val posInLoop = referencePosition % duration
+            val nearEdge = posInLoop < LOOP_GUARD_MS ||
+                posInLoop > duration - LOOP_GUARD_MS
             if (nearEdge) {
                 Log.d(
                     TAG,
@@ -294,7 +302,8 @@ object PlaybackSync {
                     TAG,
                     "P${index + 1} 播放项与主格不一致（${player.currentMediaItemIndex} vs $primaryMediaIndex），强制对齐"
                 )
-                player.seekTo(primaryMediaIndex, referencePosition)
+                val target = if (duration > 0) referencePosition % duration else referencePosition
+                player.seekTo(primaryMediaIndex, target)
                 corrected++
                 continue
             }
@@ -312,7 +321,10 @@ object PlaybackSync {
                 Log.d(TAG, "P${index + 1} 偏差 ${drift}ms 过大，seek 纠正")
                 trimming.remove(index)
                 player.setPlaybackSpeed(1.0f)
-                player.seekTo(referencePosition)
+                // 目标必须落在当前一次循环内：主格 position 可能已超过 duration，
+                // 直接 seekTo(referencePosition) 会落到文件末尾。
+                val target = if (duration > 0) referencePosition % duration else referencePosition
+                player.seekTo(target)
                 corrected++
             }
         }

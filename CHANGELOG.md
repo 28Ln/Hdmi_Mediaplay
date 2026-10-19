@@ -5,6 +5,18 @@
 
 ---
 
+## [未发布] - 2026-10-19
+
+### 变更
+
+- **HDMI 拼接矩阵控制改为 I2C 直控**
+  旧实现向 `/sys/devices/platform/hdmi-control/hdmi_b2`、`hdmi_b3`
+  写电平脉冲模拟按键，只能「切到下一个」且无法回读。新固件已移除这两个节点，
+  改为 `/sys/bus/i2c/devices/4-0030/{mode,resolution,mirror,rotate,hfusion,vfusion,mute,power}`：
+  可直接设置目标值、可回读当前值、权限 0666（不再需要 root/su）。
+  写入可能阻塞数百毫秒到数秒，因此全部调用移出主线程并由 `Mutex` 串行化。
+  详见 `docs/hdmi-i2c-control.md`。
+
 ## [1.1.3] - 2026-10-17
 
 本次为**二次审计**后的修复批次。其中最严重的一项（U 盘拷贝）属于会**永久生效**

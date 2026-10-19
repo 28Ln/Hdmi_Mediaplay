@@ -64,7 +64,7 @@ git diff --stat c023c4b..HEAD
 | 样式无单一来源 | **评估后决定不做**（批量替换引入静默视觉回归） | `docs/delivery-ledger.md` |
 | 密钥泄漏到公开历史 | 已知，待执行轮换 | `docs/key-rotation-checklist.md` |
 | `media_path` 含绝对路径 | 已知，待客户确认是否脱敏 | `docs/remote-command-contract.md` |
-| HDMI 节点 EACCES | ROM 侧权限问题，App 已支持 su 回退 | `docs/device-verification.md` |
+| ~~HDMI 节点 EACCES~~ | **已作废（2026-10-19）**：固件改为 I2C 直控，旧 `hdmi_b2/b3` 节点移除且新节点为 0666。不要再按「EACCES」排查；新问题看 `docs/hdmi-i2c-control.md` | `docs/hdmi-i2c-control.md` |
 | AC3 视频无声 | 设备无 AC3 直通，已降级静音播视频 | `CHANGELOG.md` |
 | CI 硬编码 java.home | 已移除 | `gradle.properties` |
 | `uppercase()` 受 locale 影响 | **⚠️ 原判断有误**。Kotlin 无参 `lowercase()`/`uppercase()` **自 1.5 起就用 `Locale.ROOT`**，与 Java 的 `toLowerCase()` 不同。实测 tr-TR 下 `"AVI".lowercase()` == `"avi"`（正确），只有显式传 `Locale.getDefault()` 才会得到 `"avı"`。**原有的 tr-TR 回归测试抓不到任何 bug，因为本来就等价**。保留显式 `Locale.ROOT` 仅为表达意图；**不要再来"修"这个** | `MediaTypeLocaleTest` 顶部注释 |

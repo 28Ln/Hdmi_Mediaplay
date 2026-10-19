@@ -147,30 +147,36 @@ adb shell sendevent /dev/input/eventN 1 272 0 && adb shell sendevent /dev/input/
 
 **兜底**：设置页右侧提供 ▲▼ 悬浮按钮，仅依赖点击，滚轮不可用时仍可浏览。
 
-### 11. HDMI 硬件按键权限（1.1.0 发现，需 ROM 侧处理）
+### 11. HDMI 控制（I2C 直控，2026-10-19 起）
 
-**实测结论：底部栏「切换模式」「切换分辨率」在目标设备上写入失败。**
+> **历史**：1.1.0~1.1.3 通过向 `/sys/devices/platform/hdmi-control/hdmi_b2|b3`
+> 写电平脉冲来模拟按键，节点属 root，普通应用写入报 `EACCES`，
+> 只能靠 ROM 放开或 su 回退。**该接口已随 2026-10-19 固件移除。**
 
-```
-HdmiGpioController: open failed: EACCES (Permission denied)
-```
+**新接口**：`/sys/bus/i2c/devices/4-0030/{mode,resolution,mirror,rotate,hfusion,vfusion,mute,power}`
+- init rc 已 `chmod 0666`，**不再需要 su**
+- 可直接设目标值并回读，不再是「切到下一个」
+- 写入可能阻塞数百 ms 到数秒，**禁止在 UI 线程调用**
 
-原因：`/sys/devices/platform/hdmi-control/hdmi_b2` 与 `hdmi_b3`
-权限为 `-rw-r--r-- root root`，而 app 以普通应用身份（`u0_aXXX`）运行。
-SELinux 为 `Permissive`，故纯属文件权限问题，**不是代码缺陷**。
+完整说明见 [`docs/hdmi-i2c-control.md`](hdmi-i2c-control.md)。
 
-- 代码侧的错误处理是正确的：捕获异常、记录日志、不崩溃
-- 1.1.0 起主界面底部栏也会在失败时弹出提示
-  （此前该处丢弃返回值，按钮"按了没反应"，无法区分失败与未生效）
-- **要让功能可用，需 ROM 侧放开节点写权限，或将 app 置于系统权限下运行。**
-  这是需要与设备/ROM 提供方确认的部署项。
-
-验证：
+**验收要点**
 
 ```
-adb shell ls -l /sys/devices/platform/hdmi-control/hdmi_b2
-adb shell 'echo 1 > /sys/devices/platform/hdmi-control/hdmi_b2'   # 以 app 身份应可写
+# 在线判定
+adb shell cat /sys/bus/i2c/devices/4-0030/version        # 期望 2
+
+# 直接设模式（6 = 1X4）并回读
+adb shell 'echo 6 > /sys/bus/i2c/devices/4-0030/mode'
+adb shell cat /sys/bus/i2c/devices/4-0030/mode           # 期望 6
+adb shell cat /sys/bus/i2c/devices/4-0030/result         # 期望 0
+
+# 权限
+adb shell ls -l /sys/bus/i2c/devices/4-0030/mode         # 期望 -rw-rw-rw-
 ```
+
+**注意**：App 的 `LayoutMode.GRID_2X1` 对应硬件 `mode=2`（不是示意图编号 5）。
+映射表见 `hardware/HdmiMatrixModeMapping.kt`。
 
 ### 12. 视频编码兼容性（1.1.0 发现）
 

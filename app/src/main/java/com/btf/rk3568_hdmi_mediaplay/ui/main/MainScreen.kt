@@ -22,16 +22,12 @@ import com.btf.rk3568_hdmi_mediaplay.data.model.AppLanguage
 import com.btf.rk3568_hdmi_mediaplay.data.model.UsbRuntimeState
 import com.btf.rk3568_hdmi_mediaplay.ui.customerUiMode
 import android.util.Log
-import com.btf.rk3568_hdmi_mediaplay.ui.components.MessageType
 import com.btf.rk3568_hdmi_mediaplay.ui.player.PlaybackSync
 import com.btf.rk3568_hdmi_mediaplay.ui.components.ToastMessage
-import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiGpioController
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.OverwriteDialog
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.PlayerMenuDialog
 import com.btf.rk3568_hdmi_mediaplay.util.StringResources
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 private const val BOTTOM_BAR_VISIBLE_MS = 15_000L
 
@@ -98,7 +94,6 @@ fun MainScreen(
         }
     }
     
-    val scope = rememberCoroutineScope()
     var selectedPlayerIndex by remember { mutableStateOf<Int?>(null) }
     var showBottomBar by remember { mutableStateOf(false) }
     var bottomBarInteractionTick by remember { mutableLongStateOf(0L) }
@@ -227,23 +222,15 @@ fun MainScreen(
                         onScanUsbClick = { keepBottomBarVisible(); onScanUsb() },
                         onSwitchModeClick = {
                             keepBottomBarVisible()
-                            scope.launch(Dispatchers.IO) {
-                                val ok = HdmiGpioController.press(HdmiGpioController.MODE_KEY)
-                                // 硬件控制节点可能仅 root 可写，失败时必须让用户看到，
-                                // 否则按钮"按了没反应"，无法区分是坏了还是没生效
-                                if (!ok) {
-                                    viewModel.showToast(StringResources.hdmiKeyFailed, MessageType.ERROR)
-                                }
-                            }
+                            // 不再脉冲 GPIO 按键（新固件已移除 hdmi_b2）：
+                            // 改为推进到下一个拼接墙布局，由 ViewModel 走 I2C 下发。
+                            // 这样也不会切到 App 不展示的 1X4 / 4X1。
+                            viewModel.cycleWallLayout()
                         },
                         onSwitchResolutionClick = {
                             keepBottomBarVisible()
-                            scope.launch(Dispatchers.IO) {
-                                val ok = HdmiGpioController.press(HdmiGpioController.RESOLUTION_KEY)
-                                if (!ok) {
-                                    viewModel.showToast(StringResources.hdmiKeyFailed, MessageType.ERROR)
-                                }
-                            }
+                            // 分辨率由 MCU 保存，不写 App 设置；失败按 errno 给结构化提示
+                            viewModel.cycleResolution()
                         },
                         onHide = { showBottomBar = false },
                         modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = if (customerUiMode) 34.dp else 16.dp, top = 8.dp)

@@ -406,7 +406,10 @@ class MainActivity : ComponentActivity() {
                                         onScanUsb = { requestUsbScan() },
                                         onImageSplit = { currentScreen = Screen.ImageSplit },
                                         cacheSizeMB = cacheSizeMB,
-                                        featureFlags = featureFlags
+                                        featureFlags = featureFlags,
+                                        onLayoutModeSelected = { mode ->
+                                            mainViewModel.selectLayoutMode(mode)
+                                        }
                                     )
                                 }
 

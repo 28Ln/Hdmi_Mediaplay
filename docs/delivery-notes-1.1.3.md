@@ -92,15 +92,14 @@
 
 ### HDMI 硬件按键
 
-应用已经支持用 root 权限写 HDMI 控制节点（su 回退）。
-但仍**推荐 ROM 侧直接放开权限**（`chmod 0666` 两个节点），
-性能更好、且不依赖设备是否 root。
+**2026-10-19 固件起改为 I2C 直控，旧的 `hdmi_b2` / `hdmi_b3` 节点已移除。**
 
-节点路径：
+新接口无需 root，可直接设置目标模式/分辨率并回读：
 ```
-/sys/devices/platform/hdmi-control/hdmi_b2   （切换模式）
-/sys/devices/platform/hdmi-control/hdmi_b3   （切换分辨率）
+/sys/bus/i2c/devices/4-0030/mode          （拼接模式 0~7）
+/sys/bus/i2c/devices/4-0030/resolution    （0=720p, 1=1080p, 2=2160p30）
 ```
+详见 [`docs/hdmi-i2c-control.md`](hdmi-i2c-control.md)。
 
 ### 模式编号记法
 

@@ -150,6 +150,8 @@ dependencies {
     // JVM org.json，使 btf_config.json 解析在单元测试中真实执行
     // （Android framework 的 org.json stub 在 isReturnDefaultValues 下返回 null）
     testImplementation(libs.json)
+    // kotlinx-coroutines-test：用于以虚拟时间验证 HDMI flash 防抖等时序逻辑
+    testImplementation(libs.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

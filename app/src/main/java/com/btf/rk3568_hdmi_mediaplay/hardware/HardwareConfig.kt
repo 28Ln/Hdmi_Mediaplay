@@ -8,11 +8,78 @@ package com.btf.rk3568_hdmi_mediaplay.hardware
  */
 object HardwareConfig {
 
-    // ============ HDMI 拼接板控制节点 ============
-    /** 「切换模式」按键对应的 sysfs 节点 */
+    // ============ HDMI 拼接板 I2C 控制节点 ============
+    /**
+     * 拼接板 I2C 控制器的 sysfs 根目录。
+     *
+     * 2026-10-19 固件起，控制方式由「GPIO 模拟按键」改为 I2C 寄存器读写：
+     * 不再有按键脉冲与 200ms 保持时间，写入即生效并可从同一节点读回。
+     *
+     * 真值蓝图见 `docs/hdmi-i2c-abi.md`。
+     */
+    const val I2C_BASE_PATH = "/sys/bus/i2c/devices/4-0030"
+
+    /**
+     * 板型：TX3 与 TX4 对镜像（mirror）支持的最低模式不同。
+     *
+     * 默认 TX4 —— 门槛更高（mode>=5 才允许镜像），
+     * 在未确认板型时按更严格的一侧处理，避免发出 MCU 会以 EOPNOTSUPP 拒绝的写入。
+     */
+    val HDMI_BOARD_VARIANT = HdmiBoardVariant.TX4
+
+    /**
+     * hfusion / vfusion **每次写成功都会写 MCU flash**。
+     *
+     * 拖动滑杆时若逐帧下发，会在数秒内把 flash 写坏（寿命有限）。
+     * 因此交互路径必须 stage（仅内存）→ 松手后 commit，且两次 flash 至少间隔该值。
+     */
+    const val FUSION_FLASH_DEBOUNCE_MS = 300L
+
+    /** EACCES（权限不足）时的重试间隔 */
+    const val EACCES_RETRY_DELAY_MS = 500L
+
+    /** EACCES 的最大尝试次数（含首次） */
+    const val EACCES_MAX_ATTEMPTS = 3
+
+    /**
+     * 单个节点的单次读写超时。
+     *
+     * sysfs 读写本身很快，但 I2C 总线被 MCU 占用时会阻塞在驱动里；
+     * 没有上限会让 UI 协程永远挂住。控制器外层再叠一层 withTimeout。
+     */
+    const val MATRIX_OP_TIMEOUT_MS = 1_500L
+
+    /** EPERM（待机）后写 power=1、等待就绪并重试原操作的预算 */
+    const val POWER_RECOVERY_TIMEOUT_MS = 3_000L
+
+    /**
+     * EACCES 时是否允许 `su root sh -c` 提权写入。
+     *
+     * 推荐做法仍是 ROM 侧放开节点权限；su 只是现场兜底。
+     */
+    const val ALLOW_SU_WRITE = true
+
+    /**
+     * 旧 GPIO 按键回退的总开关。
+     *
+     * 仅在 I2C 根节点不存在（ENOENT，通常是 ROM 尚未加载新驱动）时生效，
+     * 绝不能在 EINVAL / EOPNOTSUPP 时回退 —— 那会把真实驱动错误伪装成成功。
+     * 新固件全面部署后应连同 [HdmiGpioController] 一并删除。
+     */
+    const val LEGACY_GPIO_FALLBACK = true
+
+    // ============ 旧版 HDMI 按键节点（已由 2026-10-19 固件移除） ============
+    /**
+     * @deprecated 2026-10-19 固件起该节点已移除，控制改走 I2C（[I2C_BASE_PATH]）。
+     * 仅为旧 ROM 的过渡回退保留；[HdmiGpioController] 删除时一并删除。
+     */
+    @Deprecated("Removed by the 2026-10-19 firmware change; use I2C_BASE_PATH instead")
     const val MODE_KEY_PATH = "/sys/devices/platform/hdmi-control/hdmi_b2"
 
-    /** 「切换分辨率」按键对应的 sysfs 节点 */
+    /**
+     * @deprecated 2026-10-19 固件起该节点已移除，控制改走 I2C（[I2C_BASE_PATH]）。
+     */
+    @Deprecated("Removed by the 2026-10-19 firmware change; use I2C_BASE_PATH instead")
     const val RESOLUTION_KEY_PATH = "/sys/devices/platform/hdmi-control/hdmi_b3"
 
     /**
@@ -26,15 +93,6 @@ object HardwareConfig {
 
     /** 按下前、松开后的短暂延时（毫秒），避免电平切换过快 */
     const val KEY_SETTLE_MS = 20L
-
-    /**
-     * 无写权限时是否尝试通过 su 提权写入。
-     *
-     * 现场 ROM 若未放开节点权限（节点属 root），普通应用写入会被拒（EACCES）。
-     * 设备已 root 时可通过 su 完成同样操作。
-     * 置 false 可完全禁用提权行为（用于对安全性敏感的场景）。
-     */
-    const val ALLOW_SU_WRITE = true
 
     /**
      * su 命令的前缀参数。

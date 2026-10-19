@@ -39,8 +39,21 @@ enum class PanelOrientation {
 /**
  * 播放器布局模式。
  *
- * wallModeNumber 非空的项目与 HDMI 拼接板示意图中的模式 1~7 一一对应。
- * 其余项目仅为旧配置和远程控制兼容保留，不在客户设置页面中显示。
+ * ## ⚠️ wallModeNumber 是「示意图编号」，不是硬件模式
+ *
+ * `wallModeNumber` 对应 HDMI 拼接板**示意图**上的模式 1~7（客户设置页按它排序、
+ * 远控 `WALL_MODE_n` 也按它寻址），其中 **`GRID_2X1` 的示意图编号是 5**。
+ *
+ * 但 I2C 控制器的硬件寄存器值是另一套：
+ * `0=1X1, 1=1X2, 2=2X1, 3=1X3, 4=3X1, 5=2X2, 6=1X4, 7=4X1`。
+ * 也就是说 **2×1 的硬件值是 2**，直接把 `wallModeNumber=5` 写进 `mode`
+ * 会把画面切成 2×2（而且不会报错）。
+ *
+ * 硬件映射的唯一来源是 [com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixModeMapping]，
+ * 本字段**永远不能**直接下发给硬件。
+ *
+ * 非空项目与示意图模式 1~7 一一对应；其余项目仅为旧配置和远程控制兼容保留，
+ * 不在客户设置页面中显示。
  */
 enum class LayoutMode(
     val rows: Int,

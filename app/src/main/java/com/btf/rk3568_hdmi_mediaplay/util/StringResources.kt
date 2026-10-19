@@ -205,9 +205,10 @@ object StringResources {
         "HDMI全屏属性设置失败"
     }
     /**
-     * 硬件按键（切换模式 / 切换分辨率）写入失败。
-     * 常见原因是控制节点仅 root 可写，普通应用无权限。
+     * @deprecated 旧 GPIO 按键路径的文案，仅过渡期保留。
+     * 新代码使用 [hdmiMatrixErrorText] 按 [com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixErrorKind] 取文案。
      */
+    @Deprecated("Use hdmiMatrixErrorText(kind) instead")
     val hdmiKeyFailed: String get() = if (isEn) {
         "Hardware key failed: no write permission to HDMI control node"
     } else {
@@ -342,4 +343,97 @@ object StringResources {
         get() = if (isEn) "Monitors USB drive insertion and removal"
         else "监听U盘插入和拔出"
 
+    // ========== HDMI 拼接板（I2C）==========
+    //
+    // 控制器只产出 HdmiMatrixErrorKind，文案在这里统一翻译。
+    // 这样控制器保持纯 JVM 可测，且中英文切换不需要重新发起任何 IO。
+
+    val hdmiMatrix: String get() = if (isEn) "HDMI Matrix (I2C)" else "HDMI 拼接板（I2C）"
+    val hdmiMatrixOnline: String get() = if (isEn) "Online" else "在线"
+    val hdmiMatrixOffline: String get() = if (isEn) "Offline" else "离线"
+    val hdmiMatrixBusy: String get() = if (isEn) "Busy" else "执行中"
+    val hdmiMatrixOverflow: String get() = if (isEn) "Overflow" else "溢出"
+    val hdmiMatrixErrorFlag: String get() = if (isEn) "Error" else "错误"
+    val hdmiMatrixPower: String get() = if (isEn) "Power" else "电源"
+    val hdmiMatrixMode: String get() = if (isEn) "Mode" else "模式"
+    val hdmiMatrixResolution: String get() = if (isEn) "Resolution" else "分辨率"
+    val hdmiMatrixMirror: String get() = if (isEn) "Mirror" else "镜像"
+    val hdmiMatrixRotate: String get() = if (isEn) "Rotate" else "旋转"
+    val hdmiMatrixFusion: String get() = if (isEn) "Edge fusion" else "融合带"
+    val hdmiMatrixHorizontal: String get() = if (isEn) "Horizontal" else "水平"
+    val hdmiMatrixVertical: String get() = if (isEn) "Vertical" else "垂直"
+    val hdmiMatrixMute: String get() = if (isEn) "Mute" else "静音"
+    val hdmiMatrixApply: String get() = if (isEn) "Apply" else "应用"
+    val hdmiMatrixRefresh: String get() = if (isEn) "Refresh status" else "刷新状态"
+    val hdmiMatrixVersion: String get() = if (isEn) "Version" else "版本"
+    val hdmiMatrixCmdCount: String get() = if (isEn) "Commands" else "命令数"
+    val hdmiMatrixAppliedMode: String get() = if (isEn) "Applied mode" else "已生效模式"
+    val hdmiMatrixUnavailable: String get() = if (isEn) {
+        "HDMI matrix not detected (I2C node missing)"
+    } else {
+        "未检测到 HDMI 拼接板（I2C 节点缺失）"
+    }
+    val hdmiMatrixNoHardwareMode: String get() = if (isEn) {
+        "This layout is software-only; no hardware mode to apply"
+    } else {
+        "该布局为纯软件布局，无需下发硬件模式"
+    }
+    val hdmiMatrixFusionHint: String get() = if (isEn) {
+        "Release the slider to write. Each write stores to MCU flash, so it is rate-limited."
+    } else {
+        "松开滑杆后下发。每次写入都会写 MCU flash，因此有最小间隔限制。"
+    }
+
+    /** 按错误种类取用户可见文案；控制器从不构造这些文本。 */
+    fun hdmiMatrixErrorText(
+        kind: com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixErrorKind
+    ): String = when (kind) {
+        com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixErrorKind.NOT_AVAILABLE ->
+            if (isEn) "HDMI node missing (driver not loaded)"
+            else "HDMI 节点缺失（驱动未加载）"
+        com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixErrorKind.PERMISSION_DENIED ->
+            if (isEn) "Permission denied after 3 attempts"
+            else "权限不足（已重试 3 次）"
+        com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixErrorKind.DEVICE_STANDBY ->
+            if (isEn) "Device in standby; power on first"
+            else "设备处于待机，请先上电"
+        com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixErrorKind.INVALID_VALUE ->
+            if (isEn) "Invalid value (fix the value; retrying will not help)"
+            else "参数非法（请修改参数，重试无效）"
+        com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixErrorKind.UNSUPPORTED_IN_MODE ->
+            if (isEn) "Not supported in the current mode"
+            else "当前模式不支持该操作"
+        com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixErrorKind.TIMEOUT ->
+            if (isEn) "Timed out talking to the MCU"
+            else "与 MCU 通信超时"
+        com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixErrorKind.IO_FAILURE ->
+            if (isEn) "I/O failure on the HDMI node"
+            else "HDMI 节点读写失败"
+        com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixErrorKind.BUSY ->
+            if (isEn) "MCU is busy"
+            else "MCU 忙"
+        com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixErrorKind.NO_HARDWARE_MODE ->
+            hdmiMatrixNoHardwareMode
+        com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixErrorKind.THROTTLED ->
+            if (isEn) "Too frequent; use the slider then release"
+            else "操作过于频繁，请松开滑杆后再试"
+        com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixErrorKind.UNKNOWN ->
+            if (isEn) "Unknown HDMI error"
+            else "未知 HDMI 错误"
+    }
+
+    /** 带 errno 的详细文案，便于现场日志/贴图排查。 */
+    fun hdmiMatrixErrorDetail(
+        error: com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixError
+    ): String {
+        val base = hdmiMatrixErrorText(error.kind)
+        val errno = error.errno
+        val node = error.node?.relativePath
+        return when {
+            errno != null && node != null -> "$base (errno=$errno, $node)"
+            errno != null -> "$base (errno=$errno)"
+            node != null -> "$base ($node)"
+            else -> base
+        }
+    }
 }

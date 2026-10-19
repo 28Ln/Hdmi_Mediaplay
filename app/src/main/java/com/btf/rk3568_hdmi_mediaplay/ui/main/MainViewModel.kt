@@ -10,6 +10,12 @@ import com.btf.rk3568_hdmi_mediaplay.data.local.LocalStorageManager
 import com.btf.rk3568_hdmi_mediaplay.data.model.*
 import com.btf.rk3568_hdmi_mediaplay.data.repository.SettingsRepository
 import com.btf.rk3568_hdmi_mediaplay.data.repository.UsbConfigOverrideStore
+import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixController
+import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixErrorKind
+import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixModeMapping
+import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixResult
+import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixState
+import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiResolution
 import com.btf.rk3568_hdmi_mediaplay.remote.PlayerCommandHandler
 import com.btf.rk3568_hdmi_mediaplay.remote.PlayerStatusBroadcaster
 import com.btf.rk3568_hdmi_mediaplay.remote.PlayerStatusInfo
@@ -120,6 +126,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     /** 错误态自动重试任务；新状态到来时取消，避免重复排队 */
     private var usbRetryJob: Job? = null
 
+    // ==================== HDMI 拼接板（I2C） ====================
+
+    /**
+     * 拼接板控制器。
+     *
+     * 进程内单例：UI（设置页状态卡）与 ViewModel 必须共用**同一把写锁**，
+     * 否则「mode 先写、mirror 后写」的顺序在两边并发时会被打破。
+     */
+    internal val hdmiMatrix: HdmiMatrixController = HdmiMatrixController.getInstance()
+
+    /** 只读状态；Compose 直接 collect，重组时不发起任何 sysfs 读。 */
+    val hdmiState: StateFlow<HdmiMatrixState> = hdmiMatrix.state
+
+    /**
+     * 当前正在执行的硬件布局任务。
+     *
+     * 布局切换可能连续发生（用户快速点模式 / 远控连续下发），
+     * 必须取消被取代的任务，否则旧布局会晚到并覆盖新布局。
+     * 控制器内部还持锁串行化，所以取消不会留下半写的中间态。
+     */
+    private var hardwareLayoutJob: Job? = null
+
+    /** 最近一次已提交给硬件的布局，避免重复下发同一布局。 */
+    @Volatile
+    private var lastAppliedHardwareLayout: LayoutMode? = null
+
     /**
      * 是否处于「U 盘错误态（空间不足）」。
      *
@@ -172,14 +204,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
 
         // 发送应用启动广播
         PlayerStatusBroadcaster.sendAppStarted(getApplication())
+
+        // 启动时恢复拼接墙硬件模式（I2C）。必须异步：写 MCU 可能耗时数秒。
+        restoreHardwareLayoutOnStartup()
     }
-    
+
     override fun onCleared() {
         super.onCleared()
         // 清除远程控制回调
         PlayerCommandHandler.setCallback(null)
         // 发送应用停止广播
         PlayerStatusBroadcaster.sendAppStopping(getApplication())
+        hardwareLayoutJob?.cancel()
     }
     
     /**
@@ -632,12 +668,204 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
      * 更新设置
      */
     fun updateSettings(newSettings: AppSettings) {
+        val previousLayout = settings.value.layoutMode
+        val previousLanguage = settings.value.language
         safeLaunch {
             // 更新存储管理器设置
             localStorageManager.updateStorageSettings(newSettings.storageLocation, newSettings.customStoragePath)
-            
+
             withContext(Dispatchers.IO) {
                 settingsRepository.updateSettings(newSettings)
+            }
+        }
+        // StringResources 是全局单例：设置页切换语言时会自行更新，
+        // 但 U 盘配置下发的 language 不经过设置页，需要在这里同步，
+        // 否则后续错误提示会用旧语言。
+        if (newSettings.language != previousLanguage) {
+            StringResources.setLanguage(newSettings.language)
+        }
+        // 布局变化才下发硬件模式（其他设置与拼接板无关）。
+        // 放在 safeLaunch 之外：硬件下发失败不应让设置保存显示为"操作失败"。
+        if (newSettings.layoutMode != previousLayout) {
+            applyLayoutToHardware(newSettings.layoutMode)
+        }
+    }
+
+    // ==================== HDMI 拼接板：布局下发 ====================
+
+    /**
+     * 把布局映射成硬件模式并下发（设置页 / U 盘配置 / 远控 set_layout 的共同入口）。
+     *
+     * **绝不能在主线程执行**：一次写可能阻塞几百毫秒到秒级。
+     *
+     * 行为约定：
+     * - 软件布局（SINGLE / 竖屏 / 同画面 / PIP）没有硬件模式 → 零写入，
+     *   UI 保留软件布局，**不弹错误**（这不是故障）；
+     * - 同一布局重复设置 → 跳过（幂等，避免无谓写 MCU）；
+     * - 失败按 [HdmiMatrixErrorKind] 显示文案，并保留最后一次读回的诊断信息。
+     */
+    fun applyLayoutToHardware(layoutMode: LayoutMode, showErrors: Boolean = true) {
+        val hardwareMode = HdmiMatrixModeMapping.hardwareModeFor(layoutMode)
+        if (hardwareMode == null) {
+            log("布局 $layoutMode 为纯软件布局，跳过硬件模式下发")
+            lastAppliedHardwareLayout = layoutMode
+            return
+        }
+        if (lastAppliedHardwareLayout == layoutMode) {
+            log("布局 $layoutMode 的硬件模式未变化，跳过重复下发")
+            return
+        }
+
+        // 取消被取代的下发，保证最终生效的是最新布局
+        hardwareLayoutJob?.cancel()
+        hardwareLayoutJob = viewModelScope.launch(Dispatchers.IO) {
+            log("下发硬件布局: $layoutMode -> mode=$hardwareMode")
+            when (val result = hdmiMatrix.applyLayout(layoutMode)) {
+                is HdmiMatrixResult.Success -> {
+                    lastAppliedHardwareLayout = layoutMode
+                    log("硬件布局下发成功: mode=$hardwareMode")
+                }
+
+                is HdmiMatrixResult.Failure -> {
+                    val error = result.error
+                    // NoHardwareMode 在上面已经短路，这里只可能是真实错误
+                    Log.w(TAG, "硬件布局下发失败: kind=${error.kind}, errno=${error.errno}, node=${error.node}")
+                    if (showErrors) {
+                        withContext(Dispatchers.Main) {
+                            showToast(
+                                StringResources.hdmiMatrixErrorDetail(error),
+                                MessageType.ERROR
+                            )
+                        }
+                    }
+                    // 失败不写 lastApplied：下次进入设置/重试时会再尝试
+                }
+            }
+        }
+    }
+
+    /**
+     * 底部栏「切换模式」：轮换到下一个**客户可见**的拼接墙布局。
+     *
+     * 旧实现是脉冲 GPIO 按键，让硬件自己 +1；新固件没有按键节点，
+     * 改为在软件侧推进布局并走 [applyLayoutToHardware]。
+     * 这样也避免了「硬件 +1 走到 App 不展示的 1X4/4X1」的问题。
+     */
+    fun cycleWallLayout() {
+        val modes = LayoutMode.wallModes
+        if (modes.isEmpty()) return
+        val current = settings.value.layoutMode
+        val index = modes.indexOf(current)
+        val next = if (index < 0) modes.first() else modes[(index + 1) % modes.size]
+        log("底部栏切换模式: $current -> $next")
+        updateSettings(settings.value.copy(layoutMode = next))
+    }
+
+    /**
+     * 底部栏「切换分辨率」：按 720p → 1080p → 2160p30 → 720p 轮换。
+     *
+     * 分辨率不是持久化设置（MCU 自己保存），因此直接下发并重读状态。
+     */
+    fun cycleResolution() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val applied = hdmiMatrix.readApplied()
+            val current = (applied as? HdmiMatrixResult.Success)?.value?.resolution
+            val next = when (current) {
+                HdmiResolution.P720 -> HdmiResolution.P1080
+                HdmiResolution.P1080 -> HdmiResolution.P2160_30
+                HdmiResolution.P2160_30 -> HdmiResolution.P720
+                null -> HdmiResolution.P1080
+            }
+            when (val result = hdmiMatrix.setResolution(next)) {
+                is HdmiMatrixResult.Success -> {
+                    log("分辨率切换为 ${next.name}")
+                    withContext(Dispatchers.Main) {
+                        showToast(
+                            StringResources.hdmiMatrixResolution + ": " + resolutionLabel(next),
+                            MessageType.SUCCESS
+                        )
+                    }
+                }
+
+                is HdmiMatrixResult.Failure -> withContext(Dispatchers.Main) {
+                    showToast(StringResources.hdmiMatrixErrorDetail(result.error), MessageType.ERROR)
+                }
+            }
+        }
+    }
+
+    private fun resolutionLabel(resolution: HdmiResolution): String = when (resolution) {
+        HdmiResolution.P720 -> "720p"
+        HdmiResolution.P1080 -> "1080p"
+        HdmiResolution.P2160_30 -> "2160p30"
+    }
+
+    // ==================== HDMI 拼接板：设置页操作 ====================
+
+    /** 刷新只读状态面板（设置页进入/点刷新）。 */
+    fun refreshHdmiMatrix() {
+        viewModelScope.launch {
+            hdmiMatrix.probe()
+            hdmiMatrix.readApplied()
+        }
+    }
+
+    /** 电源开关；关机会让后续写入返回 EPERM，UI 需据此提示。 */
+    fun setHdmiPower(on: Boolean) {
+        viewModelScope.launch {
+            handleHdmiWriteResult(hdmiMatrix.setPower(on), "power=$on")
+        }
+    }
+
+    fun setHdmiResolution(resolution: HdmiResolution) {
+        viewModelScope.launch {
+            handleHdmiWriteResult(hdmiMatrix.setResolution(resolution), "resolution=${resolution.name}")
+        }
+    }
+
+    fun setHdmiMute(mute: Boolean) {
+        viewModelScope.launch {
+            handleHdmiWriteResult(hdmiMatrix.setMute(mute), "mute=$mute")
+        }
+    }
+
+    fun setHdmiRotate(quarterTurns: Int) {
+        viewModelScope.launch {
+            handleHdmiWriteResult(hdmiMatrix.setRotate(quarterTurns), "rotate=$quarterTurns")
+        }
+    }
+
+    /**
+     * 滑杆拖动帧：只更新内存预览，**零 IO**。
+     * 返回 false 表示值越界，UI 可据此不回填滑块。
+     */
+    fun previewHdmiFusion(horizontal: Int, vertical: Int): Boolean =
+        hdmiMatrix.stageFusion(horizontal, vertical).isSuccess
+
+    /** 滑杆松手：提交一次（内部含 300ms flash 防抖）。 */
+    fun commitHdmiFusion() {
+        viewModelScope.launch {
+            handleHdmiWriteResult(hdmiMatrix.commitFusion(), "fusion")
+        }
+    }
+
+    private suspend fun handleHdmiWriteResult(result: HdmiMatrixResult<Unit>, what: String) {
+        when (result) {
+            is HdmiMatrixResult.Success -> {
+                log("HDMI 写入成功: $what")
+                // 写成功后再读一次状态，让卡片显示 MCU 的真实反馈
+                hdmiMatrix.probe()
+                hdmiMatrix.readApplied()
+            }
+
+            is HdmiMatrixResult.Failure -> {
+                Log.w(TAG, "HDMI 写入失败: $what, kind=${result.error.kind}")
+                withContext(Dispatchers.Main) {
+                    showToast(
+                        StringResources.hdmiMatrixErrorDetail(result.error),
+                        MessageType.ERROR
+                    )
+                }
             }
         }
     }
@@ -1060,6 +1288,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     private fun isPlayerInCurrentLayout(playerIndex: Int): Boolean {
         if (playerIndex < 0) return false
         return playerIndex < settings.value.layoutMode.visiblePlayerCount
+    }
+
+    /**
+     * 启动时等待拼接板就绪，并把当前布局下发一次。
+     *
+     * 不用 `settings.value`：init 阶段 DataStore 往往还没读出持久化值，
+     * 那时拿到的是默认布局，会把用户设置覆盖掉。改为等第一次真实设置到达后
+     * 由 [onSettingsLoadedForHardware] 触发。
+     */
+    private fun restoreHardwareLayoutOnStartup() {
+        viewModelScope.launch {
+            // settings 是 Eagerly 的 StateFlow：第一个值恒为默认值，
+            // 第二个值才是 DataStore 读出的真实值。drop(1) 等它。
+            val loaded = settings.drop(1).first()
+            val online = hdmiMatrix.ensureOnline(timeoutMs = 20_000L)
+            if (online is HdmiMatrixResult.Failure) {
+                Log.i(TAG, "拼接板未就绪，跳过启动下发: kind=${online.error.kind}")
+                return@launch
+            }
+            applyLayoutToHardware(loaded.layoutMode, showErrors = false)
+        }
+    }
+
+    /**
+     * 设置页布局选择：先保存设置，再下发硬件。
+     *
+     * 顺序不能反：保存是本地 DataStore（快），硬件写可能秒级。
+     * 先保存保证即使硬件失败，重启后 UI 仍是用户选择的布局。
+     */
+    fun selectLayoutMode(layoutMode: LayoutMode) {
+        if (settings.value.layoutMode == layoutMode) return
+        updateSettings(settings.value.copy(layoutMode = layoutMode))
     }
 
     override fun setLayout(layoutMode: LayoutMode) {
