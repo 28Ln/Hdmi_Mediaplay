@@ -231,7 +231,17 @@ fun MediaPlayerView(
                             isPlaying = playerConfig.state == PlayerState.PLAYING,
                             volume = playerConfig.volume * (settings.defaultVolume / 100f),
                             isMuted = playerConfig.isMuted || settings.defaultMuted,
-                            isLooping = videoItems.size == 1 && settings.loopMode != LoopMode.RANDOM,
+                            // 单视频时**任何** loopMode 都应循环。
+                            //
+                            // 旧逻辑排除了 RANDOM，而 RANDOM 的下一集计算只写在
+                            // `videoItems.size > 1` 分支里 —— 于是「单视频 + 随机播放」
+                            // 播完就永久停在最后一帧（state=ENDED），四格不同步、
+                            // 也不会有任何提示。实测：远控 set_loop_mode=RANDOM 后
+                            // 出现该状态，需要手动重启应用才能恢复。
+                            //
+                            // RANDOM 对单个视频没有语义（只有一个候选），
+                            // 按循环处理才是符合直觉的行为。
+                            isLooping = videoItems.size == 1,
                             scaleMode = settings.videoScaleMode,
                             audioFallbackSilent = settings.audioFallbackSilent,
                             followsPrimary = followsPrimary,

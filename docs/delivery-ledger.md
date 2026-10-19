@@ -26,6 +26,7 @@
 | P0-19 | **开机自启在客户设备上永远开不了**（功能实际不可用） | `bootAutoStart` 默认 false，唯一 UI 入口在 Debug 的「播放设置」区块（Release `showPlaybackSettings=false`），U 盘配置也不支持该键。修复：① `UsbConfigSettings` 新增 `bootAutoStart`（含回滚快照）；② 客户版设置页「维护操作」区块新增开关。真机实测：勾选后 `boot_auto_start` 由 0 变 1，重启后日志 `BootReceiver: 开机自启：已启动服务与主界面` |
 | P1-34 | 三个设置是**失效开关**（有 UI、无任何代码读取） | `showCopyProgress` / `usbDetectionEnabled` / `maxCacheSizeMB`。其中 `showCopyProgress` 已接上（进度浮层受控）；另两个会改变核心行为（停 U 盘监听、删缓存），需产品确认后接。三者均只在 Debug 区块可见，客户版不受影响 |
 | P1-35 | 拷贝失败只显示笼统「拷贝失败」，现场无法判断原因 | `LocalStorageManager` 新增 `BatchCopyResult`（带原因），`copyFromUsb` 展示具体失败点（哪个格子、哪一步）。实测：`Aborting copy: failedCopies=1` 时日志与 UI 都能定位到 `P3 staging_verification_failed` |
+| P1-36 | 单视频 + `loopMode=RANDOM` 时播完**永久停在最后一帧** | `isLooping` 旧写法是 `size == 1 && loopMode != RANDOM`，而 RANDOM 的下一集计算只在 `size > 1` 分支里 —— 于是单视频播完进入 ENDED，四格停在末帧、无任何提示（实测需重启应用才能恢复）。RANDOM 对单视频没有语义，改为 `isLooping = size == 1`。真机复测：`loopMode=RANDOM` 下 52/51 正常循环 |
 | P1-33 | `mouseDragScroll` 无条件消费鼠标 Press，与 `awaitFirstDown(requireUnconsumed=true)` 冲突 | `MouseDragScroll.kt`：Press 不消费，Move 超过 touchSlop 才消费；鼠标点击/拖动/触摸三种输入均回归通过 |
 
 | 编号 | 问题 | 证据（实际实现） |

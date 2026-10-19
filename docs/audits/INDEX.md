@@ -94,6 +94,8 @@ git diff --stat c023c4b..HEAD
 
 | 开机自启不可用 / 开关找不到 | **2026-10-20 已修**。`bootAutoStart` 默认 false，唯一入口在 Debug 的播放设置区块（Release 隐藏），U 盘配置也不支持 → 客户设备实际永远开不了。已补 U 盘配置键 + 客户版「维护操作」开关。真机重启验证通过。**注**：设备首次开机若出现 "设为主屏幕应用" 选择框，是系统在多个 Launcher 间的正常行为，不是应用缺陷 | `SettingsScreen.kt` / `UsbConfig.kt` |
 
+| 单视频随机播放停在末帧 | **2026-10-20 已修**。`isLooping = size==1 && loopMode != RANDOM` 排除了随机，而 RANDOM 的下一集逻辑只在 `size>1` 分支 → 播完进 ENDED 永久停住。RANDOM 对单视频无语义，改为无条件循环 | `MediaPlayerView.kt` |
+
 ## 方法论教训（避免重犯）
 
 | 教训 | 说明 |
