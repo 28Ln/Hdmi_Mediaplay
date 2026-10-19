@@ -164,16 +164,28 @@ fun VideoPlayerView(
         if (!followsPrimary || cellIndex < 0) return@LaunchedEffect
         if (!PlaybackSync.ALIGN_ON_START) return@LaunchedEffect
         try {
-            val deadline = System.currentTimeMillis() + 8_000L
-            while (exoPlayer.playbackState != ExoPlayer.STATE_READY &&
-                System.currentTimeMillis() < deadline
-            ) {
-                delay(50)
-            }
-            if (exoPlayer.playbackState == ExoPlayer.STATE_READY) {
-                if (PlaybackSync.alignToPrimary(cellIndex)) {
-                    Log.d(TAG, "P${cellIndex + 1} 已对齐到主格进度")
+            // 等待本格 READY 并**重试**对齐。
+            //
+            // 单次尝试不够：四路同时 prepare 时（尤其软件解码）P2–P4 可能
+            // 比 P1 晚数秒才 READY；而 alignToPrimary 要求主格与自身都 READY，
+            // 任一未就绪就返回 false。实测（API30 软解）：单次尝试会在
+            // P2/P3/P4 还没就绪时就放弃，之后只能靠周期同步慢慢追，
+            // 画面在最初 30 秒内明显不同步并伴随转圈。
+            //
+            // 改为在 20 秒窗口内持续重试，直到对齐成功（成功后立即退出）。
+            val deadline = System.currentTimeMillis() + 20_000L
+            while (System.currentTimeMillis() < deadline) {
+                if (exoPlayer.playbackState == ExoPlayer.STATE_READY) {
+                    if (PlaybackSync.alignToPrimary(cellIndex)) {
+                        Log.d(TAG, "P${cellIndex + 1} 已对齐到主格进度")
+                        break
+                    }
+                    // 已经 READY 但主格未就绪 → 稍后再试；若两者都就绪，
+                    // alignToPrimary 内部会在阈值内直接返回 false（无需再试）。
+                    val primaryReady = PlaybackSync.isPrimaryReady()
+                    if (primaryReady) break
                 }
+                delay(200)
             }
         } catch (e: Exception) {
             Log.w(TAG, "对齐主格失败: ${e.message}")

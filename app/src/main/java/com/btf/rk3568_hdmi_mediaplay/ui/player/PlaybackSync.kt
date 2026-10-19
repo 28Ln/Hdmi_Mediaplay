@@ -163,6 +163,12 @@ object PlaybackSync {
         trimming.clear()
     }
 
+    /** 主格是否已注册且处于 READY（供起始对齐决定是否继续等待） */
+    fun isPrimaryReady(): Boolean {
+        val primary = players[PRIMARY_INDEX] ?: return false
+        return primary.playbackState == ExoPlayer.STATE_READY
+    }
+
     /**
      * 把指定格**立即**对齐到主格当前进度。
      *
