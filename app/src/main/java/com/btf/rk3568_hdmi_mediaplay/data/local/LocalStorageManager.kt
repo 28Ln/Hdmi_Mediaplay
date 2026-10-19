@@ -81,7 +81,15 @@ class LocalStorageManager(private val context: Context) {
         usbPath: File,
         folderName: String,
         playerIndex: Int,
-        onProgress: ((Float) -> Unit)? = null
+        onProgress: ((Float) -> Unit)? = null,
+        /**
+         * true = 只把数据准备好放进 staging，**不**改名替换本地目录。
+         *
+         * 用于「先全部暂存、确认四路都成功后再统一提交」的两阶段拷贝：
+         * 逐路提交会在第 3 路失败时留下「1-2 路是新内容、3-4 路是旧内容」
+         * 的混合状态，且旧内容已被删除，无法回滚。
+         */
+        stageOnly: Boolean = false
     ): PlayerCopyResult = withContext(Dispatchers.IO) {
         try {
             val usbPlayerDir = UsbUtils.getUsbPlayerDir(usbPath, folderName, playerIndex)
@@ -163,6 +171,15 @@ class LocalStorageManager(private val context: Context) {
                 )
                 stagingDir.deleteRecursively()
                 return@withContext PlayerCopyResult(playerIndex, usbFiles.size, stagedFiles.size, false, "staging_verification_failed")
+            }
+
+            if (stageOnly) {
+                // 数据已在 staging 且校验通过；提交（改名替换）由 copyAllFromUsbInternal
+                // 在四路**全部**暂存成功后统一执行。
+                Log.i(TAG, "Player $playerIndex staged ${stagedFiles.size} files (commit deferred)")
+                return@withContext PlayerCopyResult(
+                    playerIndex, usbFiles.size, stagedFiles.size, true
+                )
             }
 
             val hadExistingContent = localPlayerDir.exists() && (localPlayerDir.listFiles()?.isNotEmpty() == true)
@@ -263,39 +280,146 @@ class LocalStorageManager(private val context: Context) {
         onProgress: ((Int, Float) -> Unit)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         var hasSourceContent = false
-        var anySuccess = false
         var failedCopies = 0
-        
+        val stagedPlayers = mutableListOf<Int>()
+
         Log.i(TAG, "Starting copy from USB: ${usbPath.absolutePath}/$folderName")
-        
+
+        // ===== 阶段一：全部暂存，不改动任何现有缓存 =====
+        //
+        // 旧实现是「每路暂存成功就立刻改名替换」。风险：第 3 路失败时，
+        // 1-2 路已是新内容、3-4 路仍是旧内容，而 1-2 路的旧内容已被删除 ——
+        // 墙上出现四路混合代次，且无法回滚。
+        //
+        // 现在先只暂存；四路都成功后才统一提交。任何一路失败就整体放弃，
+        // 删除全部 staging，现有缓存保持原样（等价于「从没插过 U 盘」）。
         for (playerIndex in 0..3) {
             try {
-                val result = copyPlayerFromUsb(usbPath, folderName, playerIndex) { progress ->
-                    onProgress?.invoke(playerIndex, progress)
-                }
+                val result = copyPlayerFromUsb(
+                    usbPath, folderName, playerIndex,
+                    onProgress = { progress -> onProgress?.invoke(playerIndex, progress) },
+                    stageOnly = true
+                )
                 if (result.sourceFileCount > 0) {
                     hasSourceContent = true
                 }
                 if (result.success) {
-                    anySuccess = true
-                    Log.i(TAG, "Player $playerIndex: copy success (${result.copiedFileCount}/${result.sourceFileCount})")
+                    stagedPlayers += playerIndex
+                    Log.i(TAG, "Player $playerIndex: staged (${result.copiedFileCount}/${result.sourceFileCount})")
                 } else {
                     if (result.sourceFileCount > 0) {
                         failedCopies++
-                        Log.e(TAG, "Player $playerIndex: copy failed, error=${result.error}")
+                        Log.e(TAG, "Player $playerIndex: stage failed, error=${result.error}")
                     } else {
                         Log.w(TAG, "Player $playerIndex: no source content")
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error copying player $playerIndex: ${e.message}")
+                Log.e(TAG, "Error staging player $playerIndex: ${e.message}")
                 failedCopies++
             }
         }
-        
-        val success = hasSourceContent && failedCopies == 0 && anySuccess
-        Log.i(TAG, "Copy all completed, hasSourceContent=$hasSourceContent, anySuccess=$anySuccess, failedCopies=$failedCopies, success=$success")
-        success
+
+        // ===== 校验：有任何失败就整体放弃 =====
+        if (!hasSourceContent || failedCopies > 0 || stagedPlayers.isEmpty()) {
+            Log.e(
+                TAG,
+                "Aborting copy: hasSourceContent=$hasSourceContent, failedCopies=$failedCopies. " +
+                    "现有缓存未改动。"
+            )
+            discardStaged(stagedPlayers)
+            return@withContext false
+        }
+
+        // ===== 阶段二：统一提交 =====
+        val committed = mutableListOf<Int>()
+        for (playerIndex in stagedPlayers) {
+            if (commitStaged(playerIndex)) {
+                committed += playerIndex
+            } else {
+                Log.e(TAG, "Commit failed for player $playerIndex, rolling back ${committed.size} players")
+                rollbackCommitted(committed)
+                discardStaged(stagedPlayers.filter { it !in committed })
+                return@withContext false
+            }
+        }
+
+        Log.i(TAG, "Copy all completed: committed ${committed.size} players")
+        true
+    }
+
+    private fun stagingDirFor(playerIndex: Int): File {
+        val localPlayerDir = FileUtils.getPlayerLocalDir(context, playerIndex, storageLocation, customPath)
+        return File(localPlayerDir.parentFile, ".${localPlayerDir.name}_staging")
+    }
+
+    private fun backupDirFor(playerIndex: Int): File {
+        val localPlayerDir = FileUtils.getPlayerLocalDir(context, playerIndex, storageLocation, customPath)
+        return File(localPlayerDir.parentFile, ".${localPlayerDir.name}_backup")
+    }
+
+    /** 删除尚未提交的 staging */
+    private fun discardStaged(playerIndices: List<Int>) {
+        playerIndices.forEach { idx ->
+            try {
+                stagingDirFor(idx).deleteRecursively()
+            } catch (e: Exception) {
+                Log.w(TAG, "discard staging for player $idx failed: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * 把某一路的 staging 提交为正式缓存：
+     * 旧目录改名到 backup → staging 改名到正式 → 删 backup。
+     */
+    private fun commitStaged(playerIndex: Int): Boolean {
+        val localPlayerDir = FileUtils.getPlayerLocalDir(context, playerIndex, storageLocation, customPath)
+        val staging = stagingDirFor(playerIndex)
+        val backup = backupDirFor(playerIndex)
+
+        if (!staging.exists()) {
+            Log.e(TAG, "commit: staging missing for player $playerIndex")
+            return false
+        }
+        backup.deleteRecursively()
+
+        val hadExisting = localPlayerDir.exists()
+        if (hadExisting && !localPlayerDir.renameTo(backup)) {
+            Log.e(TAG, "commit: backup prepare failed for player $playerIndex")
+            return false
+        }
+        if (!staging.renameTo(localPlayerDir)) {
+            if (hadExisting) {
+                localPlayerDir.deleteRecursively()
+                backup.renameTo(localPlayerDir)
+            }
+            Log.e(TAG, "commit: promote failed for player $playerIndex")
+            return false
+        }
+        backup.deleteRecursively()
+        Log.i(TAG, "Committed player $playerIndex")
+        return true
+    }
+
+    /** 把已提交的格子恢复为提交前的旧缓存 */
+    private fun rollbackCommitted(playerIndices: List<Int>) {
+        playerIndices.forEach { idx ->
+            try {
+                val localPlayerDir = FileUtils.getPlayerLocalDir(context, idx, storageLocation, customPath)
+                val backup = backupDirFor(idx)
+                if (backup.exists()) {
+                    localPlayerDir.deleteRecursively()
+                    if (backup.renameTo(localPlayerDir)) {
+                        Log.i(TAG, "Rolled back player $idx")
+                    } else {
+                        Log.e(TAG, "Rollback failed for player $idx — backup kept at ${backup.absolutePath}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Rollback error for player $idx: ${e.message}")
+            }
+        }
     }
     
     fun clearPlayerCache(playerIndex: Int): Boolean {
