@@ -31,6 +31,14 @@
          注意：用户拒绝只影响通知可见性，前台服务本身照常运行。 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     
+    <!-- 悬浮窗权限。
+         用途：**仅**用于「进程被 LMK 杀掉后把 kiosk 界面拉回前台」。
+         Android 11 对后台启动 Activity 有严格限制，实测 AlarmManager +
+         PendingIntent 仍被判 isBgStartWhitelisted=false 而拦截；
+         持有 SYSTEM_ALERT_WINDOW 是该限制的官方豁免条件之一。
+         本应用不创建任何悬浮窗 UI。 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <!-- 屏幕常亮 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 

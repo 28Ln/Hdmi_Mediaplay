@@ -12,6 +12,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
+import android.provider.Settings
 import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -334,6 +335,15 @@ class UsbMonitorService : Service() {
                 launch
             )
             Log.i(TAG, "Main UI restore scheduled via AlarmManager")
+
+            // 注：曾尝试用 SYSTEM_ALERT_WINDOW 作为豁免（该权限确是后台启动
+            // Activity 的官方豁免条件之一），但在本机 **不可行**：
+            // - `appops set ... SYSTEM_ALERT_WINDOW allow` 对该 op 无效
+            //   （只能由用户在系统设置里授予）
+            // - 该 ROM 的「显示在其他应用的上层」列表里**根本不显示本应用**，
+            //   用户也无法手动开启
+            // 因此保留代码但实际不会走到。真正的自愈要靠设备管理侧
+            // （Lock Task Mode / device owner），见 delivery-ledger 阻塞项。
         } catch (e: Exception) {
             Log.w(TAG, "Failed to schedule main UI restore: ${e.message}")
         }
