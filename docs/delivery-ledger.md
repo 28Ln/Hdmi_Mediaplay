@@ -59,7 +59,7 @@
 | P1-22 | 远控 11 种事件未文档化（**对接前置条件**） | `docs/remote-command-contract.md` 重写：9 种事件、19 命令、错误码、layout_mode 全取值与别名、接入示例 |
 | P1-23 | `set_loop_mode` 缺省值 `"ALL"` 是枚举中不存在的值 | 改为 `LIST`；非法值返回错误而非静默降级 |
 | P1-24 | `set_interval` 回报未 clamp 的原始值 | 回执显示实际生效值 |
-| P1-25 | `hide` 发完广播即报成功，未确认是否生效 | **初版修法是错的**（回执方案在框架层面不可能成功）。现改为发送前用 `AppForegroundState` 判定前台，不在前台返回 `1006` |
+| P1-25 | `hide` 发完广播即报成功，未确认是否生效 | **初版修法是错的**（回执方案在框架层面不可能成功）。现改为发送前用 `AppForegroundState` 判定前台，不在前台返回 `1006`。**2026-10-19 端到端实测：前台时 `moveTaskToBack` 真的生效，应用退到后台；不在前台时返回 1006** |
 | P1-26 | 布局解析受系统语言影响（tr-TR 下 `pip` 失败） | **⚠️ 原判断有误**：Kotlin 无参 `lowercase()`/`uppercase()` 自 1.5 起即为 `Locale.ROOT` 语义，与 Java `toLowerCase()` 不同。实测 `"AVI".lowercase()` 在 tr-TR 下仍得到 `"avi"`。相关"修复"与 tr-TR 回归测试**无实际作用**（抓不到 bug），保留显式 `Locale.ROOT` 仅为表达意图 |
 | P1-27 | 播放器级命令对无效索引仍报成功并广播虚假 `playing` | **初版只拦了「无媒体」，没拦「不在当前布局」**。现已补 `isPlayerInCurrentLayout` 校验；`*_all` 与 `set_volume`/`set_mute` 一并按实际生效返回 |
 | P1-28 | 错误码塌缩，1004/1005 永不触发 | `MediaResult` 区分「不存在/不可读/格式不支持」→ 1003/1004/1005 |

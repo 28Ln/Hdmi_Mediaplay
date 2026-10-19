@@ -28,9 +28,21 @@
 ```kotlin
 Intent("com.btf.player.action.COMMAND").apply {
     putExtra("command_json", """{"action":"play_all"}""")
+    setPackage("com.btf.rk3568_hdmi_mediaplay")
 }
+// ⚠️ 不要再传第二个参数（receiverPermission）
 sendBroadcast(intent)
 ```
+
+> **常见错误（2026-10-19 实测踩到）**
+>
+> `sendBroadcast(intent, permission)` 的 `permission` 语义是「**接收方**必须持有该权限」。
+> 若把 `SEND_PLAYER_COMMAND` 传进去，系统会去找**接收应用自己**是否持有这个
+> 由它自己声明的权限 —— 通常不持有 → 投递被拒：
+> `Permission Denial … due to sender <你的包名>`。
+>
+> Receiver 的 `android:permission` 已经由系统在投递时校验**发送方**证书，
+> 接入方只需：① manifest 里 `uses-permission` 申请该权限；② 用同一证书签名；③ 正常 `sendBroadcast`。
 
 ### 命令清单
 
@@ -197,11 +209,24 @@ val intent = Intent("com.btf.player.action.COMMAND").apply {
 }
 sendBroadcast(intent)
 
-// 接收状态（需持有 RECEIVE_PLAYER_STATUS 权限）
+// 接收状态（需持有 RECEIVE_PLAYER_STATUS 权限——在 manifest 中 uses-permission 申请）
 val filter = IntentFilter("com.btf.player.status.CALLBACK")
-registerReceiver(receiver, filter,
-    "com.btf.rk3568_hdmi_mediaplay.permission.RECEIVE_PLAYER_STATUS", null)
+registerReceiver(receiver, filter)   // 不要传第 3 个参数
 ```
+
+### 状态回传的权限方向（2026-10-19 实测踩到）
+
+主应用发状态用的是 `sendBroadcast(intent, RECEIVE_PLAYER_STATUS)` ——
+即「**接收方需持有**该权限」。接入方只要在 manifest 里申请到该权限
+（同签名即自动授予），用两参 `registerReceiver` 注册即可。
+
+若注册时写成
+`registerReceiver(receiver, filter, RECEIVE_PLAYER_STATUS, null)`，
+第三个参数的语义是「**发送方**必须持有该权限」，会与主应用的用法冲突，
+现象是主应用侧报：
+`Permission Denial: broadcasting … requires RECEIVE_PLAYER_STATUS due to registered receiver`。
+
+---
 
 ### `set_media` 的两种参数在失败时行为**不同**（重要）
 
