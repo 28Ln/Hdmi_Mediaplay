@@ -110,7 +110,14 @@ class HdmiMatrixController(
                         done = HdmiMatrixResult.Failure(attempt.error)
                     }
                     attempt.error is HdmiMatrixError.NotAvailable -> {
+                        // 驱动未加载：启动阶段可能稍后出现，继续轮询
                         _state.update { it.copy(availability = HdmiMatrixAvailability.MISSING) }
+                    }
+                    attempt.error is HdmiMatrixError.NoDevice -> {
+                        // 从机不应答：重试无意义（硬件未接/未上电），立即结束
+                        _state.update { it.copy(availability = HdmiMatrixAvailability.NO_DEVICE) }
+                        publishError(attempt.error)
+                        done = HdmiMatrixResult.Failure(attempt.error)
                     }
                     // version 读到了但不是 2：还在启动，继续等
                 }
@@ -986,6 +993,8 @@ class HdmiMatrixController(
         val node = e.node
         return when (e.errno) {
             HdmiMatrixErrno.ENOENT -> HdmiMatrixError.NotAvailable(node, e)
+            // 节点在、从机不应答 → 硬件问题，与「驱动没加载」必须分开
+            HdmiMatrixErrno.ENODEV -> HdmiMatrixError.NoDevice(node, e)
             HdmiMatrixErrno.EACCES -> HdmiMatrixError.PermissionDenied(
                 attempts = e.attempts,
                 node = node,
@@ -1076,6 +1085,7 @@ class HdmiMatrixController(
                 lastError = error,
                 availability = when (error) {
                     is HdmiMatrixError.NotAvailable -> HdmiMatrixAvailability.MISSING
+                    is HdmiMatrixError.NoDevice -> HdmiMatrixAvailability.NO_DEVICE
                     is HdmiMatrixError.PermissionDenied -> HdmiMatrixAvailability.PERMISSION_DENIED
                     else -> it.availability
                 }

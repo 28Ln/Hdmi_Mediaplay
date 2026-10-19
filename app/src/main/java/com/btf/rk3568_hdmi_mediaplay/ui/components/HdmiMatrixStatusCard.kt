@@ -98,6 +98,8 @@ fun HdmiMatrixStatusCard(
             busy -> StringResources.loading to Color(0xFFB0BEC5)
             availability == HdmiMatrixAvailability.MISSING ->
                 StringResources.hdmiMatrixUnavailable to Color(0xFFFF8A80)
+            availability == HdmiMatrixAvailability.NO_DEVICE ->
+                StringResources.hdmiMatrixNoDevice to Color(0xFFFF8A80)
             availability == HdmiMatrixAvailability.PERMISSION_DENIED ->
                 StringResources.hdmiMatrixErrorText(
                     com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixErrorKind.PERMISSION_DENIED

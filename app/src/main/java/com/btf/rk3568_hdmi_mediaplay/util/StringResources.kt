@@ -368,10 +368,23 @@ object StringResources {
     val hdmiMatrixVersion: String get() = if (isEn) "Version" else "版本"
     val hdmiMatrixCmdCount: String get() = if (isEn) "Commands" else "命令数"
     val hdmiMatrixAppliedMode: String get() = if (isEn) "Applied mode" else "已生效模式"
+    /** 驱动未加载 / DTS 未配置（ENOENT）——**软件**问题。 */
     val hdmiMatrixUnavailable: String get() = if (isEn) {
-        "HDMI matrix not detected (I2C node missing)"
+        "HDMI matrix unavailable (driver/node missing)"
     } else {
-        "未检测到 HDMI 拼接板（I2C 节点缺失）"
+        "HDMI 拼接板不可用（驱动节点缺失）"
+    }
+
+    /**
+     * 节点存在但从机不应答（ENODEV）——**硬件**问题。
+     *
+     * 与上一条分开：现场看到「节点缺失」会去查固件/DTS，
+     * 看到「矩阵未应答」才会去查线缆、供电与电平。
+     */
+    val hdmiMatrixNoDevice: String get() = if (isEn) {
+        "HDMI matrix not responding (check cable / power)"
+    } else {
+        "HDMI 拼接板无应答（请检查连接与供电）"
     }
     val hdmiMatrixNoHardwareMode: String get() = if (isEn) {
         "This layout is software-only; no hardware mode to apply"

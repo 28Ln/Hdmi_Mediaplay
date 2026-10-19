@@ -97,7 +97,25 @@ sealed class HdmiMatrixError {
         override val errno: Int = HdmiMatrixErrno.EACCES
     }
 
-    /** MCU 处于待机（EPERM=1），必须先写 `power=1`。 */
+    /**
+     * 节点存在但从机不应答（`ENODEV`=19）。
+     *
+     * 与 [NotAvailable] 的区别是现场处置完全不同：
+     * - `NotAvailable`（ENOENT）→ 驱动没加载 / DTS 没配，是**软件**问题；
+     * - `NoDevice`（ENODEV）→ 节点在，但 I2C 没有 ACK，是**硬件/电平**问题
+     *   （矩阵未接、未上电、总线电平不对）。
+     *
+     * 2026-10-19 固件把「总线不通」从 EIO 改成了 ENODEV，因此必须单独建一类。
+     */
+    data class NoDevice(
+        override val node: HdmiMatrixNode? = null,
+        override val cause: Throwable? = null
+    ) : HdmiMatrixError() {
+        override val kind: HdmiMatrixErrorKind = HdmiMatrixErrorKind.NOT_AVAILABLE
+        override val errno: Int = HdmiMatrixErrno.ENODEV
+    }
+
+    /** MCU 处于待机（EPERM=1），必须先写 `power_state=1`。 */
     data class DeviceStandby(
         override val node: HdmiMatrixNode? = null,
         override val cause: Throwable? = null
@@ -234,7 +252,22 @@ data class HdmiMatrixState(
 enum class HdmiMatrixAvailability {
     UNKNOWN,
     ONLINE,
+
+    /**
+     * 节点不存在 → **驱动没加载 / DTS 没配**。
+     *
+     * 注意与 [NO_DEVICE] 区分：这不是硬件问题，重装固件或修正 DTS 才能解决。
+     */
     MISSING,
+
+    /**
+     * 节点存在、但从机不应答（`ENODEV`）→ **矩阵硬件未连接 / 未上电 / 电平不对**。
+     *
+     * 2026-10-19 固件把「总线不通」的返回码从 `EIO` 改为 `ENODEV`。
+     * 这两类故障的现场处置完全不同，因此 UI 文案也必须分开。
+     */
+    NO_DEVICE,
+
     PERMISSION_DENIED
 }
 
@@ -289,7 +322,7 @@ enum class HdmiMatrixNode(
     HFUSION("hfusion", true, 0..255),
     VFUSION("vfusion", true, 0..255),
     MUTE("mute", true, 0..1),
-    POWER("power", true, 0..1),
+    POWER("power_state", true, 0..1),
 
     /** 兼容旧按键语义；新代码不得依赖。 */
     KEY("key", true, null),
@@ -330,6 +363,7 @@ object HdmiMatrixErrno {
     const val EPERM = 1
     const val ENOENT = 2
     const val EIO = 5
+    const val ENODEV = 19
     const val EACCES = 13
     const val EINVAL = 22
     const val ERANGE = 34
@@ -343,7 +377,12 @@ object HdmiMatrixErrno {
     fun requiresPowerRecovery(errno: Int): Boolean = errno == EPERM
 
     fun kindFor(errno: Int): HdmiMatrixErrorKind = when (errno) {
-        ENOENT -> HdmiMatrixErrorKind.NOT_AVAILABLE
+        // ENOENT = 驱动未加载 / DTS 未配置（节点不存在）
+        // ENODEV = 节点存在但从机不应答（I2C 无 ACK）—— 硬件/电平问题
+        //
+        // 2026-10-19 固件把「总线不通」从 EIO 改成了 ENODEV。二者必须分开：
+        // 前者可以重试，后者重试无意义，应当降级 UI 并提示「矩阵未连接」。
+        ENOENT, ENODEV -> HdmiMatrixErrorKind.NOT_AVAILABLE
         EACCES -> HdmiMatrixErrorKind.PERMISSION_DENIED
         EPERM -> HdmiMatrixErrorKind.DEVICE_STANDBY
         EINVAL, ERANGE -> HdmiMatrixErrorKind.INVALID_VALUE
@@ -365,6 +404,7 @@ object HdmiMatrixErrno {
         val upper = message.uppercase()
         return when {
             "EACCES" in upper || "PERMISSION DENIED" in upper -> EACCES
+            "ENODEV" in upper || "NO SUCH DEVICE" in upper -> ENODEV
             "ENOENT" in upper || "NO SUCH FILE" in upper -> ENOENT
             "EPERM" in upper || "OPERATION NOT PERMITTED" in upper -> EPERM
             "EOPNOTSUPP" in upper || "ENOTSUP" in upper || "NOT SUPPORTED" in upper -> EOPNOTSUPP
