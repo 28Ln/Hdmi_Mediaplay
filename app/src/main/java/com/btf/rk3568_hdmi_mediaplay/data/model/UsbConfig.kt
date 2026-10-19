@@ -243,6 +243,15 @@ data class UsbConfigSettings(
     val videoScaleMode: String? = null,
     val autoPlayOnStart: Boolean? = null,
     val autoPlayAfterCopy: Boolean? = null,
+    /**
+     * 开机自启动。
+     *
+     * 2026-10-20 新增：此前该开关只在 Debug 的「播放设置」区块可见，
+     * 而 Release 的 `showPlaybackSettings=false` —— 客户设备上**没有任何
+     * 途径**把它打开，而它默认 false，等于「开机自启」功能实际不可用。
+     * 信发/kiosk 的头号诉求就是开机自动播放，因此补进 U 盘配置。
+     */
+    val bootAutoStart: Boolean? = null,
     val keepScreenOn: Boolean? = null,
     val usbScanFolderName: String? = null,
     val showOverwriteConfirm: Boolean? = null,
@@ -267,6 +276,7 @@ data class UsbConfigSettings(
             "videoScaleMode",
             "autoPlayOnStart",
             "autoPlayAfterCopy",
+            "bootAutoStart",
             "keepScreenOn",
             "usbScanFolderName",
             "showOverwriteConfirm",
@@ -336,6 +346,7 @@ data class UsbConfigSettings(
                 ),
                 autoPlayOnStart = UsbConfig.parseOptionalBoolean(json, "autoPlayOnStart", warnings, "settings"),
                 autoPlayAfterCopy = UsbConfig.parseOptionalBoolean(json, "autoPlayAfterCopy", warnings, "settings"),
+                bootAutoStart = UsbConfig.parseOptionalBoolean(json, "bootAutoStart", warnings, "settings"),
                 keepScreenOn = UsbConfig.parseOptionalBoolean(json, "keepScreenOn", warnings, "settings"),
                 usbScanFolderName = UsbConfig.validateFolderName(
                     UsbConfig.parseOptionalString(json, "usbScanFolderName", warnings, "settings"),

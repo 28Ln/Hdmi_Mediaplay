@@ -366,7 +366,11 @@ fun SettingsScreen(
                         showScanUsb = effectiveFeatureFlags.showScanUsbButton,
                         showImageSplit = effectiveFeatureFlags.showImageSplitTool,
                         onScanUsb = onScanUsb,
-                        onImageSplit = onImageSplit
+                        onImageSplit = onImageSplit,
+                        bootAutoStart = settings.bootAutoStart,
+                        onBootAutoStartChange = {
+                            onSettingsChange(settings.copy(bootAutoStart = it))
+                        }
                     )
                 }
                 
@@ -454,11 +458,25 @@ private fun CustomerMaintenanceSection(
     showScanUsb: Boolean,
     showImageSplit: Boolean,
     onScanUsb: () -> Unit,
-    onImageSplit: () -> Unit
+    onImageSplit: () -> Unit,
+    bootAutoStart: Boolean,
+    onBootAutoStartChange: (Boolean) -> Unit
 ) {
     if (!showScanUsb && !showImageSplit) return
 
     SettingsSection(title = "🛠 ${StringResources.maintenance}") {
+        // 开机自启：客户设备上唯一可用的入口。
+        //
+        // 此前该开关只存在于 Debug 的「播放设置」区块（Release 的
+        // showPlaybackSettings=false），而默认值是 false ——
+        // 结果客户设备**永远无法开启开机自启**，而这是信发/kiosk 的头号诉求。
+        // 除这里之外，U 盘配置的 settings.bootAutoStart 也可下发（2026-10-20 新增）。
+        SwitchSetting(
+            title = StringResources.bootAutoStart,
+            subtitle = StringResources.bootAutoStartDesc,
+            checked = bootAutoStart,
+            onCheckedChange = onBootAutoStartChange
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp)

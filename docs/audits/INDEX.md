@@ -92,6 +92,8 @@ git diff --stat c023c4b..HEAD
 
 | 进程被杀后界面不恢复 / 无看门狗 | **2026-10-20 已修**：服务 `START_STICKY` 本来会重启，但 Activity 不会。直接 `startActivity` 被系统拒绝（`Background activity start ... isBgStartWhitelisted:false`，前台服务不够）。改用 AlarmManager 精确闹钟投递 PendingIntent，真机实测 kill -9 后界面自动回到 kiosk。**不要再尝试用 startActivity 从服务拉起界面** | `UsbMonitorService.restoreMainUi` |
 
+| 开机自启不可用 / 开关找不到 | **2026-10-20 已修**。`bootAutoStart` 默认 false，唯一入口在 Debug 的播放设置区块（Release 隐藏），U 盘配置也不支持 → 客户设备实际永远开不了。已补 U 盘配置键 + 客户版「维护操作」开关。真机重启验证通过。**注**：设备首次开机若出现 "设为主屏幕应用" 选择框，是系统在多个 Launcher 间的正常行为，不是应用缺陷 | `SettingsScreen.kt` / `UsbConfig.kt` |
+
 ## 方法论教训（避免重犯）
 
 | 教训 | 说明 |

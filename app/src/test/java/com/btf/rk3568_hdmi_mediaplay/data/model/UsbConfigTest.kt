@@ -185,4 +185,25 @@ class UsbConfigTest {
             Locale.setDefault(original)
         }
     }
+
+    /**
+     * 回归：bootAutoStart 必须能从 U 盘配置下发。
+     *
+     * 该开关默认 false，且 Release 的 showPlaybackSettings=false 让它在
+     * 客户界面上不可见 —— 若不支持配置下发，客户设备永远无法开机自启。
+     */
+    @Test
+    fun `settings accepts bootAutoStart`() {
+        val config = UsbConfig.fromJson("""{"version":1,"settings":{"bootAutoStart":true}}""")
+
+        assertNotNull(config)
+        assertEquals(true, config?.settings?.bootAutoStart)
+    }
+
+    @Test
+    fun `settings bootAutoStart defaults to null when absent`() {
+        val config = UsbConfig.fromJson("""{"version":1,"settings":{}}""")
+        assertNotNull(config)
+        assertNull(config?.settings?.bootAutoStart)
+    }
 }

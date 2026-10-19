@@ -1103,6 +1103,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             log("  拷贝后自动播放: $auto")
         }
 
+        configSettings.bootAutoStart?.let { boot ->
+            newSettings = newSettings.copy(bootAutoStart = boot)
+            log("  开机自启: $boot")
+        }
+
         configSettings.keepScreenOn?.let { keep ->
             newSettings = newSettings.copy(keepScreenOn = keep)
             log("  屏幕常亮: $keep")

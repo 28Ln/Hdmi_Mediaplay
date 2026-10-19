@@ -64,6 +64,7 @@ object UsbConfigOverrideStore {
         "videoScaleMode" -> settings.videoScaleMode.name
         "autoPlayOnStart" -> settings.autoPlayOnStart.toString()
         "autoPlayAfterCopy" -> settings.autoPlayAfterCopy.toString()
+        "bootAutoStart" -> settings.bootAutoStart.toString()
         "keepScreenOn" -> settings.keepScreenOn.toString()
         "usbScanFolderName" -> settings.usbScanFolderName
         "showOverwriteConfirm" -> settings.showOverwriteConfirm.toString()
@@ -75,7 +76,7 @@ object UsbConfigOverrideStore {
     internal val SUPPORTED_KEYS = listOf(
         "layoutMode", "language", "backgroundColor", "defaultVolume", "defaultMuted",
         "imageIntervalSeconds", "imageTransition", "loopMode", "videoScaleMode",
-        "autoPlayOnStart", "autoPlayAfterCopy", "keepScreenOn", "usbScanFolderName",
+        "autoPlayOnStart", "autoPlayAfterCopy", "bootAutoStart", "keepScreenOn", "usbScanFolderName",
         "showOverwriteConfirm", "audioFallbackSilent"
     )
 
@@ -96,6 +97,7 @@ object UsbConfigOverrideStore {
                 "videoScaleMode" -> settings.copy(videoScaleMode = VideoScaleMode.valueOf(value))
                 "autoPlayOnStart" -> settings.copy(autoPlayOnStart = value.toBooleanStrict())
                 "autoPlayAfterCopy" -> settings.copy(autoPlayAfterCopy = value.toBooleanStrict())
+                "bootAutoStart" -> settings.copy(bootAutoStart = value.toBooleanStrict())
                 "keepScreenOn" -> settings.copy(keepScreenOn = value.toBooleanStrict())
                 "usbScanFolderName" -> settings.copy(usbScanFolderName = value)
                 "showOverwriteConfirm" -> settings.copy(showOverwriteConfirm = value.toBooleanStrict())
