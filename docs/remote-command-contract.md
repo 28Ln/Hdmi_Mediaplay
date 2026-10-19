@@ -247,6 +247,20 @@ registerReceiver(receiver, filter)   // 不要传第 3 个参数
 
 ---
 
+## 五bis、真机验证状态（2026-10-20，RK3568）
+
+**全部 19 条命令均已在真机验证通过**，包括：
+
+- 正常路径：`play_all` / `pause_all` / `stop_all` / `play` / `pause` / `stop` /
+  `set_layout` / `set_media` / `set_media_dir` / `clear` / `clear_all` /
+  `set_interval` / `set_volume` / `set_mute` / `set_loop_mode` /
+  `show` / `hide` / `get_status` / `batch`
+- 错误路径：越界索引 → `1001`；文件不存在 → `1003`；非法枚举值 → `2002`；
+  `batch` 部分失败 → `2002`；`hide` 不在前台 → `1006`
+- **参数钳制**：`set_interval=200` 回执 `60秒（请求 200 已限制到 1-60）`
+- **状态回读一致性**：命令生效后 `get_status` 的 `interval_seconds` /
+  `loop_mode` / `muted` 与命令效果一一对应
+
 ## 六、命令生效性与错误回报
 
 以下项**已在 1.1.3 中修复**（1.1.2 的 `hide` 实现是错的，见下方「曾走过的弯路」）：

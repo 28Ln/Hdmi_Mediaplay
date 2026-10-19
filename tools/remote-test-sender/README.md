@@ -18,6 +18,17 @@ printf 'sdk.dir=D\:/AndroidStudio/SDK\n' > local.properties
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+## 安装顺序（实测有效）
+
+```bash
+adb install app-release.apk          # 1. 先装主应用，让权限定义就位
+adb install testcmd-debug.apk        # 2. 再装测试端
+adb shell dumpsys package com.btf.testcmd | grep SEND_PLAYER_COMMAND   # 期望 granted=true
+```
+
+顺序反了会出现：`requested permissions` 里有该权限，但 `install permissions`
+段为空 → 广播被 `Permission Denial` 拒绝。签名一致也不能豁免这一步。
+
 ## 两个必须避开的坑
 
 | 坑 | 正确做法 |
