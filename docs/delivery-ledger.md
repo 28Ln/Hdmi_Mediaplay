@@ -142,6 +142,7 @@
 |---|---|---|
 | **密钥泄漏** | 生产签名密钥 `app.jks` 可从公开仓库历史恢复，需轮换 + 清历史 | 需决策后执行 |
 | **HDMI I2C 节点缺失** | **2026-10-20 真机复核**：`/sys/bus/i2c/devices/4-0030/` 下只有 `modalias`/`name`/`of_node`/`power`/`subsystem`/`uevent`，文档规定的 14 个节点（`version`/`mode`/…）**均不存在**。App 按设计降级为「驱动节点缺失」并隐藏控制入口，不崩溃。需固件方按修订 ABI（`power_state` 命名 + 节点恒存在）重新出包 | 固件方 |
+| **外部应用可把 kiosk 拉到前台** | `MainActivity` 必须 `exported=true`（HOME/LAUNCHER）。真机实测：系统设置在前台时，`am start -n .../.MainActivity` 能把播放界面强行切到前台，打断投放。**不加 signature 权限是刻意的**——那会让系统 Launcher 也起不来。标准解法是设备级 **Lock Task Mode**（`startLockTask` + 白名单），需 ROM/设备管理配合 | 设备管理方 |
 | ~~HDMI 节点权限~~ | **已随 2026-10-19 固件解决**：改为 I2C 直控，旧 `hdmi_b2/b3` 节点已移除，新节点设计为 0666 | ✅ 已解决 |
 | **AC3 音频** | 设备无 AC3 直通，视频轨正常但无声。已降级为静音播视频 | 建议客户素材改用 AAC |
 | **模式 5/6/7 记法** | 示意图「列×行」vs App「行×列」，图示相同 | 需客户确认 |

@@ -86,6 +86,10 @@ git diff --stat c023c4b..HEAD
 
 | 伪造 `MEDIA_MOUNTED` 可驱动 U 盘链 | **2026-10-20 实测复现并修复**。`MEDIA_MOUNTED` 是隐式广播，任何进程都能伪造；真机上 `adb shell am broadcast -a android.intent.action.MEDIA_MOUNTED -d file:///mnt/media_rw/EVIL2` 能让服务对不存在路径走完整检查链并通知上层。修复：① Manifest 静态声明改为 `exported=false`；② 收到挂载/卸载广播后，先用 `UsbUtils.getMountedUsbPaths` 核实该路径**确实在挂载列表**，否则丢弃。实测修复后打印 `Ignoring forged mount broadcast`，真实 U 盘仍正常识别 | `UsbMonitorService.kt` |
 
+| 外部应用拉起 kiosk | **已评估，不做代码修复**。`MainActivity` 必须 `exported=true`（HOME/LAUNCHER）；加 signature 权限会让系统 Launcher 也起不来。真机实测可被 `am start` 拉到前台。正解是设备级 Lock Task Mode。**不要再试图用 Manifest 权限"修"这个** | `delivery-ledger.md` 阻塞项 |
+
+| 伪造 `BOOT_COMPLETED` 触发自启 | **已核，不是缺陷**。真机实测：`am broadcast -a android.intent.action.BOOT_COMPLETED` 对后台应用的投递被系统拒绝（`Background execution not allowed`）；且 `bootAutoStart` 默认 `false` | `BootReceiver.kt` |
+
 ## 方法论教训（避免重犯）
 
 | 教训 | 说明 |
