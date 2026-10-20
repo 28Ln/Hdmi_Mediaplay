@@ -216,6 +216,7 @@ fun I2cDebugScreen(onExit: () -> Unit) {
             WriteSection(
                 strategy = strategy,
                 strategyLocked = strategyLocked,
+                channelBlocked = I2cProbe.isChannelBlocked(),
                 writing = writing,
                 ok = writeOk,
                 fail = writeFail,
@@ -349,6 +350,16 @@ private fun NodesSection(report: NodeReport?, readings: Map<String, String>) {
 }
 
 /** 一列节点：节点名 / 状态 / 当前值（说明放在悬浮提示里，两列排布下空间不够） */
+/** 正常读数：十进制整数，或 `0x` 前缀的十六进制（sysfs 两种都可能输出）。 */
+private fun looksLikeValue(text: String): Boolean {
+    val t = text.trim()
+    if (t.isEmpty()) return false
+    if (t.startsWith("0x", ignoreCase = true)) {
+        return t.substring(2).toLongOrNull(16) != null
+    }
+    return t.toLongOrNull() != null
+}
+
 @Composable
 private fun NodeColumn(
     names: List<String>,
@@ -367,11 +378,13 @@ private fun NodeColumn(
         names.forEach { name ->
             val ok = name in report.present
             val value = readings[name]
-            val isError = value != null && (
-                value.contains("ENODEV") || value.contains("EACCES") ||
-                    value.contains("EPERM") || value.contains("EIO") ||
-                    value.contains("ETIMEDOUT") || value.startsWith("errno=")
-                )
+            // 判据是「是否像正常读数」：十进制或 0x 十六进制都算正常，
+            // 其余文本（超时、通道阻塞、EACCES…）一律按错误色显示。
+            //
+            // 早先只匹配 errno 关键字，导致「读取通道阻塞（前一次读未返回）」
+            // 和「读取超时（驱动未返回）」被当成正常值显示成黄色，
+            // 现场会误以为那是节点读数。
+            val isError = value != null && !looksLikeValue(value)
 
             Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
                 Row(
@@ -390,7 +403,7 @@ private fun NodeColumn(
                     Cell(
                         when {
                             !ok -> "—"
-                            value == null -> "读取失败"
+                            value == null -> "未读到"
                             else -> value
                         },
                         0.dp,
@@ -421,6 +434,7 @@ private fun NodeColumn(
 private fun WriteSection(
     strategy: WriteStrategy,
     strategyLocked: Boolean,
+    channelBlocked: Boolean,
     writing: Boolean,
     ok: Int,
     fail: Int,
@@ -463,8 +477,10 @@ private fun WriteSection(
 
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // 熔断时禁用启动：每次发送都要赔上一个不可回收的 D 态线程
             Button(
                 onClick = onToggle,
+                enabled = !channelBlocked,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (writing) Color(0xFFC62828) else Color(0xFF2E7D32)
                 ),
