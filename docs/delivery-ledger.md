@@ -147,7 +147,7 @@
 | 项 | 说明 | 需要谁 |
 |---|---|---|
 | **密钥泄漏** | 生产签名密钥 `app.jks` 可从公开仓库历史恢复，需轮换 + 清历史 | 需决策后执行 |
-| **HDMI I2C 节点缺失** | **2026-10-20 真机复核**：`/sys/bus/i2c/devices/4-0030/` 下只有 `modalias`/`name`/`of_node`/`power`/`subsystem`/`uevent`，文档规定的 14 个节点（`version`/`mode`/…）**均不存在**。App 按设计降级为「驱动节点缺失」并隐藏控制入口，不崩溃。需固件方按修订 ABI（`power_state` 命名 + 节点恒存在）重新出包 | 固件方 |
+| **HDMI I2C 从机 0x30 无应答** | **2026-10-20 换机复核（修正此前结论）**：`/sys/bus/i2c/devices/4-0030/` 下 **14 个 ABI 节点全部存在**（另有 7 个 sysfs 条目），`ls` 0.02s 返回，app uid 可读目录。但**读任一节点都不返回**，800ms 内拿不到数据；`i2cget -y 4 0x30 0x00` 立即 `Device or resource busy`（地址已被 `rk3x-i2c` 驱动占用）；内核 `rk3x-i2c fe5d0000.i2c: timeout, ipd: 0x00, state: 1` 每秒打印一次，**无 ACK 也无 NACK**。=> 驱动已绑定、DTS 正常，**问题在物理层**（VDD / SDA-SCL 上拉 / 接线 / 地址跳线）。此前记录的「节点均不存在」是上一台样机的情况，已作废。App 侧已做降级：调试页如实显示「不通 · 从机无应答（驱动等待超时）」，不崩溃、不误报 | 硬件/固件方 |
 | **默认桌面未设置会导致开机弹选择框** | 设备上同时存在 `com.android.launcher3`、`com.android.provision` 与本应用三个 HOME。若不预置默认桌面，每次开机都会弹「设为主屏幕应用」，**自动播放被拦截**。真机验证：`cmd package set-home-activity --user 0 com.btf.rk3568_hdmi_mediaplay/.MainActivity` 后重启，直接进入本应用并自动播放四路。**这是部署必做步骤**（已写入 deployment-guide）。**注意：卸载重装会重置该设置**，升级流程若含卸载需重跑 | 部署/ROM 预置 |
 | **外部应用可把 kiosk 拉到前台** | `MainActivity` 必须 `exported=true`（HOME/LAUNCHER）。真机实测：系统设置在前台时，`am start -n .../.MainActivity` 能把播放界面强行切到前台，打断投放。**不加 signature 权限是刻意的**——那会让系统 Launcher 也起不来。标准解法是设备级 **Lock Task Mode**（`startLockTask` + 白名单），需 ROM/设备管理配合 | 设备管理方 |
 | ~~HDMI 节点权限~~ | **已随 2026-10-19 固件解决**：改为 I2C 直控，旧 `hdmi_b2/b3` 节点已移除，新节点设计为 0666 | ✅ 已解决 |
