@@ -1,6 +1,8 @@
 package com.btf.rk3568_hdmi_mediaplay.remote
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.content.Intent
 import android.util.Log
 import com.btf.rk3568_hdmi_mediaplay.MainActivity
@@ -22,6 +24,9 @@ import java.util.Locale
 object PlayerCommandHandler {
     
     private const val TAG = "PlayerCommandHandler"
+
+    /** `show` 命令启动后复查界面是否真的到前台的延迟 */
+    private const val SHOW_VERIFY_DELAY_MS = 1_500L
     
     // 错误码
     object ErrorCode {
@@ -432,20 +437,59 @@ object PlayerCommandHandler {
     
     // ==================== 应用控制 ====================
     
+    /**
+     * 把界面拉到前台。
+     *
+     * ## 为什么不能「startActivity 没抛异常就报成功」（2026-10-21 真机实测）
+     *
+     * Android 11 的后台启动限制会让 `startActivity` **静默失败**：
+     * 不抛异常、不进入 catch，只在系统日志里留一条
+     *
+     * ```
+     * Background activity start ... isBgStartWhitelisted: false
+     * ```
+     *
+     * 而旧实现直接就 `sendCommandSuccess` —— 调用方收到「成功」，
+     * 以为画面已经显示，实际设备仍被遮挡。无人值守场景下这是严重问题。
+     *
+     * 现在改为：启动后延迟复查 `AppForegroundState`，
+     * 确实到前台才报成功，否则如实报错并说明原因。
+     */
     private fun handleShow(context: Context): Boolean {
+        // 已经在前台：无需启动，直接成功
+        if (AppForegroundState.isForeground) {
+            PlayerStatusBroadcaster.sendCommandSuccess(context, "show")
+            return true
+        }
+
         try {
             val intent = Intent(context, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
             }
             context.startActivity(intent)
-            PlayerStatusBroadcaster.sendCommandSuccess(context, "show")
-            return true
         } catch (e: Exception) {
             Log.e(TAG, "显示应用失败", e)
             sendError(context, ErrorCode.MEDIA_LOAD_FAILED, "显示应用失败: ${e.message}")
             return false
         }
+
+        // 异步复查：系统拒绝时不会抛异常，只能靠「界面是否真的起来」判断。
+        // 用主线程 Handler 延迟 1.5 秒 —— 正常的 Activity 启动远快于此。
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (AppForegroundState.isForeground) {
+                PlayerStatusBroadcaster.sendCommandSuccess(context, "show")
+            } else {
+                Log.w(TAG, "show 未生效：系统拒绝了后台启动（isBgStartWhitelisted=false）")
+                sendError(
+                    context,
+                    ErrorCode.MEDIA_LOAD_FAILED,
+                    "无法切到前台：Android 11 后台启动限制。" +
+                        "需将本应用设为设备所有者或加入 Lock Task 白名单"
+                )
+            }
+        }, SHOW_VERIFY_DELAY_MS)
+        return true
     }
     
     private fun handleHide(context: Context): Boolean {
