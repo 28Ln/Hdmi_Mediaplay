@@ -144,6 +144,8 @@
 
 ## 七、核心文档
 
+- `docs/hdmi-matrix-api-guide.md` ← **HDMI 矩阵接口调用流程与参数（给接入/维护开发）**
+- `docs/deployment-guide.md` ← **部署指南（安装 / 设为默认桌面 / 开机自启）**
 - `docs/delivery-notes-1.1.3.md` ← **交付说明（给客户/现场运维，非技术人员可读）**
 - `docs/verification-1.1.3-checklist.md` ← **1.1.3 真机验证清单（待执行）**
 - `docs/delivery-ledger.md` ← **交付台账（修复状态的唯一权威来源）**
