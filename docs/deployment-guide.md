@@ -18,7 +18,10 @@ adb shell appops set com.btf.rk3568_hdmi_mediaplay MANAGE_EXTERNAL_STORAGE allow
 adb shell cmd package set-home-activity --user 0     com.btf.rk3568_hdmi_mediaplay/.MainActivity
 ```
 
-设置后重启验证：应**直接**进入播放界面并自动播放，没有选择框。
+> ⚠️ **必须在本应用安装完成之后执行**。实测：卸载重装会**重置**默认桌面设置，
+> 重新变成 Launcher3，开机又会弹选择框。升级流程若包含卸载步骤，需重新执行本条命令。
+
+设置后**立即生效**（无需重启）。重启验证：应**直接**进入播放界面并自动播放，没有选择框。
 
 > 若客户 ROM 预置了 default launcher（`defaults.xml`），也可由 ROM 侧直接指定，
 > 效果相同且无需 adb。
