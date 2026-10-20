@@ -185,8 +185,7 @@ object PlayerCommandHandler {
     }
     
     private fun handlePlay(context: Context, json: JSONObject): Boolean {
-        val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return false
+        val playerIndex = requirePlayerIndex(context, json) ?: return false
         val callback = requireCallback(context) ?: return false
 
         // 依据实际是否生效回报，而不是无条件广播状态。
@@ -206,8 +205,7 @@ object PlayerCommandHandler {
     }
     
     private fun handlePause(context: Context, json: JSONObject): Boolean {
-        val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return false
+        val playerIndex = requirePlayerIndex(context, json) ?: return false
         val callback = requireCallback(context) ?: return false
 
         // 依据实际是否生效回报，而不是无条件广播状态。
@@ -227,8 +225,7 @@ object PlayerCommandHandler {
     }
     
     private fun handleStop(context: Context, json: JSONObject): Boolean {
-        val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return false
+        val playerIndex = requirePlayerIndex(context, json) ?: return false
         val callback = requireCallback(context) ?: return false
 
         // 依据实际是否生效回报，而不是无条件广播状态。
@@ -250,8 +247,19 @@ object PlayerCommandHandler {
     // ==================== 布局控制 ====================
     
     private fun handleSetLayout(context: Context, json: JSONObject): Boolean {
+        // 区分「字段缺失」与「值非法」——两者排查方向不同。
+        // 旧实现一律报「无效的布局模式: 」（冒号后为空），
+        // 调用方会去怀疑自己传的模式名拼错，而实际是根本没带这个字段。
+        if (!json.has("layout_mode")) {
+            sendError(
+                context,
+                ErrorCode.INVALID_LAYOUT_MODE,
+                "缺少 layout_mode 字段（例：GRID_1X2 / WALL_MODE_8 / SAME_2X2）"
+            )
+            return false
+        }
         val layoutModeStr = json.optString("layout_mode", "")
-        
+
         val layoutMode = parseLayoutMode(layoutModeStr)
         if (layoutMode == null) {
             sendError(context, ErrorCode.INVALID_LAYOUT_MODE, "无效的布局模式: $layoutModeStr")
@@ -267,8 +275,7 @@ object PlayerCommandHandler {
     // ==================== 媒体设置 ====================
     
     private fun handleSetMedia(context: Context, json: JSONObject): Boolean {
-        val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return false
+        val playerIndex = requirePlayerIndex(context, json) ?: return false
         val callback = requireCallback(context) ?: return false
         
         val mediaItems = mutableListOf<MediaItem>()
@@ -319,8 +326,7 @@ object PlayerCommandHandler {
     }
     
     private fun handleSetMediaDir(context: Context, json: JSONObject): Boolean {
-        val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return false
+        val playerIndex = requirePlayerIndex(context, json) ?: return false
         val callback = requireCallback(context) ?: return false
         
         val dirPath = json.optString("directory_path", "")
@@ -352,8 +358,7 @@ object PlayerCommandHandler {
     }
     
     private fun handleClear(context: Context, json: JSONObject): Boolean {
-        val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return false
+        val playerIndex = requirePlayerIndex(context, json) ?: return false
         val callback = requireCallback(context) ?: return false
         
         callback.clearMedia(playerIndex)

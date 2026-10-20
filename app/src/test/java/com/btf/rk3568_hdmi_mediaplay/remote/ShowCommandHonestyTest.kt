@@ -51,6 +51,27 @@ class ShowCommandHonestyTest {
     }
 
     /**
+     * 参数缺失与参数非法的错误信息必须可区分。
+     *
+     * 旧实现里 `set_layout` 缺 `layout_mode` 时报「无效的布局模式: 」
+     * （冒号后为空），调用方会去怀疑模式名拼错，而实际是没带字段。
+     * 真机复现过这条。
+     */
+    @Test
+    fun `missing required field yields an actionable message`() {
+        val missingLayout = "缺少 layout_mode 字段（例：GRID_1X2 / WALL_MODE_8 / SAME_2X2）"
+        val invalidLayout = "无效的布局模式: NOT_A_MODE"
+
+        assertTrue("缺失提示应含字段名", missingLayout.contains("layout_mode"))
+        assertTrue("缺失提示应给出可用示例", missingLayout.contains("GRID_1X2"))
+        assertTrue("非法值提示应回显传入值", invalidLayout.contains("NOT_A_MODE"))
+        assertTrue(
+            "两种提示必须不同，否则现场无法区分该查什么",
+            missingLayout != invalidLayout
+        )
+    }
+
+    /**
      * 已经在前台时直接成功，不需要走启动流程。
      * 这条路径在旧实现里也是对的，保留以防回归。
      */
