@@ -271,8 +271,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
                     if (mediaItems.isNotEmpty()) {
                         hasContent = true
                         log("播放器 ${index + 1}: ${mediaItems.size} 个文件")
-                        mediaItems.forEach { item ->
+                        // 逐文件明细可能是上千行：全部落盘会瞬间把
+                        // field.log 灌满并轮转掉真正关键的事件。
+                        // 只记前 5 个作为抽样，其余靠总数代表。
+                        mediaItems.take(5).forEach { item ->
                             log("  - ${item.name} (${item.type})")
+                        }
+                        if (mediaItems.size > 5) {
+                            log("  …（其余 ${mediaItems.size - 5} 个略）")
                         }
                     }
                     config.copy(

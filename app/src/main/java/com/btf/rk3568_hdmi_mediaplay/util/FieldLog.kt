@@ -42,10 +42,32 @@ object FieldLog {
     /** 单文件上限：约 1 万行，足够覆盖数天的关键事件 */
     private const val MAX_BYTES = 512 * 1024L
 
+    /**
+     * 只在 writer 线程使用。
+     *
+     * `SimpleDateFormat` **不是线程安全的**，而 `write()` 会被主线程和 IO 线程
+     * 并发调用；共享同一个实例会产生错乱时间戳甚至抛
+     * `ArrayIndexOutOfBoundsException`。因此格式化一律放到单线程 writer 里做。
+     */
     private val timeFormat = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
 
     @Volatile
     private var appContext: Context? = null
+
+    /**
+     * 单线程异步写入。
+     *
+     * `MainViewModel.log()` 有相当一部分是在**主线程**调用的
+     * （`viewModelScope.launch` 默认就是 Main），而同步 `appendText`
+     * 在慢速 eMMC 上可能阻塞数毫秒。投放机对卡顿敏感，
+     * 日志绝不能拖住 UI。
+     */
+    private val writer = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "field-log-writer").apply {
+            isDaemon = true
+            priority = Thread.MIN_PRIORITY
+        }
+    }
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -61,7 +83,21 @@ object FieldLog {
         Log.d(tag, message)
 
         val ctx = appContext ?: return
+        // 时间戳在此刻取（体现「什么时候发生的」），格式化留到 writer 线程
+        val atMs = System.currentTimeMillis()
+        runCatching {
+            writer.execute { appendLine(ctx, atMs, tag, message) }
+        }.onFailure {
+            // 线程池已关闭等极端情况：绝不能影响业务
+            Log.w(TAG, "field log enqueue failed: ${it.message}")
+        }
+    }
+
+    /** 真正的落盘，只在 writer 线程执行 */
+    private fun appendLine(ctx: Context, atMs: Long, tag: String, message: String) {
         try {
+            // 拼装放在 writer 线程：timeFormat 不是线程安全的
+            val line = timeFormat.format(Date(atMs)) + " [$tag] $message\n"
             val dir = File(ctx.filesDir, DIR)
             if (!dir.exists()) dir.mkdirs()
             val file = File(dir, FILE)
@@ -71,8 +107,6 @@ object FieldLog {
                 rotated.delete()
                 file.renameTo(rotated)
             }
-
-            val line = "${timeFormat.format(Date())} [$tag] $message\n"
             file.appendText(line)
         } catch (e: Exception) {
             // 日志失败绝不能影响业务
