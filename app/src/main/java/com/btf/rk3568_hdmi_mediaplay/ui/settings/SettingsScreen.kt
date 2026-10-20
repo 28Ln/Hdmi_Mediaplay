@@ -626,6 +626,18 @@ private fun HdmiControlSection() {
     val snapshot = matrixState.lastSnapshot
     val applied = snapshot?.applied
 
+    /**
+     * 是否已知硬件真实状态。
+     *
+     * I2C 不通读不到快照时为 false。此时所有**依赖当前值做反向推断**的控件
+     * 必须禁用：
+     * - 电源/静音按钮显示 OFF、点击却写 true（反向操作）
+     * - 融合滑杆停在 0，拖动会写入凭空的偏移量
+     *
+     * 分辨率这类「直接指定目标值」的控件不受影响，仍可用。
+     */
+    val stateKnown = applied != null
+
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
 
@@ -715,26 +727,26 @@ private fun HdmiControlSection() {
         ) {
             Button(
                 onClick = { runWrite("power") { controller.setPower(applied?.power != true) } },
-                enabled = !busy,
+                enabled = !busy && stateKnown,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (applied?.power == true) Color(0xFF2E7D32) else Color(0xFF455A64)
                 ),
                 modifier = Modifier.weight(1f)
             ) {
                 Text("${StringResources.hdmiMatrixPower}: " +
-                    if (applied?.power == true) "ON" else "OFF")
+                    if (!stateKnown) "--" else if (applied?.power == true) "ON" else "OFF")
             }
 
             Button(
                 onClick = { runWrite("mute") { controller.setMute(applied?.mute != true) } },
-                enabled = !busy,
+                enabled = !busy && stateKnown,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (applied?.mute == true) Color(0xFFC62828) else Color(0xFF455A64)
                 ),
                 modifier = Modifier.weight(1f)
             ) {
                 Text("${StringResources.hdmiMatrixMute}: " +
-                    if (applied?.mute == true) "ON" else "OFF")
+                    if (!stateKnown) "--" else if (applied?.mute == true) "ON" else "OFF")
             }
         }
 
@@ -800,7 +812,9 @@ private fun HdmiControlSection() {
                 runWrite("hfusion") { controller.commitFusion() }
             },
             valueRange = 0f..255f,
-            enabled = !busy
+            // 状态未知时滑杆停在 0，用户会误以为融合带就是 0，
+            // 拖动一下就写入一个凭空的偏移量 —— 和电源按钮同一类问题。
+            enabled = !busy && stateKnown
         )
         Slider(
             value = vFusion,
@@ -812,7 +826,7 @@ private fun HdmiControlSection() {
                 runWrite("vfusion") { controller.commitFusion() }
             },
             valueRange = 0f..255f,
-            enabled = !busy
+            enabled = !busy && stateKnown
         )
         Text(
             text = StringResources.hdmiMatrixFusionHint,
