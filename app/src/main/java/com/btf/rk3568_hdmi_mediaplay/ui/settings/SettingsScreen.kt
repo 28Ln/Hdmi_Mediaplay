@@ -27,6 +27,7 @@ import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixResult
 import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiResolution
 import com.btf.rk3568_hdmi_mediaplay.ui.components.rememberHdmiEfullUiState
 import com.btf.rk3568_hdmi_mediaplay.util.StringResources
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -616,6 +617,15 @@ private fun HdmiBusHungBanner() {
     }
 }
 
+/**
+ * 设置页 HDMI 区块的刷新间隔。
+ *
+ * 取 10 秒：I2C 无应答时单次 probe 要等驱动超时（实测 5~25 秒），
+ * 轮询比 probe 还快只会把 IO 队列堆满。10 秒足够让现场接好线后
+ * 及时看到状态变化，又不会造成无谓的总线压力。
+ */
+private const val HDMI_UI_REFRESH_MS = 10_000L
+
 @Composable
 private fun HdmiControlSection() {
     val controller = remember { HdmiMatrixController.getInstance() }
@@ -641,13 +651,35 @@ private fun HdmiControlSection() {
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
 
-    // 进入设置页时主动读一次；陈旧数据只用于显示，不当作真值
+    /**
+     * 进设置页时读一次，并**周期性刷新**。
+     *
+     * ## 为什么不能只读一次（2026-10-21 审计）
+     *
+     * 原实现是 `LaunchedEffect(Unit)` + 单次 probe。`Unit` 作为 key
+     * 意味着**只在首次组合时执行**，之后永不重跑。后果：
+     *
+     * - 拼接板未接/未上电时进设置页，看到「未就绪」
+     * - 现场接好线缆后，界面**不会自动更新**，必须退出重进
+     * - 长跑设备停留数小时后，显示的是几小时前的状态，且无从判断有多旧
+     *
+     * 改为每 [HDMI_UI_REFRESH_MS] 刷新一次。间隔不能太短：
+     * I2C 无应答时单次 probe 要等驱动超时（实测 5~25 秒），
+     * 轮询过密只会把 IO 队列堆满。
+     */
     LaunchedEffect(Unit) {
-        busy = true
-        scope.launch {
+        while (true) {
+            // **串行**执行：等本轮 probe 真正结束再计时间隔。
+            //
+            // 若写成 `busy = true; scope.launch { ... }; delay(10s)`，
+            // probe 耗时超过间隔（实测 I2C 无应答时可达 25 秒）会并发启动
+            // 多个 probe，彼此覆盖 `busy` —— 按钮在探测未完成时被启用，
+            // 又回到「命令并发下发」的老问题。
+            busy = true
             controller.probe()
             controller.readApplied()
             busy = false
+            delay(HDMI_UI_REFRESH_MS)
         }
     }
 
@@ -679,17 +711,36 @@ private fun HdmiControlSection() {
 
     SettingsSection(title = "🔌 ${StringResources.hdmiMatrix}") {
         // ---- 在线状态 ----
+        // ## 文案必须区分「节点缺失」与「从机无应答」（2026-10-21 真机发现）
+        //
+        // 原来 `snapshot == null` 一律显示「驱动节点缺失」。
+        // 但本机实测节点 21 个全在、驱动也已绑定，真实原因是
+        // **从机 0x30 无 ACK**。两者排查方向完全不同：
+        // - 节点缺失 → 查固件 / DTS
+        // - 从机无应答 → 查供电 / 上拉 / 接线
+        // 现在按 `availability` 给出准确文案。
+        val availability = matrixState.availability
         Text(
             text = when {
                 busy -> StringResources.loading
-                snapshot == null -> StringResources.hdmiMatrixUnavailable
-                snapshot.online -> "${StringResources.hdmiMatrixOnline} · " +
+                snapshot?.online == true -> "${StringResources.hdmiMatrixOnline} · " +
                     "${StringResources.hdmiMatrixVersion} ${snapshot.version}"
-                else -> "${StringResources.hdmiMatrixOffline} · " +
+                availability == HdmiMatrixAvailability.NO_DEVICE ->
+                    StringResources.hdmiMatrixNoDevice
+                availability == HdmiMatrixAvailability.BUS_HUNG ->
+                    StringResources.hdmiMatrixBusHung
+                availability == HdmiMatrixAvailability.MISSING ->
+                    StringResources.hdmiMatrixUnavailable
+                availability == HdmiMatrixAvailability.PERMISSION_DENIED ->
+                    StringResources.hdmiMatrixUnavailable
+                snapshot != null -> "${StringResources.hdmiMatrixOffline} · " +
                     "${StringResources.hdmiMatrixVersion} ${snapshot.version}"
+                else -> StringResources.hdmiMatrixUnavailable
             },
             color = when {
                 snapshot?.online == true -> Color(0xFF81C784)
+                availability == HdmiMatrixAvailability.NO_DEVICE ||
+                    availability == HdmiMatrixAvailability.BUS_HUNG -> Color(0xFFFF8A80)
                 snapshot == null -> Color(0xFFFF8A80)
                 else -> Color(0xFFFFD54F)
             },
