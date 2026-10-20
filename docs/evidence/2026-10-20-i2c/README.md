@@ -64,3 +64,35 @@ Debug 包启动即进入本页。
 
 > 这不是 App 侧能修复的问题。App 的调试页已经能把这三类故障分别显示出来
 > （ENODEV / EACCES / ENOENT），现场可直接按提示排查。
+
+### 硬件层最终确认（绕过驱动）
+
+```bash
+# 用 -f 强制访问已被驱动占用的地址
+i2cget -y -f 4 0x30 0x00
+# → i2c_read_byte: No such device or address
+```
+
+即使绕过 `hdmi-matrix-ctl` 驱动，直接对 0x30 发起一次读，硬件仍然没有 ACK。
+**这在软件层面已无法再往下查** —— 问题确定在 I2C 物理层或从机侧。
+
+### 已排除的项
+
+| 项 | 结论 |
+|---|---|
+| 驱动未加载 | ❌ 已排除：`/sys/bus/i2c/drivers/hdmi-matrix-ctl/4-0030` 存在 |
+| 节点未创建 | ❌ 已排除：14 个节点齐全 |
+| 权限不足 | ❌ 已排除：权限 0666，且 `EACCES` 与 `ENODEV` 是不同 errno |
+| SELinux | ❌ 已排除：当前 Permissive（有 avc denied 但 `permissive=1`，被放行） |
+| pinmux 未切 | ❌ 已排除：pin 138/139 = `function i2c4 group i2c4m0-xfer` |
+| 总线号错 | ❌ 已排除：DT 为 `i2c@fe5d0000`，pinmux 指向同一节点 |
+
+### 需要在硬件侧排查
+
+1. 0x30 从机是否上电（VDD）
+2. SDA/SCL 是否有上拉（通常 4.7k）
+3. 从机地址跳线是否为 0x30
+4. i2c4 与从机之间的实际连线
+
+> 一旦硬件修好，App 侧无需任何改动 —— 调试页会自动从
+> 「不通·从机无应答」变成「通·从机应答」，并开始每秒写 mode。
