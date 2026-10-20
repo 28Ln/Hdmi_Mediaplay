@@ -95,7 +95,9 @@ fun MainScreen(
         if (!PlaybackSync.enabled) return@LaunchedEffect
 
         while (true) {
-            delay(PlaybackSync.CHECK_INTERVAL_MS)
+            // 间隔按主格视频时长自适应：固定 3 秒在 4 秒短片上
+            // 永远落进循环边界保护窗口，同步会被永久跳过（真机实测）。
+            delay(PlaybackSync.checkIntervalMs(PlaybackSync.primaryDurationMs()))
             val corrected = PlaybackSync.syncOnce()
             if (corrected > 0) {
                 Log.d("MainScreen", "同画面同步：纠正 $corrected 路")

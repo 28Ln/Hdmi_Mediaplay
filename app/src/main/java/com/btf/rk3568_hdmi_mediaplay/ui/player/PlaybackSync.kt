@@ -88,6 +88,12 @@ object PlaybackSync {
     /** 漂移超过该值才启动速度纠偏（毫秒）。低于此值视为已同步。 */
     const val TRIM_THRESHOLD_MS = 120L
 
+    /** 进入纠偏的阈值；与 [TRIM_RELEASE_MS] 共同构成滞回，避免来回振荡 */
+    const val TRIM_ENTER_MS = TRIM_THRESHOLD_MS
+
+    /** 恢复到常速的阈值：必须明显小于 [TRIM_ENTER_MS] */
+    const val TRIM_RELEASE_MS = 40L
+
     /** 速度纠偏使用的倍率（略快 / 略慢） */
     const val TRIM_FAST = 1.05f
     const val TRIM_SLOW = 0.95f
@@ -209,12 +215,27 @@ object PlaybackSync {
      * @return 是否调整了速度
      */
     private fun trimBySpeed(cellIndex: Int, player: ExoPlayer, driftMs: Long): Boolean {
-        if (kotlin.math.abs(driftMs) < TRIM_THRESHOLD_MS) {
-            // 已进入同步窗口：恢复常速（只需做一次）
+        val abs = kotlin.math.abs(driftMs)
+
+        // ## 恢复常速要有滞回（2026-10-20 真机实测）
+        //
+        // 旧逻辑「漂移 < TRIM_THRESHOLD 就立刻恢复 1.0×」会形成**周期振荡**：
+        // 实测 P3 的漂移在 -263ms 与 +137ms 之间每 8 秒来回摆动，
+        // 因为刚进入同步窗口就松手，固有偏差随即又把它推出去，
+        // 于是反复在 0.95× / 1.05× 之间切换，永远收敛不了。
+        //
+        // 用两个阈值（施密特触发）：
+        // - 小于 [TRIM_ENTER_MS]   → 开始纠偏
+        // - 小于 [TRIM_RELEASE_MS] → 才恢复到常速（明显更窄）
+        if (abs < TRIM_RELEASE_MS) {
             if (trimming.remove(cellIndex) == true) {
                 player.setPlaybackSpeed(1.0f)
                 Log.d(TAG, "P${cellIndex + 1} 漂移 ${driftMs}ms 已收敛，恢复 1.0×")
             }
+            return false
+        }
+        if (abs < TRIM_ENTER_MS) {
+            // 落在滞回带内：保持当前速度，不做任何切换
             return false
         }
         // drift > 0：跟随格跑在主格**前面** → 放慢
@@ -245,9 +266,29 @@ object PlaybackSync {
     fun isNearLoopEdge(positionMs: Long, durationMs: Long): Boolean {
         if (durationMs <= 0L) return false
         val posInLoop = positionMs % durationMs
-        // 短视频的保护窗口不能吃掉整个区间，否则永远不同步
+        // 短视频的保护窗口不能吃掉整个区间，否则永远不同步。
+        // 只收敛到 duration/4：4 秒片子剩 [1000,3000] 共 2 秒可用。
+        // 检查间隔另由 [checkIntervalMs] 按其时长自适应。
         val guard = minOf(LOOP_GUARD_MS, durationMs / 4)
+        if (guard <= 0L) return false
         return posInLoop < guard || posInLoop > durationMs - guard
+    }
+
+    /**
+     * 按视频时长决定同步检查间隔。
+     *
+     * ## 为什么不能固定 3 秒（2026-10-20 真机实测）
+     *
+     * 测试片只有 4 秒。固定 3 秒间隔时，绝大多数检查都落在
+     * 循环边界保护窗口里，同步被永久跳过 —— 日志刷满
+     * 「主格位于循环边界」，四格实际从未被纠正过。
+     *
+     * 间隔必须让「可同步区间」装得下至少一次检查：
+     * 取 duration/2 作为上限，且不小于 500ms（避免空转）。
+     */
+    fun checkIntervalMs(durationMs: Long): Long {
+        if (durationMs <= 0L) return CHECK_INTERVAL_MS
+        return (durationMs / 2).coerceIn(500L, CHECK_INTERVAL_MS)
     }
 
     /**
@@ -270,8 +311,55 @@ object PlaybackSync {
      *
      * @return 本次实际执行 seek 的格数（用于日志/测试）
      */
+    /**
+     * 主格当前媒体的时长（毫秒）；未注册或未知时返回 0。
+     *
+     * 供调用方按视频长度自适应同步间隔 —— 固定间隔在短视频上会
+     * 永远落在循环边界保护窗口里（见 [checkIntervalMs]）。
+     */
+    fun primaryDurationMs(): Long {
+        // 同样先剔除陈旧实例：否则会拿到已释放播放器的残留时长，
+        // 自适应间隔据此算出的值也是错的
+        pruneStale()
+        return players[PRIMARY_INDEX]?.duration ?: 0L
+    }
+
+    /**
+     * 剔除已经不再对应真实播放的陈旧实例。
+     *
+     * ## 为什么需要（2026-10-20 真机实测）
+     *
+     * 四格轮播「图片 + 短视频」时，视频分支播完会切到图片分支，
+     * `VideoPlayerView` 应当 `onDispose` 注销。但实测注册表里仍留着
+     * 已释放的 `ExoPlayer`：`syncOnce` 每秒读它的 `currentPosition`，
+     * 6 秒只增长 13ms（画面其实是静止图片），却仍满足
+     * `isPlaying && STATE_READY`，于是同步一直在对一个**死对象**空转。
+     *
+     * 后果：真实播放时若主格恰好是陈旧实例，所有跟随格会被对齐到
+     * 一个错误的基准位置。
+     *
+     * 判据：`duration <= 0` 表示没有可播媒体（已 stop/release 的实例
+     * 正是这个状态），据此剔除。
+     */
+    private fun pruneStale() {
+        val stale = players.entries.filter { (_, p) ->
+            runCatching { p.duration <= 0L }.getOrDefault(true)
+        }
+        stale.forEach { (index, p) ->
+            // 身份校验后再移除，避免误删同一格的新实例
+            if (players[index] === p) {
+                players.remove(index)
+                trimming.remove(index)
+                Log.w(TAG, "剔除陈旧的 P${index + 1} 播放器注册")
+            }
+        }
+    }
+
     fun syncOnce(): Int {
         if (!enabled) return 0
+
+        // 先清掉已释放的实例，避免对死对象做判定
+        pruneStale()
 
         val primary = players[PRIMARY_INDEX]
         if (primary == null) {

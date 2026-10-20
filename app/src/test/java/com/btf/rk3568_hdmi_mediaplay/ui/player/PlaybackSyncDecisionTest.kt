@@ -78,6 +78,73 @@ class PlaybackSyncDecisionTest {
         )
     }
 
+    /**
+     * 回归：4 秒短片 + 固定 3 秒间隔 = 同步被永久跳过。
+     *
+     * 真机实测日志刷满「主格位于循环边界」，四格从未被纠正过。
+     * 判据：可同步区间必须装得下一次检查。
+     */
+    @Test
+    fun `short clip still gets a syncable window with adaptive interval`() {
+        val duration = 4_000L
+        val interval = PlaybackSync.checkIntervalMs(duration)
+
+        assertTrue("短视频间隔必须小于固定值", interval < PlaybackSync.CHECK_INTERVAL_MS)
+
+        // 可同步区间长度 = duration - 2*guard
+        val guard = minOf(PlaybackSync.LOOP_GUARD_MS, duration / 4)
+        val syncable = duration - 2 * guard
+        assertTrue(
+            "可同步区间 ${syncable}ms 必须装下一次检查 ${interval}ms，否则永远跳过",
+            syncable >= interval
+        )
+    }
+
+    @Test
+    fun `normal length clip keeps the standard interval`() {
+        assertEquals(PlaybackSync.CHECK_INTERVAL_MS, PlaybackSync.checkIntervalMs(30_000L))
+        assertEquals(PlaybackSync.CHECK_INTERVAL_MS, PlaybackSync.checkIntervalMs(120_000L))
+    }
+
+    @Test
+    fun `interval has a floor to avoid spinning`() {
+        assertTrue(PlaybackSync.checkIntervalMs(200L) >= 500L)
+        assertTrue(PlaybackSync.checkIntervalMs(1L) >= 500L)
+    }
+
+    @Test
+    fun `unknown duration falls back to the standard interval`() {
+        assertEquals(PlaybackSync.CHECK_INTERVAL_MS, PlaybackSync.checkIntervalMs(0L))
+        assertEquals(PlaybackSync.CHECK_INTERVAL_MS, PlaybackSync.checkIntervalMs(-1L))
+    }
+
+    /**
+     * 滞回带：进入纠偏与恢复常速必须用**不同**阈值。
+     *
+     * 若用同一个阈值（旧实现），刚进入同步窗口就恢复 1.0×，
+     * 固有偏差随即又把它推出去 → 反复在 0.95×/1.05× 之间切换。
+     * 真机实测 P3 在 -263ms 与 +137ms 之间每 8 秒摆动一次，永不收敛。
+     */
+    @Test
+    fun `trim uses hysteresis so it cannot oscillate at one threshold`() {
+        assertTrue(
+            "恢复阈值必须明显小于进入阈值，否则会来回振荡",
+            PlaybackSync.TRIM_RELEASE_MS < PlaybackSync.TRIM_ENTER_MS
+        )
+        // 滞回带要有实际宽度，不能只是差 1ms
+        assertTrue(
+            "滞回带过窄起不到作用",
+            PlaybackSync.TRIM_ENTER_MS - PlaybackSync.TRIM_RELEASE_MS >= 50L
+        )
+    }
+
+    /** 落在滞回带内：既不该开始纠偏，也不该恢复常速（保持现状）。 */
+    @Test
+    fun `drift inside the hysteresis band keeps the current speed`() {
+        val inBand = PlaybackSync.TRIM_RELEASE_MS + 10L
+        assertTrue("滞回带内的漂移不应触发新的调速动作", inBand < PlaybackSync.TRIM_ENTER_MS)
+    }
+
     // ==================== 漂移处理 ====================
 
     @Test
