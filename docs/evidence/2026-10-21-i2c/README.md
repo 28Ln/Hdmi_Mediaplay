@@ -104,3 +104,45 @@ adb shell su root sh -c 'dmesg | grep -E "rk3x-i2c|hdmi-matrix" | tail -20'
 # 4. 确认 pinmux
 adb shell su root sh -c 'cat /sys/kernel/debug/pinctrl/*/pinmux-pins | grep "pin 13[89]"'
 ```
+
+## 八、SELinux 部署风险（2026-10-21 新增，**重要**）
+
+本机 `getenforce` = **Permissive**，因此 sysfs 访问被放行。但审计日志显示
+应用**确实被拒绝**，只是宽容模式没拦：
+
+```
+avc: denied { open } for comm="i2c-sysfs-reade"
+  path=".../4-0030/version" scontext=u:r:untrusted_app:s0 permissive=1
+```
+
+实测对比（临时 `setenforce 1` 后立刻恢复）：
+
+| SELinux | 结果 | 耗时 |
+|---|---|---|
+| Permissive | `ENODEV`（等 I2C 超时） | 25.5s |
+| **Enforcing** | **`Permission denied`** | **289ms** |
+
+**如果量产 ROM 设为 Enforcing，App 将完全无法访问 I2C 节点**，
+表现为「权限拒绝」而不是「总线故障」，排查方向完全不同。
+
+需要在 ROM 侧补 SELinux 策略（`untrusted_app` 允许读写该 sysfs，
+或改用 `sysfs_i2c` 标签 + 相应 allow 规则），或保持 Permissive。
+
+注：本次开机 36 条 avc denied 涉及 `/dev/i2c-4`、`/mnt/media_rw`、
+`/system/xbin/su` 等，说明这类放行是**普遍依赖**，不止 I2C 一处。
+
+已确认 SELinux 状态**不会随运行时间变化**（开机即 permissive，
+日志中无任何自动切换记录），因此它**不是**「先好后坏」的原因。
+
+## 九、驱动 unbind 不会因 reboot 自动恢复（操作注意）
+
+测试中执行过 `echo 4-0030 > .../unbind`，之后 `reboot` 重启，
+驱动**仍是未绑定状态**（sysfs 只剩 5 个条目，日志显示 `removed`）。
+需要手动重新 bind：
+
+```bash
+echo 4-0030 > /sys/bus/i2c/drivers/hdmi-matrix-ctl/bind
+```
+
+做故障复现时若发现节点数量异常少，先确认这一点，否则会误判为
+「驱动未加载」。
