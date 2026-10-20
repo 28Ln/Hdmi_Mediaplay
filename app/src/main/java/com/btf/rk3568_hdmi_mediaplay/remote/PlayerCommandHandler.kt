@@ -382,8 +382,7 @@ object PlayerCommandHandler {
     }
     
     private fun handleSetVolume(context: Context, json: JSONObject): Boolean {
-        val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return false
+        val playerIndex = requirePlayerIndex(context, json) ?: return false
         val callback = requireCallback(context) ?: return false
         
         val volume = json.optInt("volume", 100)
@@ -397,8 +396,7 @@ object PlayerCommandHandler {
     }
 
     private fun handleSetMute(context: Context, json: JSONObject): Boolean {
-        val playerIndex = json.optInt("player_index", -1)
-        if (!validatePlayerIndex(context, playerIndex)) return false
+        val playerIndex = requirePlayerIndex(context, json) ?: return false
         val callback = requireCallback(context) ?: return false
 
         val mute = json.optBoolean("mute", false)
@@ -569,6 +567,27 @@ object PlayerCommandHandler {
             return false
         }
         return true
+    }
+
+    /**
+     * 读取并校验 `player_index`，**区分「字段缺失」与「值非法」**。
+     *
+     * 两者排查方向不同：缺失是调用方用法错误（该带没带），
+     * 越界是值域错误（带错了）。此前一律报「无效的播放器索引: -1」，
+     * 现场会去怀疑索引算错，而实际是根本没读这个字段。
+     */
+    private fun requirePlayerIndex(context: Context, json: JSONObject): Int? {
+        if (!json.has("player_index")) {
+            sendError(
+                context,
+                ErrorCode.INVALID_PLAYER_INDEX,
+                "缺少 player_index 字段（应为0-3）"
+            )
+            return null
+        }
+        val index = json.optInt("player_index", -1)
+        if (!validatePlayerIndex(context, index)) return null
+        return index
     }
 
     private fun requireCallback(context: Context): ViewModelCallback? {
