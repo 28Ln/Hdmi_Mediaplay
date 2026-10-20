@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * 开机广播接收器 —— 实现开机自启动。
@@ -39,9 +40,23 @@ class BootReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         val appContext = context.applicationContext
 
+        // ## 为什么加超时（2026-10-20）
+        //
+        // `goAsync()` 只把广播的生命周期延长约 10 秒；超过后系统会认为接收器
+        // 未完成并可能触发 ANR。此前的实现直接 `first()` 读 DataStore ——
+        // 若磁盘慢/DataStore 首次初始化，可能拖到超时之后才 `finish()`。
+        //
+        // 这里用 `withTimeoutOrNull` 把「读设置」这一步限死在 5 秒内：
+        // 超时则跳过自启（宁可不开机播放，也不要 ANR），并保证 finally 一定执行。
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val settings = SettingsRepository(appContext).settingsFlow.first()
+                val settings = withTimeoutOrNull(5_000L) {
+                    SettingsRepository(appContext).settingsFlow.first()
+                }
+                if (settings == null) {
+                    Log.w(TAG, "读取设置超时（5s），跳过本次开机自启")
+                    return@launch
+                }
                 if (!settings.bootAutoStart) {
                     Log.i(TAG, "开机自启已关闭，跳过")
                     return@launch
