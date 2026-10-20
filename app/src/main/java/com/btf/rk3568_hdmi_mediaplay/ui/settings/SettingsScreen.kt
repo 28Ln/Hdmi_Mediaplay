@@ -161,7 +161,18 @@ fun SettingsScreen(
                 // 若挂在它下面，现场一旦触发熔断就再无任何入口看到原因或复位，
                 // 只能等到设备重启。故障告警必须永远可见。
                 HdmiBusHungBanner()
-                if (!customerMode && effectiveFeatureFlags.showHdmiControl) {
+                // HDMI 控制只由 showHdmiControl 决定，**不再叠加 customerMode**。
+                //
+                // 旧条件 `!customerMode && showHdmiControl` 在 Release 包里恒为 false
+                // （`customerUiMode = !IS_DEBUG_BUILD`），意味着**客户版永远看不到
+                // HDMI 控制区块** —— 即使 U 盘 btf_config.json 里写了
+                // `showHdmiControl: true` 也无效。
+                //
+                // 这与「功能开关可由 U 盘配置覆盖」的设计承诺直接冲突：
+                // 客户买拼接墙设备却无法从界面控制拼接板。
+                // 该区块本身不涉及危险操作（电源/静音/分辨率各自有校验），
+                // 交给功能开关控制已经足够。
+                if (effectiveFeatureFlags.showHdmiControl) {
                     HdmiControlSection()
                 }
 
