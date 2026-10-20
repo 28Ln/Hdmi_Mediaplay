@@ -397,6 +397,19 @@ object StringResources {
     } else {
         "HDMI 总线卡死（需重启设备）"
     }
+    /** 熔断告警正文：说清「为什么」和「怎么办」，现场按这个处置 */
+    val hdmiMatrixBusHungDetail: String get() = if (isEn) {
+        "An I2C transfer got no response and never returned. The driver still holds " +
+            "the adapter lock, so every further access fails. Restart the device to recover."
+    } else {
+        "一次 I2C 传输没有收到应答且始终未返回，驱动仍占着适配器锁，" +
+            "此后所有访问都会失败。请重启设备恢复；排查方向：供电、SDA/SCL 上拉、接线、地址跳线。"
+    }
+    val hdmiMatrixRetryOnce: String get() = if (isEn) {
+        "Retry once"
+    } else {
+        "重试一次"
+    }
     val hdmiMatrixNoHardwareMode: String get() = if (isEn) {
         "This layout is software-only; no hardware mode to apply"
     } else {

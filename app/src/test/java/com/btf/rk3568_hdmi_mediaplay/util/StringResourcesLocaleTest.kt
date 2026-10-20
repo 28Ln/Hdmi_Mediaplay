@@ -104,7 +104,9 @@ class StringResourcesLocaleTest {
     fun `hdmi matrix status strings are bilingual and distinct`() {
         val pairs = listOf(
             "hdmiMatrixNoDevice" to { StringResources.hdmiMatrixNoDevice },
-            "hdmiMatrixBusHung" to { StringResources.hdmiMatrixBusHung }
+            "hdmiMatrixBusHung" to { StringResources.hdmiMatrixBusHung },
+            "hdmiMatrixBusHungDetail" to { StringResources.hdmiMatrixBusHungDetail },
+            "hdmiMatrixRetryOnce" to { StringResources.hdmiMatrixRetryOnce }
         )
         pairs.forEach { (name, getter) ->
             StringResources.setLanguage(AppLanguage.CHINESE)

@@ -21,6 +21,7 @@ import com.btf.rk3568_hdmi_mediaplay.ui.components.mouseDragScroll
 import com.btf.rk3568_hdmi_mediaplay.ui.customerUiMode
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.ClearCacheDialog
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.ResetSettingsDialog
+import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixAvailability
 import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixController
 import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixResult
 import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiResolution
@@ -156,6 +157,10 @@ fun SettingsScreen(
 
                 // ========== HDMI 控制（核心设置之后） ==========
                 HdmiEfullSection()
+                // 熔断告警**不受功能开关控制**：Release 包默认 showHdmiControl=false，
+                // 若挂在它下面，现场一旦触发熔断就再无任何入口看到原因或复位，
+                // 只能等到设备重启。故障告警必须永远可见。
+                HdmiBusHungBanner()
                 if (!customerMode && effectiveFeatureFlags.showHdmiControl) {
                     HdmiControlSection()
                 }
@@ -560,6 +565,46 @@ private fun HdmiEfullSection() {
  * - 布局、分辨率、电源、静音都走 [HdmiMatrixController]，可读回真实生效值；
  * - 融合带滑杆拖动时只做内存预览，**松手才写 flash**。
  */
+/**
+ * 总线卡死告警 + 复位入口。
+ *
+ * 独立于 [HdmiControlSection]，因为它必须**始终可见**：
+ * `showHdmiControl` 在 Release 默认关闭，而熔断是需要人工干预的故障，
+ * 藏起来等于让设备卡死到下次重启。
+ */
+@Composable
+private fun HdmiBusHungBanner() {
+    val controller = remember { HdmiMatrixController.getInstance() }
+    val state by controller.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    var retrying by remember { mutableStateOf(false) }
+
+    if (state.availability != HdmiMatrixAvailability.BUS_HUNG) return
+
+    SettingsSection(title = "⚠️ ${StringResources.hdmiMatrixBusHung}") {
+        Text(
+            text = StringResources.hdmiMatrixBusHungDetail,
+            color = Color(0xFFFFAB91),
+            fontSize = 12.sp
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Button(
+            onClick = {
+                if (retrying) return@Button
+                retrying = true
+                scope.launch {
+                    controller.retryAfterTrip()
+                    retrying = false
+                }
+            },
+            enabled = !retrying
+        ) {
+            Text(if (retrying) StringResources.loading else StringResources.hdmiMatrixRetryOnce,
+                fontSize = 12.sp)
+        }
+    }
+}
+
 @Composable
 private fun HdmiControlSection() {
     val controller = remember { HdmiMatrixController.getInstance() }
