@@ -73,7 +73,9 @@ fun I2cDebugScreen(onExit: () -> Unit) {
             if (!strategyLocked) {
                 strategy = I2cProbe.resolveStrategy(bus)
             }
-            // 节点存在 → 自动开始持续写（需求 3）
+            // 需求 3：**默认启动 I2C** —— 进入页面就自动开始持续写。
+            // 只要存在任一可用策略（mode 节点在，或 su 可用）就自动开；
+            // 两者都不可用时保持停止，并在页面明确显示原因（不假装在发）。
             if (!autoStarted && strategy != WriteStrategy.UNAVAILABLE) {
                 autoStarted = true
                 writing = true
@@ -232,51 +234,18 @@ private fun NodesSection(report: NodeReport?, readings: Map<String, String>) {
         }
         Spacer(Modifier.height(10.dp))
 
-        Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
-            Cell("节点", 130.dp, Color(0xFF607D8B), bold = true)
-            Cell("状态", 76.dp, Color(0xFF607D8B), bold = true)
-            Cell("当前值", 150.dp, Color(0xFF607D8B), bold = true)
-            Cell("说明", 0.dp, Color(0xFF607D8B), bold = true)
-        }
+        // 两列布局：每列 7 个节点（14 个 ABI 节点刚好 2×7）。
+        // 单列 14 行在 600px 高的屏上要滚两次才能看全，现场核对不方便。
+        val nodes = I2cProbe.REQUIRED_NODES
+        val left = nodes.take(7)
+        val right = nodes.drop(7)
 
-        I2cProbe.REQUIRED_NODES.forEach { name ->
-            val ok = name in report.present
-            val value = readings[name]
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Cell(name, 130.dp, if (ok) Color(0xFFCFD8DC) else Color(0xFF8A8A8A), mono = true)
-                Cell(
-                    if (ok) "存在" else "缺失",
-                    76.dp,
-                    if (ok) Color(0xFF81C784) else Color(0xFFE57373)
-                )
-                // 直接显示数值；失败时显示**具体 errno 语义**（ENODEV/EACCES/...），
-                // 而不是笼统的「读取失败」——现场要靠它区分线缆问题与权限问题。
-                val isError = value != null && (
-                    value.contains("ENODEV") || value.contains("EACCES") ||
-                        value.contains("EPERM") || value.contains("EIO") ||
-                        value.contains("ETIMEDOUT") || value.startsWith("errno=")
-                    )
-                Cell(
-                    when {
-                        !ok -> "—"
-                        value == null -> "读取失败"
-                        else -> value
-                    },
-                    150.dp,
-                    when {
-                        !ok -> Color(0xFF666666)
-                        value == null -> Color(0xFFFFAB91)
-                        isError -> Color(0xFFFF8A80)
-                        else -> Color(0xFFFFF59D)
-                    },
-                    mono = true,
-                    size = 11
-                )
-                Cell(I2cProbe.describeNode(name), 0.dp, Color(0xFF78909C), size = 11)
-            }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            NodeColumn(left, report, readings, Modifier.weight(1f))
+            NodeColumn(right, report, readings, Modifier.weight(1f))
         }
 
         if (report.extra.isNotEmpty()) {
@@ -287,6 +256,75 @@ private fun NodesSection(report: NodeReport?, readings: Map<String, String>) {
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace
             )
+        }
+    }
+}
+
+/** 一列节点：节点名 / 状态 / 当前值（说明放在悬浮提示里，两列排布下空间不够） */
+@Composable
+private fun NodeColumn(
+    names: List<String>,
+    report: NodeReport,
+    readings: Map<String, String>,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        // 列头
+        Row(Modifier.fillMaxWidth().padding(bottom = 3.dp)) {
+            Cell("节点", 92.dp, Color(0xFF607D8B), bold = true, size = 11)
+            Cell("状态", 52.dp, Color(0xFF607D8B), bold = true, size = 11)
+            Cell("当前值", 0.dp, Color(0xFF607D8B), bold = true, size = 11)
+        }
+
+        names.forEach { name ->
+            val ok = name in report.present
+            val value = readings[name]
+            val isError = value != null && (
+                value.contains("ENODEV") || value.contains("EACCES") ||
+                    value.contains("EPERM") || value.contains("EIO") ||
+                    value.contains("ETIMEDOUT") || value.startsWith("errno=")
+                )
+
+            Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Cell(name, 92.dp, if (ok) Color(0xFFCFD8DC) else Color(0xFF8A8A8A), mono = true, size = 11)
+                    Cell(
+                        if (ok) "存在" else "缺失",
+                        52.dp,
+                        if (ok) Color(0xFF81C784) else Color(0xFFE57373),
+                        size = 11
+                    )
+                    // 直接显示数值；失败时显示具体 errno 语义，
+                    // 现场靠它区分「从机不应答」与「权限不足」。
+                    Cell(
+                        when {
+                            !ok -> "—"
+                            value == null -> "读取失败"
+                            else -> value
+                        },
+                        0.dp,
+                        when {
+                            !ok -> Color(0xFF666666)
+                            value == null -> Color(0xFFFFAB91)
+                            isError -> Color(0xFFFF8A80)
+                            else -> Color(0xFFFFF59D)
+                        },
+                        mono = true,
+                        size = 10
+                    )
+                }
+                // 描述：协议里每个节点的含义与取值范围（值下方小字）
+                Text(
+                    I2cProbe.describeNode(name),
+                    color = Color(0xFF6B7C8A),
+                    fontSize = 9.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(start = 4.dp, top = 1.dp)
+                )
+            }
         }
     }
 }
