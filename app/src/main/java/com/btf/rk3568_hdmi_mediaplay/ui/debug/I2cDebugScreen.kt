@@ -104,7 +104,13 @@ fun I2cDebugScreen(onExit: () -> Unit) {
                     if (values != null) {
                         // 合并而不是替换：本轮没读到的节点保留旧值，
                         // 靠时间戳说明它有多旧。
-                        readings = readings + values
+                        //
+                        // 但必须**按当前节点集合裁剪** —— 驱动重绑定后节点可能
+                        // 增减，残留的旧条目会一直留在 Map 里；若同名节点后来
+                        // 又被加回来，会先显示一次来路不明的旧值。
+                        val keep = nodes.required + nodes.extra
+                        val merged = (readings + values).filterKeys { it in keep }
+                        readings = merged
                     }
                 }
                 busDeferred.await()

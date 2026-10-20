@@ -50,6 +50,30 @@ class ReadingAgeTest {
         )
     }
 
+    /**
+     * 合并读数时必须按**当前节点集合**裁剪。
+     *
+     * 驱动重绑定后节点可能增减；不做裁剪的话，残留条目会一直留在 Map 里，
+     * 若同名节点后来又被加回来，会先显示一次来路不明的旧值。
+     */
+    @Test
+    fun `merged readings are pruned to the current node set`() {
+        val previous = mapOf(
+            "mode" to 1L,
+            "resolution" to 2L,
+            "removed_node" to 3L      // 节点已不存在
+        )
+        val fresh = mapOf("mode" to 4L)
+        val currentNodes = setOf("mode", "resolution", "version")
+
+        val merged = (previous + fresh).filterKeys { it in currentNodes }
+
+        assertEquals(setOf("mode", "resolution"), merged.keys)
+        assertTrue("已消失的节点必须被剔除", "removed_node" !in merged)
+        assertEquals("本轮读到的新值覆盖旧值", 4L, merged["mode"])
+        assertEquals("本轮没读到的保留旧值", 2L, merged["resolution"])
+    }
+
     /** 格式化不能出现负年龄或除零之类的问题。 */
     @Test
     fun `age formatting is monotonic and safe`() {
