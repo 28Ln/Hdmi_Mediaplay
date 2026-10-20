@@ -228,6 +228,41 @@ object PlaybackSync {
         return false
     }
 
+    /** 漂移处理方式。抽成枚举是为了能在 JVM 上验证决策，不必构造 ExoPlayer。 */
+    enum class DriftAction { NONE, TRIM, SEEK }
+
+    /**
+     * 主格是否落在循环边界附近。
+     *
+     * 单视频循环用 `REPEAT_MODE_ONE`，四格回到片头的时刻各不相同；
+     * 边界附近算出的偏差接近整个视频时长，必然触发 seek 与重新缓冲。
+     *
+     * **必须用循环内位置**（`position % duration`）。实测 API30 单文件循环时
+     * `currentPosition` 会单调增长超过 duration 而不回绕，旧写法
+     * `position > duration - GUARD` 在超过后恒为真 → 每轮都跳过同步，
+     * P3/P4 漂移一路累积到 16~19 秒。这是本项目出现过的真实故障。
+     */
+    fun isNearLoopEdge(positionMs: Long, durationMs: Long): Boolean {
+        if (durationMs <= 0L) return false
+        val posInLoop = positionMs % durationMs
+        // 短视频的保护窗口不能吃掉整个区间，否则永远不同步
+        val guard = minOf(LOOP_GUARD_MS, durationMs / 4)
+        return posInLoop < guard || posInLoop > durationMs - guard
+    }
+
+    /**
+     * 按漂移量决定处理方式。
+     *
+     * 优先级：小偏差忽略 → 中等偏差调速（不重新缓冲）→ 大偏差才 seek。
+     * 旧实现对**任何**超过阈值的偏差都 seek，导致每播几秒转一次圈。
+     */
+    fun decideDriftAction(driftMs: Long): DriftAction {
+        val abs = kotlin.math.abs(driftMs)
+        if (abs < TRIM_THRESHOLD_MS) return DriftAction.NONE
+        if (USE_SPEED_TRIM && abs <= SEEK_FALLBACK_MS) return DriftAction.TRIM
+        return if (abs > SYNC_THRESHOLD_MS) DriftAction.SEEK else DriftAction.NONE
+    }
+
     /**
      * 执行一次同步检查。
      *
@@ -269,10 +304,7 @@ object PlaybackSync {
             // 旧写法 `referencePosition > duration - GUARD` 在 position 超过
             // duration 后**恒为真**，于是每一轮都跳过同步 → P3/P4 漂移累积到
             // 16~19 秒，随后又触发超大 seek，来回拉锯、画面转圈。
-            val posInLoop = referencePosition % duration
-            val nearEdge = posInLoop < LOOP_GUARD_MS ||
-                posInLoop > duration - LOOP_GUARD_MS
-            if (nearEdge) {
+            if (isNearLoopEdge(referencePosition, duration)) {
                 Log.d(
                     TAG,
                     "syncOnce: 主格位于循环边界（${referencePosition}/${duration}ms），本轮跳过"
@@ -308,24 +340,19 @@ object PlaybackSync {
                 continue
             }
 
-            // 首选：微调速度收敛（不重新缓冲）。
-            if (USE_SPEED_TRIM && kotlin.math.abs(drift) <= SEEK_FALLBACK_MS) {
-                if (trimBySpeed(index, player, drift)) corrected++
-                continue
-            }
-
-            // 兜底：漂移过大（通常是刚换源）才 seek 一次。
-            // 旧实现在此处对**任何**超过阈值的偏差都 seek，导致周期性重新缓冲，
-            // 这正是「每播几秒转一次圈」的根因，也是周期同步被迫默认关闭的原因。
-            if (kotlin.math.abs(drift) > SYNC_THRESHOLD_MS) {
-                Log.d(TAG, "P${index + 1} 偏差 ${drift}ms 过大，seek 纠正")
-                trimming.remove(index)
-                player.setPlaybackSpeed(1.0f)
-                // 目标必须落在当前一次循环内：主格 position 可能已超过 duration，
-                // 直接 seekTo(referencePosition) 会落到文件末尾。
-                val target = if (duration > 0) referencePosition % duration else referencePosition
-                player.seekTo(target)
-                corrected++
+            when (decideDriftAction(drift)) {
+                DriftAction.TRIM -> if (trimBySpeed(index, player, drift)) corrected++
+                DriftAction.SEEK -> {
+                    Log.d(TAG, "P${index + 1} 偏差 ${drift}ms 过大，seek 纠正")
+                    trimming.remove(index)
+                    player.setPlaybackSpeed(1.0f)
+                    // 目标必须落在当前一次循环内：主格 position 可能已超过 duration，
+                    // 直接 seekTo(referencePosition) 会落到文件末尾。
+                    val target = if (duration > 0) referencePosition % duration else referencePosition
+                    player.seekTo(target)
+                    corrected++
+                }
+                DriftAction.NONE -> Unit
             }
         }
 
