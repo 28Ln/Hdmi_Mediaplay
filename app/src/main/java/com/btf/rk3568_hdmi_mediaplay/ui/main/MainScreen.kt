@@ -28,6 +28,15 @@ import com.btf.rk3568_hdmi_mediaplay.ui.dialog.OverwriteDialog
 import com.btf.rk3568_hdmi_mediaplay.ui.dialog.PlayerMenuDialog
 import com.btf.rk3568_hdmi_mediaplay.util.StringResources
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixAvailability
+import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixController
 
 private const val BOTTOM_BAR_VISIBLE_MS = 15_000L
 
@@ -174,6 +183,12 @@ fun MainScreen(
             if (featureFlags.showUsbStatus) {
                 UsbStatusIndicator(usbState = usbState)
             }
+
+            // HDMI 总线故障指示 —— **不受功能开关控制**。
+            // 本机是无人值守投放设备，用户不会主动进设置页；
+            // 若只在设置页显示，总线卡死后现场完全无感。
+            // 仅在故障时出现，正常播放时不影响画面。
+            HdmiBusFaultIndicator()
         }
 
         ToastMessage(
@@ -330,6 +345,36 @@ private fun HelpTipContent(
                 Text(text = helpClose, color = Color.Gray, fontSize = 10.sp)
             }
         }
+    }
+}
+
+/**
+ * 顶栏的 HDMI 总线故障灯。
+ *
+ * 只在 `BUS_HUNG` / `NO_DEVICE` / `MISSING` 时显示；在线或未知时**完全不占位**，
+ * 避免正常机器上多出一个无意义的小圆点。
+ */
+@Composable
+private fun HdmiBusFaultIndicator() {
+    val controller = remember { HdmiMatrixController.getInstance() }
+    val state by controller.state.collectAsState()
+    // 只在**需要人工干预**的状态亮灯。
+    // MISSING（驱动没加载）在设备上属于常态配置差异，长期亮红灯会造成疲劳；
+    // 它已由设置页说明，这里不占用投放画面。
+    val text = when (state.availability) {
+        HdmiMatrixAvailability.BUS_HUNG -> StringResources.hdmiMatrixBusHung
+        HdmiMatrixAvailability.NO_DEVICE -> StringResources.hdmiMatrixNoDevice
+        else -> return
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .background(Color(0xCCB71C1C), MaterialTheme.shapes.small)
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+    ) {
+        Box(Modifier.size(7.dp).background(Color.White, CircleShape))
+        Spacer(Modifier.width(5.dp))
+        Text(text, color = Color.White, fontSize = 11.sp)
     }
 }
 
