@@ -268,7 +268,13 @@ class MainActivity : ComponentActivity() {
                     setupFullscreen()
                 }
                 
-                var currentScreen by remember { mutableStateOf<Screen>(Screen.Main) }
+                // Debug 包启动即进入 I2C 调试页（临时调试需求）；
+                // Release 仍从主播放界面开始。
+                var currentScreen by remember {
+                    mutableStateOf<Screen>(
+                        if (BuildConfig.IS_DEBUG_BUILD) Screen.I2cDebug else Screen.Main
+                    )
+                }
                 val mainViewModel: MainViewModel = viewModel()
                 val settings by mainViewModel.settings.collectAsState()
                 
@@ -434,6 +440,12 @@ class MainActivity : ComponentActivity() {
                                             mainViewModel.loadLocalContent()
                                             currentScreen = Screen.Main
                                         }
+                                    )
+                                }
+
+                                Screen.I2cDebug -> {
+                                    com.btf.rk3568_hdmi_mediaplay.ui.debug.I2cDebugScreen(
+                                        onExit = { currentScreen = Screen.Main }
                                     )
                                 }
 
@@ -656,5 +668,12 @@ class MainActivity : ComponentActivity() {
         object Main : Screen()
         object Settings : Screen()
         object ImageSplit : Screen()
+
+        /**
+         * I2C 现场调试页。
+         *
+         * **仅在 Debug 包启用并作为启动首页**（客户版不应看到调试界面）。
+         */
+        object I2cDebug : Screen()
     }
 }
