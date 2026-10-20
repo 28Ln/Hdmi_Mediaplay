@@ -102,12 +102,14 @@ object I2cProbe {
     // ==================== 1. I2C 是否通 ====================
 
     suspend fun probeBus(): BusReport = withContext(Dispatchers.IO) {
-        // 熔断后一律不碰 sysfs 读：一次探测就会再留一个 D 态线程
-        if (channelBlocked) {
+        // 熔断后不碰 sysfs 读：一次探测就会再留一个 D 态线程。
+        // 但冷却结束后自动放行一次 —— 否则硬件修好了 App 也不知道，
+        // 现场会看到「明明通了却一直显示不通」（2026-10-20）。
+        if (channelBlocked && !tryAutoReset()) {
             return@withContext BusReport(
                 state = BusState.NO_DEVICE,
                 method = "熔断中（上一次传输无 ACK 未返回）",
-                detail = "驱动适配器锁未释放，任何 I2C 访问都会 EBUSY"
+                detail = "驱动适配器锁未释放，任何 I2C 访问都会 EBUSY；冷却后自动重试"
             )
         }
         // 注意：`exists()` / `isDirectory` 在 sysfs 上同样可能被驱动阻塞。
@@ -307,6 +309,43 @@ object I2cProbe {
             channelBlocked = true
             blockedSince = android.os.SystemClock.elapsedRealtime()
         }
+    }
+
+    /**
+     * 冷却期：熔断后至少等这么久才允许自动探测一次。
+     *
+     * ## 为什么需要自动复位（2026-10-20）
+     *
+     * 熔断原本只能手动复位。但一次**瞬时抖动**（MCU 恰好在复位、
+     * 上电瞬间总线未稳）也会触发熔断，之后即使硬件完全正常，
+     * App 也会一直认为「总线挂了」直到重启 —— 现场表现为
+     * 「明明通了却一直显示不通」，比不熔断更难排查。
+     *
+     * ## 为什么是「冷却 + 单次探测」而不是持续重试
+     *
+     * 每次失败尝试都会留下一个**无法回收**的 D 态线程（内核锁死），
+     * 所以绝不能退化成轮询。这里限定：
+     * - 距上次熔断至少 [AUTO_RETRY_COOLDOWN_MS]
+     * - 每次冷却最多放行**一次**尝试，失败立刻重新熔断
+     *
+     * 结果是：硬件修好 → 最多等一个冷却期自动恢复；
+     * 硬件没修好 → 每冷却期只多赔 1 个线程（而非每秒 1 个）。
+     */
+    private const val AUTO_RETRY_COOLDOWN_MS = 30_000L
+
+    /**
+     * 若仍在冷却期内返回 false；冷却结束则复位并返回 true。
+     *
+     * 供 [probeBus] 在熔断状态下调用 —— 调试页本来就在每 5 秒刷新，
+     * 借此机会在冷却结束后自动重试一次，无需人工干预。
+     */
+    fun tryAutoReset(): Boolean {
+        if (!channelBlocked) return false
+        val since = android.os.SystemClock.elapsedRealtime() - blockedSince
+        if (since < AUTO_RETRY_COOLDOWN_MS) return false
+        resetChannel()
+        android.util.Log.i("I2cProbe", "熔断冷却结束（${since}ms），自动重试一次")
+        return true
     }
 
     /**

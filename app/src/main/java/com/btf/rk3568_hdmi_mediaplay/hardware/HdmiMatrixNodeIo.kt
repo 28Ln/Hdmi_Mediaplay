@@ -1,5 +1,6 @@
 package com.btf.rk3568_hdmi_mediaplay.hardware
 
+import android.util.Log
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
@@ -71,11 +72,52 @@ class SysfsMatrixNodeIo(
      * 每次超时都意味着一个**无法回收**的 D 态线程和一把不释放的适配器锁；
      * 继续重试只会把小问题放大成进程级资源耗尽。
      */
+    private companion object {
+        private const val TAG = "SysfsMatrixNodeIo"
+
+        /** 熔断后的冷却期：期满自动重试一次，硬件修好可自愈 */
+        private const val AUTO_RETRY_COOLDOWN_MS = 30_000L
+    }
+
     @Volatile
     private var tripped = false
 
+    /** 熔断发生的时刻（elapsedRealtime），用于冷却判定 */
+    @Volatile
+    private var trippedAt = 0L
+
+    /** 冷却期：熔断后至少等这么久才允许自动重试一次 */
+    private val autoRetryCooldownMs: Long = AUTO_RETRY_COOLDOWN_MS
+
     /** 供控制器/UI 查询：总线是否已判死 */
     fun isTripped(): Boolean = tripped
+
+    /**
+     * 冷却结束后自动复位一次。
+     *
+     * ## 为什么需要（2026-10-20）
+     *
+     * 熔断是保守的：一次**瞬时抖动**（MCU 恰在复位、上电瞬间总线未稳）
+     * 也会触发。若只能手动复位，即使硬件随后完全正常，
+     * App 也会一直认为「总线挂了」—— 现场表现为「明明通了却一直不通」，
+     * 比不熔断更难排查。
+     *
+     * ## 为什么不会退化成轮询
+     *
+     * - 距上次熔断必须满 [AUTO_RETRY_COOLDOWN_MS]
+     * - 每次冷却只放行一次；失败立刻重新熔断并刷新时刻
+     *
+     * 硬件正常 → 最多等一个冷却期自动恢复；
+     * 硬件仍坏 → 每冷却期只多赔 1 个线程，而不是每秒 1 个。
+     */
+    fun tryAutoReset(): Boolean {
+        if (!tripped) return false
+        val since = android.os.SystemClock.elapsedRealtime() - trippedAt
+        if (since < autoRetryCooldownMs) return false
+        tripped = false
+        Log.i(TAG, "拼接板熔断冷却结束（${since}ms），自动重试一次")
+        return true
+    }
 
     /**
      * 手动复位熔断。
@@ -88,6 +130,7 @@ class SysfsMatrixNodeIo(
      */
     fun resetTrip() {
         tripped = false
+        trippedAt = 0L
     }
 
     private fun pathOf(node: HdmiMatrixNode): String = "$baseDir/${node.relativePath}"
@@ -137,12 +180,22 @@ class SysfsMatrixNodeIo(
     }
 
     private suspend fun readRaw(node: HdmiMatrixNode): String {
+        // 冷却结束后自动放行一次，避免硬件修好后仍被判死
+        tryAutoReset()
         if (tripped) throw blockedException(node)
         return try {
             readRawTimed(node)
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            tripped = true
+            trip()
             throw blockedException(node)
+        }
+    }
+
+    /** 熔断并记录时刻，供冷却判定使用 */
+    private fun trip() {
+        if (!tripped) {
+            tripped = true
+            trippedAt = android.os.SystemClock.elapsedRealtime()
         }
     }
 
@@ -185,11 +238,12 @@ class SysfsMatrixNodeIo(
     }
 
     private suspend fun writeRaw(node: HdmiMatrixNode, value: String) {
+        tryAutoReset()
         if (tripped) throw blockedException(node)
         try {
             writeRawTimed(node, value)
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            tripped = true
+            trip()
             throw blockedException(node)
         }
     }
