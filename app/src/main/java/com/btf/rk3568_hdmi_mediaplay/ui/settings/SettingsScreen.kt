@@ -629,7 +629,15 @@ private fun HdmiControlSection() {
     }
 
     fun runWrite(label: String, block: suspend () -> HdmiMatrixResult<Unit>) {
-        if (busy) return
+        // `busy` 期间按钮已禁用（见下方 enabled = !busy），正常点不到这里。
+        // 但 Compose 的重组有微小延迟，快速连点可能仍有一次穿透 ——
+        // 这里给出可见提示，而不是静默丢弃。真机上 busy 可能持续
+        // 十几秒（I2C 无应答时 probe 要等驱动超时），静默无响应
+        // 会让操作者以为按钮坏了。
+        if (busy) {
+            message = StringResources.hdmiMatrixBusyHint
+            return
+        }
         busy = true
         message = null
         scope.launch {

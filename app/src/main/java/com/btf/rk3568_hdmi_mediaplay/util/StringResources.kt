@@ -405,6 +405,12 @@ object StringResources {
         "一次 I2C 传输没有收到应答且始终未返回，驱动仍占着适配器锁，" +
             "此后所有访问都会失败。请重启设备恢复；排查方向：供电、SDA/SCL 上拉、接线、地址跳线。"
     }
+    /** 上一条硬件命令仍在执行时，用户再次点击的提示 */
+    val hdmiMatrixBusyHint: String get() = if (isEn) {
+        "Still applying the previous command, please wait"
+    } else {
+        "上一条命令仍在执行，请稍候"
+    }
     val hdmiMatrixRetryOnce: String get() = if (isEn) {
         "Retry once"
     } else {

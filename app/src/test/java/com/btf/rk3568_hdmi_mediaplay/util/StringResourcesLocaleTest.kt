@@ -106,7 +106,8 @@ class StringResourcesLocaleTest {
             "hdmiMatrixNoDevice" to { StringResources.hdmiMatrixNoDevice },
             "hdmiMatrixBusHung" to { StringResources.hdmiMatrixBusHung },
             "hdmiMatrixBusHungDetail" to { StringResources.hdmiMatrixBusHungDetail },
-            "hdmiMatrixRetryOnce" to { StringResources.hdmiMatrixRetryOnce }
+            "hdmiMatrixRetryOnce" to { StringResources.hdmiMatrixRetryOnce },
+            "hdmiMatrixBusyHint" to { StringResources.hdmiMatrixBusyHint }
         )
         pairs.forEach { (name, getter) ->
             StringResources.setLanguage(AppLanguage.CHINESE)
