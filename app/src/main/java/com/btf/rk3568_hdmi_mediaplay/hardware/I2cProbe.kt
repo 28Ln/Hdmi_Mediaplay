@@ -44,9 +44,20 @@ object I2cProbe {
     /**
      * 单节点读取的超时（毫秒）。
      *
-     * 实测本机固件上读 version 会永久阻塞，必须给硬上限。
+     * 从机无应答时驱动层要 5.6~10.2 秒才返回（真机实测），
+     * 这里只是「快速失败」的初判点，超过后进入 [SLOW_RETURN_GRACE_MS] 宽限期。
      */
     private const val NODE_READ_TIMEOUT_MS = 800L
+
+    /**
+     * 慢返回宽限期。
+     *
+     * rk3x-i2c 在从机无应答时的驱动层超时**不是固定值**：
+     * 真机实测 5 次为 10.2s / 5.9s / 5.7s / 5.7s / 5.6s。
+     * 取 15 秒覆盖最坏情况；超过这个时间仍未返回，
+     * 才判定为「内核挂死」（另一台样机上 `timeout 20 cat` 都杀不掉的那种）。
+     */
+    private const val SLOW_RETURN_GRACE_MS = 15_000L
 
     /** I2C 总线号（DT alias `i2c4`） */
     const val BUS = 4
@@ -262,6 +273,10 @@ object I2cProbe {
     /** 队列积压上限：读通道正常时几乎恒为 0 */
     private const val READ_QUEUE_CAPACITY = 16
 
+    /** 节点读取的轮转起点：慢总线上一个预算周期读不完全部节点 */
+    @Volatile
+    private var readRotation = 0
+
     /** 读通道已被卡死：与「本次读超时」含义不同 */
     private const val READ_CHANNEL_BLOCKED = "!channel-blocked"
 
@@ -396,14 +411,38 @@ object I2cProbe {
             Log.w(TAG, "sysfs read channel saturated (queue full)")
             return READ_CHANNEL_BLOCKED
         }
+
+        // ## 超时后要区分「慢」和「死」（2026-10-21 真机实测）
+        //
+        // 两种固件行为完全不同：
+        //
+        // - **A. 驱动超时返回**：`cat version` 约 10 秒后返回 ENODEV，
+        //   线程正常结束、可回收（本机实测连续 3 次都是 ~10s/10.0s/10.0s，
+        //   且 ps 无 D 态残留）。此时熔断是**错的** —— 会把一个只是慢的
+        //   总线永久判死，用户看不到真实读数。
+        // - **B. 内核永久挂死**：`read()` 停在 D 态不返回，线程不可回收，
+        //   适配器锁不释放（另一台样机实测，`timeout 20 cat` 都杀不掉）。
+        //   这种情况必须熔断，否则持续泄漏线程直到进程耗尽。
+        //
+        // 判据：等待 [NODE_READ_TIMEOUT_MS] 后仍未返回 → 再等一个
+        // [SLOW_RETURN_GRACE_MS] 宽限期。宽限期内返回 = 慢（不熔断）；
+        // 仍然不返回 = 死（熔断）。
         return try {
             future.get(NODE_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         } catch (e: java.util.concurrent.TimeoutException) {
-            // 故意不 cancel：改状态打断不了内核态读，只会让队列语义更混乱。
-            // 同时熔断：这一笔已卡死，继续发只会继续泄漏线程、继续锁死总线。
-            tripChannel()
-            Log.w(TAG, "sysfs read blocked >${NODE_READ_TIMEOUT_MS}ms — channel tripped")
-            null
+            // 宽限期：给驱动层超时留出返回时间
+            try {
+                future.get(SLOW_RETURN_GRACE_MS, TimeUnit.MILLISECONDS)
+            } catch (slow: Exception) {
+                // 宽限期也没回来 → 判定为真正的挂死，熔断
+                tripChannel()
+                Log.w(
+                    TAG,
+                    "sysfs read blocked >${NODE_READ_TIMEOUT_MS + SLOW_RETURN_GRACE_MS}ms " +
+                        "— channel tripped"
+                )
+                null
+            }
         } catch (e: Exception) {
             Log.w(TAG, "sysfs read failed: ${e.message}")
             null
@@ -595,24 +634,57 @@ object I2cProbe {
      * readNodeValue 内部是「后台线程 + join」，会占住 IO 线程，
      * 但 Dispatchers.IO 默认 64 个线程，14 个节点不会排队。
      */
-    suspend fun readAllPresent(present: List<String>): Map<String, String> {
+    suspend fun readAllPresent(
+        present: List<String>,
+        budgetMs: Long = 6_000L
+    ): Map<String, String> {
         // 熔断后不读：返回空表，UI 会显示「通道阻塞」
         if (channelBlocked) return emptyMap()
-        return readAllPresentInner(present)
+        return readAllPresentInner(present, budgetMs)
     }
 
-    private suspend fun readAllPresentInner(present: List<String>): Map<String, String> =
-        coroutineScope {
-            val jobs = present.map { name ->
-                async(Dispatchers.IO) { name to readNodeValue(name) }
-            }
-            val out = LinkedHashMap<String, String>()
-            jobs.forEach { job ->
-                val (name, value) = job.await()
-                out[name] = value
-            }
-            out
+    /**
+     * 逐个读节点，**受总预算约束**。
+     *
+     * ## 为什么不能并行（2026-10-21 真机实测）
+     *
+     * 读通道只有 **1 个线程**（见 [reader]），并行提交只是把 14 个任务
+     * 塞进队列排队。从机无应答时**每个**读要等驱动层超时约 10 秒，
+     * 14 个串起来就是 140 秒 —— 而队列只有 16 格，页面 5 秒刷新一次，
+     * 首轮就会把队列撑满，之后全部被拒绝，界面永远显示「通道阻塞」。
+     *
+     * 改为：单个线程顺序读，超出 [budgetMs] 就停下来，
+     * 已读到的照常显示。慢总线场景下宁可少显示几个节点，
+     * 也要保证界面持续更新。
+     */
+    private suspend fun readAllPresentInner(
+        present: List<String>,
+        budgetMs: Long
+    ): Map<String, String> = withContext(Dispatchers.IO) {
+        val out = LinkedHashMap<String, String>()
+        val deadline = android.os.SystemClock.elapsedRealtime() + budgetMs
+
+        // ## 轮转读取（2026-10-21 真机实测）
+        //
+        // 慢总线上**单个**节点就要 5.6 秒，6 秒预算只够读 1 个。
+        // 若每轮都从头开始，`mode` 会被反复读，后面 13 个节点永远看不到。
+        // 记住上轮的停点，本轮从那里继续，几轮下来就能覆盖全部节点。
+        val ordered = present
+        val start = readRotation % ordered.size.coerceAtLeast(1)
+        var read = 0
+        for (offset in ordered.indices) {
+            if (channelBlocked) break
+            if (android.os.SystemClock.elapsedRealtime() >= deadline) break
+            val name = ordered[(start + offset) % ordered.size]
+            out[name] = readNodeValue(name)
+            read++
         }
+        readRotation = (start + read) % ordered.size.coerceAtLeast(1)
+        if (read < ordered.size) {
+            Log.d(TAG, "本轮读 $read/${ordered.size} 个节点，下轮从 ${ordered.getOrNull(readRotation)} 继续")
+        }
+        out
+    }
 
     /**
      * 读单个节点，成功返回数值文本，失败返回**可读的错误原因**。

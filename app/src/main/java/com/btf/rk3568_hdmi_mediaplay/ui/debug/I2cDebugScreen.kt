@@ -90,8 +90,12 @@ fun I2cDebugScreen(onExit: () -> Unit) {
 
                 nodesDeferred.await()?.let { nodes ->
                     nodeReport = nodes
-                    val values = withTimeoutOrNull(3_000L) {
-                        withContext(Dispatchers.IO) { I2cProbe.readAllPresent(nodes.present) }
+                    // 预算 6 秒：慢总线（无应答时单节点要等驱动超时约 10s）
+                    // 下优先保证界面持续刷新，读不完的节点本轮留空，下轮再补。
+                    val values = withTimeoutOrNull(8_000L) {
+                        withContext(Dispatchers.IO) {
+                            I2cProbe.readAllPresent(nodes.present, budgetMs = 6_000L)
+                        }
                     }
                     if (values != null) readings = values else Unit
                 }
