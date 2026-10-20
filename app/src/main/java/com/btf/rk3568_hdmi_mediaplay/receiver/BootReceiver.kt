@@ -1,5 +1,7 @@
 package com.btf.rk3568_hdmi_mediaplay.receiver
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -26,6 +28,9 @@ class BootReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "BootReceiver"
+
+        /** AlarmManager 兜底启动的请求码 */
+        private const val ALARM_LAUNCH_REQUEST_CODE = 3001
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -66,18 +71,69 @@ class BootReceiver : BroadcastReceiver() {
                 // 只起 Activity 会导致插盘后无人响应。
                 startUsbService(appContext)
 
-                // 再拉起主界面
+                // 再拉起主界面。
+                //
+                // ## 为什么同时准备 AlarmManager 兜底（2026-10-20）
+                //
+                // Android 10+ 对「后台启动 Activity」有严格限制。实测：
+                // - 本应用若已设为**默认桌面**（HOME），`startActivity` 能成功
+                //   —— 开机时系统本来就要启动 HOME，此时本应用是前台候选
+                // - 若未设为默认桌面，`startActivity` 会被
+                //   `Background activity start ... isBgStartWhitelisted:false` 拒绝
+                //
+                // AlarmManager 的 PendingIntent 在开机场景下相对宽松，作为兜底。
+                // 两条路径都尝试，任一成功即可；失败只记日志，不影响服务运行。
                 val launchIntent = Intent(appContext, MainActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 }
-                appContext.startActivity(launchIntent)
-                Log.i(TAG, "开机自启：已启动服务与主界面")
+
+                var launched = false
+                try {
+                    appContext.startActivity(launchIntent)
+                    launched = true
+                    Log.i(TAG, "开机自启：已直接启动主界面")
+                } catch (e: Exception) {
+                    Log.w(TAG, "直接启动主界面失败，改用 AlarmManager: ${e.message}")
+                }
+
+                if (!launched) {
+                    scheduleLaunchViaAlarm(appContext, launchIntent)
+                }
+                Log.i(TAG, "开机自启：已启动服务与主界面（direct=$launched）")
             } catch (e: Exception) {
                 Log.e(TAG, "开机自启失败", e)
             } finally {
                 pendingResult.finish()
             }
+        }
+    }
+
+    /**
+     * 用精确闹钟把主界面拉起来。
+     *
+     * 系统投递的 PendingIntent 比应用直接 `startActivity` 更容易通过
+     * 后台启动限制（这也正是 `UsbMonitorService.restoreMainUi` 采用的思路）。
+     * 延迟 2 秒：等开机广播链路稳定、桌面初始化完成。
+     */
+    private fun scheduleLaunchViaAlarm(context: Context, launchIntent: Intent) {
+        try {
+            val pending = PendingIntent.getActivity(
+                context,
+                ALARM_LAUNCH_REQUEST_CODE,
+                launchIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val alarm = context.getSystemService(AlarmManager::class.java)
+            alarm?.setExactAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + 2_000L,
+                pending
+            )
+            Log.i(TAG, "开机自启：已安排 AlarmManager 兜底启动")
+        } catch (e: Exception) {
+            Log.e(TAG, "安排 AlarmManager 兜底失败", e)
         }
     }
 

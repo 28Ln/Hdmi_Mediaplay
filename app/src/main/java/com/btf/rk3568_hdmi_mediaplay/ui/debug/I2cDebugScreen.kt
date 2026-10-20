@@ -22,10 +22,13 @@ import com.btf.rk3568_hdmi_mediaplay.hardware.I2cProbe.NodeReport
 import com.btf.rk3568_hdmi_mediaplay.hardware.I2cProbe.WriteStrategy
 import com.btf.rk3568_hdmi_mediaplay.ui.components.mouseDragScroll
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** 状态自动刷新间隔（需求：5 秒） */
 private const val REFRESH_INTERVAL_MS = 5_000L
@@ -62,20 +65,49 @@ fun I2cDebugScreen(onExit: () -> Unit) {
     suspend fun refresh() {
         busy = true
         try {
-            val bus = I2cProbe.probeBusWithTimeout()
-            val nodes = withContext(Dispatchers.IO) { I2cProbe.inspectNodes() }
-            val values = withContext(Dispatchers.IO) { I2cProbe.readAllPresent(nodes.present) }
-            busReport = bus
-            nodeReport = nodes
-            readings = values
+            // ## 三步**并行**，各自超时，互不拖累（2026-10-20 第二次修复）
+            //
+            // 第一版把三步串行包在一个 withTimeoutOrNull 里，实测后果：
+            // 读 `version` 会阻塞（驱动等 I2C 超时），整轮直接超时返回 null，
+            // 于是 busReport 显示了，**nodeReport 却一直没被赋值** ——
+            // 界面永远停在「读取中…」。
+            //
+            // 现在并行发起：
+            // - 总线探测：最慢（要等驱动 I2C 超时），给 6s
+            // - 节点列举：File.list 很快，给 2s
+            // - 节点读数：每个节点 800ms 硬上限，整体给 3s
+            // 任一失败只影响自己那一块，其余照常显示。
+            val bus = coroutineScope {
+                // 节点列举立刻发起，**先发布到界面**，不等总线探测。
+                // 探测要 6s（驱动等 I2C 超时），节点表不该陪着一起等。
+                val nodesDeferred = async(Dispatchers.IO) {
+                    withTimeoutOrNull(2_000L) { I2cProbe.inspectNodes() }
+                }
+                val busDeferred = async(Dispatchers.IO) {
+                    withTimeoutOrNull(6_000L) { I2cProbe.probeBus() }
+                }
+
+                nodesDeferred.await()?.let { nodes ->
+                    nodeReport = nodes
+                    val values = withTimeoutOrNull(3_000L) {
+                        withContext(Dispatchers.IO) { I2cProbe.readAllPresent(nodes.present) }
+                    }
+                    if (values != null) readings = values else Unit
+                }
+                busDeferred.await()
+            }
+
+            busReport = bus ?: I2cProbe.BusReport(
+                state = BusState.CANNOT_PROBE,
+                method = "总线探测超时（6s）",
+                detail = "读 version 时驱动未返回，通常是 I2C 无应答导致内核等待超时"
+            )
             refreshCount++
 
             if (!strategyLocked) {
-                strategy = I2cProbe.resolveStrategy(bus)
+                strategy = I2cProbe.resolveStrategy(busReport!!)
             }
             // 需求 3：**默认启动 I2C** —— 进入页面就自动开始持续写。
-            // 只要存在任一可用策略（mode 节点在，或 su 可用）就自动开；
-            // 两者都不可用时保持停止，并在页面明确显示原因（不假装在发）。
             if (!autoStarted && strategy != WriteStrategy.UNAVAILABLE) {
                 autoStarted = true
                 writing = true
@@ -86,24 +118,21 @@ fun I2cDebugScreen(onExit: () -> Unit) {
     }
 
     LaunchedEffect(Unit) {
-        refresh()
+        // 每一轮都单独兜异常：单次失败（超时/IO 错误）不能让整个自动刷新停摆，
+        // 否则界面会永久停在"探测中"——这正是本轮在真机上观察到的现象。
+        runCatching { refresh() }
         while (isActive) {
             delay(REFRESH_INTERVAL_MS)
-            refresh()
+            runCatching { refresh() }
         }
     }
 
     LaunchedEffect(writing, strategy) {
         if (!writing) return@LaunchedEffect
         while (isActive && writing) {
-            val err = I2cProbe.writeOnce(strategy)
-            if (err == null) {
-                writeOk++
-                lastWrite = "OK"
-            } else {
-                writeFail++
-                lastWrite = err
-            }
+            val outcome = I2cProbe.writeOnce(strategy)
+            if (outcome.onBus) writeOk++ else writeFail++
+            lastWrite = outcome.text
             delay(WRITE_INTERVAL_MS)
         }
     }
@@ -189,10 +218,10 @@ private fun BusSection(report: I2cProbe.BusReport?) {
         val color: Color
         when (report.state) {
             BusState.ONLINE -> { label = "通 · 从机应答"; color = Color(0xFF66BB6A) }
-            BusState.NO_DEVICE -> { label = "不通 · 从机无应答 (ENODEV)"; color = Color(0xFFEF5350) }
+            BusState.NO_DEVICE -> { label = "不通 · 从机无应答（驱动等待超时）"; color = Color(0xFFEF5350) }
             BusState.NODE_MISSING -> { label = "不通 · 驱动节点不存在 (ENOENT)"; color = Color(0xFFFFA726) }
             BusState.UNREADABLE -> { label = "节点存在但读取失败"; color = Color(0xFFFFA726) }
-            BusState.CANNOT_PROBE -> { label = "无法探测 · 无节点且无 su"; color = Color(0xFF90A4AE) }
+            BusState.CANNOT_PROBE -> { label = "无法探测 · 驱动未绑定且无 root"; color = Color(0xFF90A4AE) }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(13.dp).background(color, CircleShape))
@@ -204,6 +233,18 @@ private fun BusSection(report: I2cProbe.BusReport?) {
         report.version?.let { Kv("version", it.toString()) }
         report.detectLine?.let { Kv("0x30", it.trim()) }
         report.detail?.let { Kv("说明", it, Color(0xFFFFCC80)) }
+
+        // 超时（驱动挂住）是最容易被误判成「App 卡了」的情况，单独解释。
+        if (report.method.contains("超时")) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "内核 rk3x-i2c 反复报 timeout 说明：请求发出去了，但总线上没有从机回应，" +
+                    "驱动会一直等到超时才返回（因此本页每次刷新都要等一会儿）。" +
+                    "用 adb logcat | grep rk3x-i2c 可以看到同样的报错。",
+                color = Color(0xFFFFAB91),
+                fontSize = 11.sp
+            )
+        }
     }
 }
 
@@ -345,10 +386,27 @@ private fun WriteSection(
     Card2("③ 持续写（每 ${WRITE_INTERVAL_MS / 1000} 秒一次）") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("策略：", color = Color(0xFFB0BEC5), fontSize = 12.sp)
-            Chip("自动", !strategyLocked, onAuto)
+            // 自动模式下把**实际选中的策略**显示在标签上，
+            // 否则现场只看到"自动"高亮，无法知道当前到底在跑哪条路径。
+            Chip(
+                if (strategyLocked) "自动" else "自动（${
+                    when (strategy) {
+                        WriteStrategy.MODE_IDEMPOTENT -> "mode 幂等写"
+                        WriteStrategy.READ_PROBE -> "只读探测"
+                        WriteStrategy.BUS_PROBE -> "总线探测"
+                        WriteStrategy.UNAVAILABLE -> "不可用"
+                    }
+                }）",
+                !strategyLocked,
+                onAuto
+            )
             Spacer(Modifier.width(6.dp))
             Chip("mode 幂等写", strategyLocked && strategy == WriteStrategy.MODE_IDEMPOTENT) {
                 onStrategy(WriteStrategy.MODE_IDEMPOTENT)
+            }
+            Spacer(Modifier.width(6.dp))
+            Chip("只读 version", strategyLocked && strategy == WriteStrategy.READ_PROBE) {
+                onStrategy(WriteStrategy.READ_PROBE)
             }
             Spacer(Modifier.width(6.dp))
             Chip("总线探测 (su)", strategyLocked && strategy == WriteStrategy.BUS_PROBE) {
@@ -391,12 +449,17 @@ private fun WriteSection(
                 hint = "写 mode 的当前值（幂等）。文档 §4.4：相同值安全，画面不变，但总线有事务。"
                 hintColor = Color(0xFF78909C)
             }
+            WriteStrategy.READ_PROBE -> {
+                hint = "每秒读一次 version。读也是完整 I2C 事务（START+地址+R+STOP），" +
+                    "示波器可见；从机不应答时为 NACK+STOP，对面板无任何副作用。"
+                hintColor = Color(0xFF78909C)
+            }
             WriteStrategy.BUS_PROBE -> {
-                hint = "每秒执行一次 i2cdetect -y 4（SMBus quick probe），节点缺失时的唯一手段。"
+                hint = "每秒执行一次 i2cdetect -y 4（SMBus quick probe），仅在驱动未绑定时使用。"
                 hintColor = Color(0xFF78909C)
             }
             WriteStrategy.UNAVAILABLE -> {
-                hint = "无可用路径：节点不存在且无 su。此时无法产生任何 I2C 流量。"
+                hint = "无可用路径：驱动未绑定且无 root。此时无法产生任何 I2C 流量。"
                 hintColor = Color(0xFFFF8A80)
             }
         }

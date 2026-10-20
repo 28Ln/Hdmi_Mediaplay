@@ -147,7 +147,14 @@ data class AppSettings(
     // 基础设置
     val showOverwriteConfirm: Boolean = true,       // 覆盖确认提示
     val autoPlayOnStart: Boolean = true,            // 启动后自动播放
-    val bootAutoStart: Boolean = false,             // 开机自启动
+    /**
+     * 开机自启动。
+     *
+     * **默认 true**（2026-10-20 调整）：本应用定位是 kiosk/信发终端，
+     * 「开机即播放」是交付的基本要求；默认关闭会让客户现场每次都要人工点开。
+     * 仍可在设置页 / U 盘配置里关掉。
+     */
+    val bootAutoStart: Boolean = true,
     val loopMode: LoopMode = LoopMode.LIST,         // 循环模式
     val language: AppLanguage = AppLanguage.CHINESE, // 语言设置
     

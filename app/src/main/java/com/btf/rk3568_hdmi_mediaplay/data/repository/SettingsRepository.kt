@@ -134,7 +134,7 @@ class SettingsRepository(private val context: Context) {
             AppSettings(
                 showOverwriteConfirm = preferences[SHOW_OVERWRITE_CONFIRM] ?: true,
                 autoPlayOnStart = preferences[AUTO_PLAY_ON_START] ?: true,
-                bootAutoStart = preferences[BOOT_AUTO_START] ?: false,
+                bootAutoStart = preferences[BOOT_AUTO_START] ?: true,
                 loopMode = safeEnumValueOf(preferences[LOOP_MODE], LoopMode.LIST),
                 language = safeEnumValueOf(preferences[LANGUAGE], AppLanguage.CHINESE),
 
