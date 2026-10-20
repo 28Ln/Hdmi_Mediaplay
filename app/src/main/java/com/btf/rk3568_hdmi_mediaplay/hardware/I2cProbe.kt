@@ -213,11 +213,22 @@ object I2cProbe {
      * 优先级：能幂等写就幂等写（不依赖 root）；否则看 su 是否可用。
      */
     suspend fun resolveStrategy(report: BusReport): WriteStrategy = withContext(Dispatchers.IO) {
-        if (File("${HardwareConfig.I2C_BASE_PATH}/mode").exists()) {
+        // ## 优先级：先看「能不能真的产生流量」，而不是「节点在不在」
+        //
+        // 节点存在**不代表**能写成功：实测（RK3568）mode 等 14 个节点全部存在，
+        // 但读取返回 ENODEV —— 此时 MODE_IDEMPOTENT 会每秒失败一次，
+        // 总线上**一次事务都不会发出**，示波器上什么都没有。
+        //
+        // 因此只有在总线确实 ONLINE（从机应答）时才用 mode 幂等写；
+        // 否则退到 i2cdetect（它直接对 /dev/i2c-4 发 SMBus quick probe，
+        // 不依赖驱动，是节点不可读时唯一能在总线上产生动作的手段）。
+        if (report.state == BusState.ONLINE &&
+            File("${HardwareConfig.I2C_BASE_PATH}/mode").exists()
+        ) {
             return@withContext WriteStrategy.MODE_IDEMPOTENT
         }
-        if (report.state == BusState.ONLINE || report.state == BusState.NO_DEVICE) {
-            // 上一步能跑通 i2cdetect，说明 su 可用
+        if (report.state == BusState.NO_DEVICE || report.state == BusState.ONLINE) {
+            // 这两条状态意味着 i2cdetect 已经跑通过 → su 可用
             return@withContext WriteStrategy.BUS_PROBE
         }
         WriteStrategy.UNAVAILABLE
