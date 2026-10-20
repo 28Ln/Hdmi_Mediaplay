@@ -111,7 +111,7 @@ object ImageSplitter {
      * 计算 2 的幂次采样率，使解码结果不小于 [minWidth]×[minHeight]，
      * 同时尽量接近它（避免解码过大导致 OOM）。
      */
-    private fun calculateInSampleSize(
+    internal fun calculateInSampleSize(
         width: Int,
         height: Int,
         minWidth: Int,
