@@ -302,6 +302,7 @@ sealed class HdmiMatrixError {
 |---|---|---|---|
 | `NotAvailable` | `ENOENT` 2 | 驱动未加载 / DTS 未配（**软件**问题） | ❌ |
 | `NoDevice` | `ENODEV` 19 | 节点在但从机无 ACK（**硬件**问题） | ❌ |
+| `BUS_HUNG` | 内部熔断 | 传输卡死未返回，适配器锁未释放，**须重启设备** | ❌ |
 | `PermissionDenied` | `EACCES` 13 | 权限未放行（开机早期） | ✅ 500ms×3 |
 | `DeviceStandby` | `EPERM` 1 | 待机中，只接受 `power`/`key` | ❌ 先 `setPower(true)` |
 | `InvalidValue` | `EINVAL`/`ERANGE` | 值越界 | ❌ 改值 |

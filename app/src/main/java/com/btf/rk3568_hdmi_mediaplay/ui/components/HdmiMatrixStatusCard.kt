@@ -70,9 +70,17 @@ fun HdmiMatrixStatusCard(
         busy = false
     }
 
+    /**
+     * 刷新即「再试一次」。
+     *
+     * 熔断（BUS_HUNG）后所有自动访问都已停止，这里是唯一的复位入口 ——
+     * 否则一次瞬时抖动就会把正常机器永久判死到重启 App 为止。
+     * 复位只放行**一次**尝试，失败会立即重新熔断，不会退化成轮询。
+     */
     fun refresh() {
         scope.launch {
             busy = true
+            controller.retryAfterTrip()
             controller.probe()
             controller.readApplied()
             busy = false

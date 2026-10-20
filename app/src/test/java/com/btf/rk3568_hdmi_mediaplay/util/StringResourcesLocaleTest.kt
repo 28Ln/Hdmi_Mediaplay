@@ -93,6 +93,31 @@ class StringResourcesLocaleTest {
         }
     }
 
+    /**
+     * HDMI 矩阵状态文案的双语一致性。
+     *
+     * 这几个字符串直接决定现场看到「无应答」还是「总线卡死（需重启）」——
+     * 处置动作完全不同。漏写一条语言分支会静默显示成另一种语言，
+     * 排查时会误以为版本不对。
+     */
+    @Test
+    fun `hdmi matrix status strings are bilingual and distinct`() {
+        val pairs = listOf(
+            "hdmiMatrixNoDevice" to { StringResources.hdmiMatrixNoDevice },
+            "hdmiMatrixBusHung" to { StringResources.hdmiMatrixBusHung }
+        )
+        pairs.forEach { (name, getter) ->
+            StringResources.setLanguage(AppLanguage.CHINESE)
+            val zh = getter()
+            StringResources.setLanguage(AppLanguage.ENGLISH)
+            val en = getter()
+
+            assertTrue("$name 中文为空", zh.isNotBlank())
+            assertTrue("$name 英文为空", en.isNotBlank())
+            assertNotEquals("$name 未随语言变化（缺少一条分支）", zh, en)
+        }
+    }
+
     @Test
     fun `language switch is reflected immediately by getters`() {
         // 属性是 get() 计算属性，不缓存 —— 切换后必须立刻反映，

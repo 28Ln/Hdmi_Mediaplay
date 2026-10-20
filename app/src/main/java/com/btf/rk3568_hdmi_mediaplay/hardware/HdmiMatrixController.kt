@@ -92,6 +92,17 @@ class HdmiMatrixController(
      *
      * 每次轮询单独取锁，长等待不会卡住其他写入。
      */
+    /**
+     * 复位熔断后重新探测。
+     *
+     * 只有**用户主动触发**（设置页「重试」）才调用 —— 自动调用会退化成轮询，
+     * 而每次失败尝试都要赔上一个不可回收的 D 态线程。
+     */
+    suspend fun retryAfterTrip(): HdmiMatrixResult<Unit> {
+        (io as? SysfsMatrixNodeIo)?.resetTrip()
+        return ensureOnline()
+    }
+
     suspend fun ensureOnline(
         timeoutMs: Long = 20_000L,
         pollMs: Long = 250L

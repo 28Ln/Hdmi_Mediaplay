@@ -77,6 +77,19 @@ class SysfsMatrixNodeIo(
     /** 供控制器/UI 查询：总线是否已判死 */
     fun isTripped(): Boolean = tripped
 
+    /**
+     * 手动复位熔断。
+     *
+     * 熔断是**保守**的：一次瞬时抖动（比如 MCU 恰好在复位）也会触发。
+     * 若没有任何复位入口，正常机器会被永久判死，只能杀进程。
+     * 因此提供显式复位，只由「用户主动重试」或 `ensureOnline` 的首次调用触发。
+     *
+     * 每次复位最多再试**一次**，失败立即重新熔断 —— 不会退化成轮询。
+     */
+    fun resetTrip() {
+        tripped = false
+    }
+
     private fun pathOf(node: HdmiMatrixNode): String = "$baseDir/${node.relativePath}"
 
     override fun isPresent(node: HdmiMatrixNode): Boolean = try {

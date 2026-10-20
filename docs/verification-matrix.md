@@ -14,7 +14,8 @@
 | `./gradlew.bat :app:assembleDebug --console=plain --no-daemon` | Passed; 确认 1.1.2 改动前工作区可编译 |
 | `./gradlew.bat --stop; ./gradlew.bat clean testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease --console=plain --no-daemon` | Passed; 1.1.2 交付候选构建 |
 | `./gradlew.bat clean testDebugUnitTest assembleDebug assembleRelease --console=plain --no-daemon` | Passed; **1.1.3** 二次审计修复批次（当时 47 个单测全绿，含 2 个新增 tr-TR 回归用例） |
-| `./gradlew.bat clean testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease --console=plain --no-daemon` | Passed; **2026-10-20** 当前基线（**173** 个单测，0 failures，lint 0 errors） |
+| `./gradlew.bat clean testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease --console=plain --no-daemon` | Passed; **2026-10-20** 当前基线（**174** 个单测，0 failures，lint 0 errors） |
+| 同上 | Passed; **2026-10-20** I2C 熔断批次后（新增 `ensureOnline does not poll on ENODEV`，**174** 个单测 0 failures） |
 | `./gradlew.bat clean testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease --console=plain --no-daemon` | Passed; **2026-10-19 增量审计后**（**77** 个 JVM 单测，0 failures；lint 0 errors） |
 
 ## CI Baseline
