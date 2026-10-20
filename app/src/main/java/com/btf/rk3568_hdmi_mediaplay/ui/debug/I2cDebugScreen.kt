@@ -89,6 +89,20 @@ fun I2cDebugScreen(onExit: () -> Unit) {
                     withTimeoutOrNull(2_000L) { I2cProbe.inspectNodes() }
                 }
                 val busDeferred = async(Dispatchers.IO) {
+                    // ## 注意：这个 6 秒超时**对 probeBus 不起作用**
+                    // （2026-10-21 真机实测确认）
+                    //
+                    // probeBus 内部通过 `readBounded` 读 version，而 readBounded
+                    // 用 `future.get(...)` **阻塞等待**。协程取消无法打断阻塞中的
+                    // future.get，因此 withTimeoutOrNull 只能放弃「等待结果」，
+                    // 后台读仍会跑完。
+                    //
+                    // 真机证据：轮转间隔实测 15.7 秒（= 驱动返回耗时 + 刷新间隔），
+                    // 而不是 6 秒。
+                    //
+                    // 保留它只是兜住「probeBus 自身卡在非阻塞段」的极端情况；
+                    // 真正的耗时上限由 I2cProbe.NODE_READ_TIMEOUT_MS +
+                    // SLOW_RETURN_GRACE_MS 决定（当前 15.8 秒）。
                     withTimeoutOrNull(6_000L) { I2cProbe.probeBus() }
                 }
 
