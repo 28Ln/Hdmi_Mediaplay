@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixAvailability
 import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiResolution
 import org.junit.Test
 
@@ -80,6 +81,28 @@ class HdmiControlUnknownStateTest {
      * 只有「依赖当前值反向推断」的控件需要禁用。
      * 分辨率是直接指定目标值，不受影响。
      */
+    /**
+     * 状态文案映射：每种 availability 必须给出**不同**的排查方向。
+     *
+     * 真机曾把「从机无应答」误报成「驱动节点缺失」——两者排查动作完全相反：
+     * - 节点缺失 → 查固件 / DTS
+     * - 从机无应答 → 查供电 / 上拉 / 接线
+     */
+    @Test
+    fun `each availability maps to a distinct diagnostic direction`() {
+        val mapping = mapOf(
+            HdmiMatrixAvailability.NO_DEVICE to "无应答",
+            HdmiMatrixAvailability.BUS_HUNG to "卡死",
+            HdmiMatrixAvailability.MISSING to "不可用"
+        )
+        // 三种状态必须映射到不同文案，不能共用一句「不可用」
+        assertEquals(3, mapping.values.toSet().size)
+        assertTrue(
+            "NO_DEVICE 的文案必须含「无应答」而不是「节点缺失」",
+            mapping[HdmiMatrixAvailability.NO_DEVICE]!!.contains("无应答")
+        )
+    }
+
     @Test
     fun `direct-target controls are safe without a snapshot`() {
         // 分辨率按钮：点击直接写枚举值，不读当前值
