@@ -260,6 +260,12 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
         }
         
+        // 初始权限状态要在 requestPermissions() **之前**记录：
+        // 若进 onCreate 时已有权限，onResume 不应把它当成「刚授予」而重复加载。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            hadStoragePermission = Environment.isExternalStorageManager()
+        }
+
         requestPermissions()
         
         setContent {
@@ -520,7 +526,32 @@ class MainActivity : ComponentActivity() {
         if (serviceBound && mainViewModelRef != null) {
             setupServiceCallbacks()
         }
+        // ## 授权返回后必须自动重载（2026-10-21 真机确认）
+        //
+        // 全新安装的 Release 包首次启动会跳转「所有文件访问权限」页。
+        // 用户在那里点「允许」并返回后，`requestPermissions()` 不会重跑
+        // （它只在 onCreate 调用），于是：
+        //   - 本地媒体不加载 → 四格显示「长按选择媒体文件」
+        //   - USB 监听服务也不启动
+        // 实测：授权后返回 App，画面仍是四个空白格，必须杀进程重启才有内容。
+        //
+        // 这里在 onResume 复查权限，一旦从「未授权」变为「已授权」就补做
+        // 首次启动时被跳过的那部分工作。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val granted = Environment.isExternalStorageManager()
+            if (granted && !hadStoragePermission) {
+                hadStoragePermission = true
+                Log.i(TAG, "存储权限已授予，重新加载本地内容并启动服务")
+                mainViewModelRef?.loadLocalContent()
+                startUsbMonitorService()
+            } else if (granted) {
+                hadStoragePermission = true
+            }
+        }
     }
+
+    /** 上一次 onResume 时是否已有存储权限；用于检测「刚被授予」 */
+    private var hadStoragePermission: Boolean = false
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
