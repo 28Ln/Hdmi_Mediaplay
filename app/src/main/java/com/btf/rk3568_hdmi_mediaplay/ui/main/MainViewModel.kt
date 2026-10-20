@@ -22,6 +22,7 @@ import com.btf.rk3568_hdmi_mediaplay.remote.PlayerStatusInfo
 import com.btf.rk3568_hdmi_mediaplay.ui.components.MessageType
 import com.btf.rk3568_hdmi_mediaplay.ui.components.ToastData
 import com.btf.rk3568_hdmi_mediaplay.util.FileUtils
+import com.btf.rk3568_hdmi_mediaplay.util.FieldLog
 import com.btf.rk3568_hdmi_mediaplay.util.StringResources
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -868,7 +869,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
             }
 
             is HdmiMatrixResult.Failure -> {
-                Log.w(TAG, "HDMI 写入失败: $what, kind=${result.error.kind}")
+                FieldLog.write(TAG, "HDMI 写入失败: $what, kind=${result.error.kind}")
                 withContext(Dispatchers.Main) {
                     showToast(
                         StringResources.hdmiMatrixErrorDetail(result.error),
@@ -1174,11 +1175,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application), P
     /**
      * 日志输出
      */
+    /**
+     * 关键事件日志。
+     *
+     * `enableDebugLog` 只控制 logcat 的**详细**输出；无论开关如何，
+     * 事件都会写入 [FieldLog] 的持久文件 —— 现场出问题时，
+     * 「当时到底做了什么」必须能在事后查，而 logcat 重启即丢。
+     *
+     * 只记关键节点（U 盘状态变化、重试退避、远程指令、硬件下发失败），
+     * 不记高频内容，避免把日志刷满。
+     */
     private fun log(message: String) {
         try {
-            if (settings.value.enableDebugLog) {
-                Log.d(TAG, message)
-            }
+            FieldLog.write(TAG, message)
         } catch (e: Exception) {
             // 忽略
         }

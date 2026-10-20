@@ -7,6 +7,7 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.btf.rk3568_hdmi_mediaplay.ui.customerUiMode
+import com.btf.rk3568_hdmi_mediaplay.util.FieldLog
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +50,9 @@ class MediaPlayApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         instance = this
         
+        // 现场日志必须先初始化：后续所有关键事件都写到这里
+        FieldLog.init(this)
+
         // 设置全局未捕获异常处理
         setupUncaughtExceptionHandler()
         

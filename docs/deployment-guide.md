@@ -52,3 +52,17 @@ adb shell cmd package set-home-activity --user 0     com.btf.rk3568_hdmi_mediapl
 | 开机弹「设为主屏幕应用」 | 未设置默认桌面 | 见 §2 |
 | 开机进了桌面但没播放 | `bootAutoStart` 未开启 | 见 §3 |
 | 插 U 盘无反应 | SELinux 或 `/mnt/media_rw` 权限 | 见 `docs/hdmi-i2c-control.md` §8.5 |
+
+## 现场日志（2026-10-20 新增）
+
+Release 包 `enableDebugLog` **默认关闭**，logcat 重启即丢，现场出问题后无从复盘。
+现在关键事件始终写入持久日志：
+
+```
+/data/data/com.btf.rk3568_hdmi_mediaplay/files/crash_logs/field.log
+```
+
+- 与崩溃日志（`crash_*.txt`）同目录，一次性取走
+- 记录：U 盘状态变化、重试退避、远程指令、硬件下发失败
+- 超过 512KB 轮转为 `field.log.1`，总占用有上限
+- 取日志：`adb shell run-as com.btf.rk3568_hdmi_mediaplay cat files/crash_logs/field.log`
