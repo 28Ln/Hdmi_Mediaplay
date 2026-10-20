@@ -114,8 +114,18 @@ class HdmiMatrixController(
                         _state.update { it.copy(availability = HdmiMatrixAvailability.MISSING) }
                     }
                     attempt.error is HdmiMatrixError.NoDevice -> {
-                        // 从机不应答：重试无意义（硬件未接/未上电），立即结束
-                        _state.update { it.copy(availability = HdmiMatrixAvailability.NO_DEVICE) }
+                        // 从机不应答：重试无意义（硬件未接/未上电），立即结束。
+                        // 若是熔断导致（传输卡死未返回），还要标明「须重启设备」。
+                        val hung = (io as? SysfsMatrixNodeIo)?.isTripped() == true
+                        _state.update {
+                            it.copy(
+                                availability = if (hung) {
+                                    HdmiMatrixAvailability.BUS_HUNG
+                                } else {
+                                    HdmiMatrixAvailability.NO_DEVICE
+                                }
+                            )
+                        }
                         publishError(attempt.error)
                         done = HdmiMatrixResult.Failure(attempt.error)
                     }
@@ -1085,7 +1095,13 @@ class HdmiMatrixController(
                 lastError = error,
                 availability = when (error) {
                     is HdmiMatrixError.NotAvailable -> HdmiMatrixAvailability.MISSING
-                    is HdmiMatrixError.NoDevice -> HdmiMatrixAvailability.NO_DEVICE
+                    // 熔断后的 ENODEV 含义不同：不是「没接线」，而是「总线卡死、必须重启」
+                    is HdmiMatrixError.NoDevice ->
+                        if ((io as? SysfsMatrixNodeIo)?.isTripped() == true) {
+                            HdmiMatrixAvailability.BUS_HUNG
+                        } else {
+                            HdmiMatrixAvailability.NO_DEVICE
+                        }
                     is HdmiMatrixError.PermissionDenied -> HdmiMatrixAvailability.PERMISSION_DENIED
                     else -> it.availability
                 }

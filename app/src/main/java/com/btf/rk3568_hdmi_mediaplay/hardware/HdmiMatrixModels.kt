@@ -268,6 +268,16 @@ enum class HdmiMatrixAvailability {
      */
     NO_DEVICE,
 
+    /**
+     * 传输**卡死**：无 ACK 后驱动未完成请求，调用方停在 D 态，适配器锁不释放。
+     *
+     * 与 [NO_DEVICE] 分开的理由：两者的**恢复方式不同**。
+     * `NO_DEVICE` 接好线就能恢复（App 无需干预）；
+     * 这里必须**重启设备** —— 锁在内核里，App 重试只会继续赔线程。
+     * 现场如果只看到「无应答」，会一直去查线，查不出所以然。
+     */
+    BUS_HUNG,
+
     PERMISSION_DENIED
 }
 

@@ -386,6 +386,17 @@ object StringResources {
     } else {
         "HDMI 拼接板无应答（请检查连接与供电）"
     }
+    /**
+     * 总线卡死（传输无 ACK 且未返回，驱动适配器锁未释放）。
+     *
+     * 与 [hdmiMatrixNoDevice] 分开：那个接好线就能恢复；
+     * 这个**必须重启设备**，否则 App 每次重试都会再赔上一个不可回收的线程。
+     */
+    val hdmiMatrixBusHung: String get() = if (isEn) {
+        "HDMI I2C bus hung (reboot required)"
+    } else {
+        "HDMI 总线卡死（需重启设备）"
+    }
     val hdmiMatrixNoHardwareMode: String get() = if (isEn) {
         "This layout is software-only; no hardware mode to apply"
     } else {
