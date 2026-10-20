@@ -690,6 +690,29 @@ class HdmiMatrixControllerTest {
         assertEquals(HdmiMatrixErrorKind.NOT_AVAILABLE, result.errorOrNull()?.kind)
     }
 
+    /**
+     * 从机无应答（ENODEV）**绝不能轮询**。
+     *
+     * 真机上每次 ENODEV/超时都意味着内核里一次无法回收的 D 态读，
+     * 且驱动适配器锁不释放。若按 250ms 轮询 20 秒，会留下数十个
+     * 无法回收的线程并让整条总线 EBUSY（2026-10-20 实测线程 188→293）。
+     */
+    @Test
+    fun `ensureOnline does not poll on ENODEV`() = runTest {
+        val io = FakeHdmiMatrixNodeIo()
+        io.stickyError(HdmiMatrixNode.VERSION, HdmiMatrixErrno.ENODEV)
+
+        val result = controller(io).ensureOnline(timeoutMs = 5_000L, pollMs = 200L)
+
+        assertTrue(result.isFailure)
+        assertEquals(HdmiMatrixErrorKind.NOT_AVAILABLE, result.errorOrNull()?.kind)
+        assertEquals(
+            "ENODEV 必须一次即止，重试只会泄漏不可回收的 D 态线程",
+            1,
+            io.readLog.count { it == HdmiMatrixNode.VERSION }
+        )
+    }
+
     @Test
     fun `ensureOnline does not poll on EACCES`() = runTest {
         val io = FakeHdmiMatrixNodeIo()

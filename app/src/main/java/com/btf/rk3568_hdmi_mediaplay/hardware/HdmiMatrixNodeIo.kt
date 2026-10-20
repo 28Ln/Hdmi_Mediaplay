@@ -45,13 +45,37 @@ interface HdmiMatrixNodeIo {
  * ## 线程
  *
  * 这些方法会阻塞在 sysfs 上，**必须在 IO 线程调用**（控制器负责 withContext）。
- * 每次操作仍包一层 [HardwareConfig.MATRIX_OP_TIMEOUT_MS] 超时，
- * 防止 I2C 总线被 MCU 占用时协程永远挂住。
+ *
+ * ## `withTimeout` 对 D 态读**无效**（2026-10-20 真机修正）
+ *
+ * 原注释写「包一层超时，防止协程永远挂住」——**这是错的**。
+ * 从机无应答时 `Os.read` 进入 D 态（不可中断睡眠），
+ * 协程超时只会让调用方放弃等待，**内核里的那次读依然占着线程**，
+ * 实测连 `timeout 20 cat` 都杀不掉，且驱动适配器锁一直不释放，
+ * 之后所有访问 EBUSY。
+ *
+ * 因此：
+ * - 超时后**必须熔断**，不能按 250ms 轮询继续重试
+ *   （20 秒的 `ensureOnline` 会泄漏最多 80 个 D 态线程）
+ * - 熔断状态是进程级的，硬件修好前重启 App 也不会自愈
+ * - 熔断由 `HdmiMatrixController` 转成 `NoDevice` → UI 隐藏控制入口
  */
 class SysfsMatrixNodeIo(
     private val baseDir: String = HardwareConfig.I2C_BASE_PATH,
     private val suFallbackEnabled: Boolean = HardwareConfig.ALLOW_SU_WRITE
 ) : HdmiMatrixNodeIo {
+
+    /**
+     * 一旦某次 sysfs 操作超时，就不再发起新操作。
+     *
+     * 每次超时都意味着一个**无法回收**的 D 态线程和一把不释放的适配器锁；
+     * 继续重试只会把小问题放大成进程级资源耗尽。
+     */
+    @Volatile
+    private var tripped = false
+
+    /** 供控制器/UI 查询：总线是否已判死 */
+    fun isTripped(): Boolean = tripped
 
     private fun pathOf(node: HdmiMatrixNode): String = "$baseDir/${node.relativePath}"
 
@@ -99,7 +123,23 @@ class SysfsMatrixNodeIo(
         }
     }
 
-    private suspend fun readRaw(node: HdmiMatrixNode): String =
+    private suspend fun readRaw(node: HdmiMatrixNode): String {
+        if (tripped) throw blockedException(node)
+        return try {
+            readRawTimed(node)
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            tripped = true
+            throw blockedException(node)
+        }
+    }
+
+    private fun blockedException(node: HdmiMatrixNode) = MatrixNodeException(
+        errno = HdmiMatrixErrno.ENODEV,
+        message = "I2C 传输无应答且未返回（驱动 D 态），已熔断",
+        node = node
+    )
+
+    private suspend fun readRawTimed(node: HdmiMatrixNode): String =
         withTimeout(HardwareConfig.MATRIX_OP_TIMEOUT_MS) {
             val path = pathOf(node)
             val fd = try {
@@ -132,6 +172,16 @@ class SysfsMatrixNodeIo(
     }
 
     private suspend fun writeRaw(node: HdmiMatrixNode, value: String) {
+        if (tripped) throw blockedException(node)
+        try {
+            writeRawTimed(node, value)
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            tripped = true
+            throw blockedException(node)
+        }
+    }
+
+    private suspend fun writeRawTimed(node: HdmiMatrixNode, value: String) {
         withTimeout(HardwareConfig.MATRIX_OP_TIMEOUT_MS) {
             val path = pathOf(node)
             try {

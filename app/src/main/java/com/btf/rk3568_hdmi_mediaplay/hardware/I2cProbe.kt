@@ -102,6 +102,14 @@ object I2cProbe {
     // ==================== 1. I2C 是否通 ====================
 
     suspend fun probeBus(): BusReport = withContext(Dispatchers.IO) {
+        // 熔断后一律不碰 sysfs 读：一次探测就会再留一个 D 态线程
+        if (channelBlocked) {
+            return@withContext BusReport(
+                state = BusState.NO_DEVICE,
+                method = "熔断中（上一次传输无 ACK 未返回）",
+                detail = "驱动适配器锁未释放，任何 I2C 访问都会 EBUSY"
+            )
+        }
         // 注意：`exists()` / `isDirectory` 在 sysfs 上同样可能被驱动阻塞。
         // 调用方（UI 的 refresh）已对整轮探测加了 5s 总超时，这里不再叠加；
         // 但节点读数与目录列举各自还有 800ms 的硬上限。
@@ -223,15 +231,144 @@ object I2cProbe {
     }
 
     /** 带硬超时的目录列举；超时返回 null（调用方按「读不到」处理）。 */
-    private fun listWithTimeout(path: String): List<String>? {
-        var out: List<String>? = null
-        val worker = Thread {
-            out = runCatching { File(path).list()?.toList() }.getOrNull()
+    private fun listWithTimeout(path: String): List<String>? =
+        File(path).list()?.toList()
+
+    /**
+     * ## 唯一允许阻塞的 sysfs 读取通道（2026-10-20 第三次修复）
+     *
+     * ### 为什么不能「每次读开一个线程 + join」
+     *
+     * 从机无应答时，`read()` 会进入 **D 态（不可中断睡眠）**，
+     * 一直卡在内核的 I2C 等待里。给线程设超时并不会让它退出 ——
+     * 实测 `timeout 20 cat version` 都杀不掉，只能等驱动自己超时。
+     *
+     * 于是「800ms 没等到就放弃、下次再开新线程」的写法会**持续泄漏**：
+     * 实测 30 秒内进程线程数 188 → 293（14 节点 × 每 5 秒一轮 + 每秒探测）。
+     * 计动机 7×24 运行，线程和内核栈会一路涨到无法分配。
+     *
+     * ### 现在的做法
+     *
+     * 全局**只有一个**阻塞读线程，所有读取按队列串行执行：
+     * 第一个读卡住后，后面的请求在队列里等待，**不再新建线程**。
+     * 最多泄漏 1 个 D 态线程（且它是复用的），进程线程数恒定。
+     *
+     * 代价：一旦卡住，后续读都会排在后面。这对调试页是可接受的 ——
+     * 卡住本身就说明硬件不通，此时「读数」本来也没有意义；
+     * 而节点列举（`getdents`）不受影响，界面仍能显示 14/14。
+     */
+    /** 队列积压上限：读通道正常时几乎恒为 0 */
+    private const val READ_QUEUE_CAPACITY = 16
+
+    /** 读通道已被卡死：与「本次读超时」含义不同 */
+    private const val READ_CHANNEL_BLOCKED = "!channel-blocked"
+
+    // ==================== 熔断器 ====================
+    //
+    // ## 为什么必须有熔断（2026-10-20 真机定论）
+    //
+    // 从机不应答时，`rk3x-i2c` 打印 `timeout, ipd: 0x00, state: 1`
+    // **却不完成这次传输** —— 调用方永远停在 D 态（不可中断睡眠），
+    // 连 `timeout 20 cat` 都杀不掉。它同时**一直持有适配器锁**，
+    // 于是后续任何访问都 EBUSY（`i2cget -y 4 0x30` 立即返回 busy，
+    // `i2cdetect -y 4` 扫到 0x30 就挂住）。
+    //
+    // 结果：**每发一次事务就永久泄漏一个 D 态线程**，而且整条 I2C 总线
+    // 在重启前都不可再用。对 7×24 的投放机，这必须兜住。
+    //
+    // 熔断后的行为：不再发起任何 sysfs 事务，界面如实说明原因，
+    // 并提供「重试一次」让人在排查硬件后手动复位（会再冒一次泄漏风险）。
+
+    /** 一旦有读/写超时未返回，就不再发起新事务 */
+    @Volatile
+    private var channelBlocked = false
+
+    /** 卡死时的时间戳（elapsedRealtime），用于界面提示 */
+    @Volatile
+    var blockedSince: Long = 0L
+        private set
+
+    /** 读通道是否已被判死（进程内，重启 App 才会重新尝试） */
+    fun isChannelBlocked(): Boolean = channelBlocked
+
+    /**
+     * 手动复位熔断，允许再试一次。
+     *
+     * **注意**：如果硬件仍无应答，这次尝试会再留下一个无法回收的线程，
+     * 因此只由用户显式点击触发，不自动重试。
+     */
+    fun resetChannel() {
+        channelBlocked = false
+        blockedSince = 0L
+    }
+
+    private fun tripChannel() {
+        if (!channelBlocked) {
+            channelBlocked = true
+            blockedSince = android.os.SystemClock.elapsedRealtime()
         }
-        worker.isDaemon = true
-        worker.start()
-        worker.join(NODE_READ_TIMEOUT_MS)
-        return if (worker.isAlive) null else out
+    }
+
+    /**
+     * 单线程执行器，**队列有界**。
+     *
+     * 线程数固定不是全部问题：读卡住时队列本身也会涨。
+     * 页面每 5 秒提交 14 个节点读，若一个都消费不了，
+     * 无界队列会一路堆下去（每个任务都是一个待执行对象）。
+     * 队列满了直接拒绝，由调用方显示「读取通道阻塞」。
+     */
+    private val reader: java.util.concurrent.ThreadPoolExecutor =
+        java.util.concurrent.ThreadPoolExecutor(
+            1, 1, 0L, TimeUnit.MILLISECONDS,
+            java.util.concurrent.ArrayBlockingQueue(READ_QUEUE_CAPACITY),
+            { r -> Thread(r, "i2c-sysfs-reader").apply { isDaemon = true } }
+        ).apply {
+            // 满了就抛，不阻塞提交方（提交发生在 IO 线程，阻塞会拖住整轮刷新）
+            rejectedExecutionHandler =
+                java.util.concurrent.ThreadPoolExecutor.AbortPolicy()
+        }
+
+
+    /**
+     * 提交一次读操作并最多等待 [NODE_READ_TIMEOUT_MS]。
+     *
+     * 超时**不会**取消底层读（内核态无法取消），但也不会新建线程：
+     * 该任务仍排在单线程执行器里，后续任务依次排队。
+     *
+     * @return 读到的文本；超时返回 null
+     */
+    private fun readBounded(block: () -> String): String? {
+        if (channelBlocked) return READ_CHANNEL_BLOCKED
+
+        val future = try {
+            reader.submit(java.util.concurrent.Callable {
+                try {
+                    block()
+                } catch (e: android.system.ErrnoException) {
+                    // 必须在工作线程里翻译：ErrnoException 跨线程抛出会丢掉 errno
+                    "!errno=${e.errno}" +
+                        (if (e.errno == android.system.OsConstants.ENODEV) " ENODEV" else "")
+                } catch (e: Exception) {
+                    "!失败：" + (e.message ?: e.javaClass.simpleName)
+                }
+            })
+        } catch (e: java.util.concurrent.RejectedExecutionException) {
+            // 队列已满 = 前一次读卡死至今没返回，通道事实上不可用
+            Log.w(TAG, "sysfs read channel saturated (queue full)")
+            return READ_CHANNEL_BLOCKED
+        }
+        return try {
+            future.get(NODE_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        } catch (e: java.util.concurrent.TimeoutException) {
+            // 故意不 cancel：改状态打断不了内核态读，只会让队列语义更混乱。
+            // 同时熔断：这一笔已卡死，继续发只会继续泄漏线程、继续锁死总线。
+            tripChannel()
+            Log.w(TAG, "sysfs read blocked >${NODE_READ_TIMEOUT_MS}ms — channel tripped")
+            null
+        } catch (e: Exception) {
+            Log.w(TAG, "sysfs read failed: ${e.message}")
+            null
+        }
     }
 
     // ==================== 3. 持续写 ====================
@@ -419,7 +556,13 @@ object I2cProbe {
      * readNodeValue 内部是「后台线程 + join」，会占住 IO 线程，
      * 但 Dispatchers.IO 默认 64 个线程，14 个节点不会排队。
      */
-    suspend fun readAllPresent(present: List<String>): Map<String, String> =
+    suspend fun readAllPresent(present: List<String>): Map<String, String> {
+        // 熔断后不读：返回空表，UI 会显示「通道阻塞」
+        if (channelBlocked) return emptyMap()
+        return readAllPresentInner(present)
+    }
+
+    private suspend fun readAllPresentInner(present: List<String>): Map<String, String> =
         coroutineScope {
             val jobs = present.map { name ->
                 async(Dispatchers.IO) { name to readNodeValue(name) }
@@ -455,34 +598,27 @@ object I2cProbe {
      */
     private fun readNodeValue(name: String): String {
         val path = "${HardwareConfig.I2C_BASE_PATH}/$name"
-        var result: String = "读取超时（驱动未返回）"
-
-        val worker = Thread {
-            result = try {
-                val fd = android.system.Os.open(path, android.system.OsConstants.O_RDONLY, 0)
-                try {
-                    val buf = ByteArray(128)
-                    val n = android.system.Os.read(fd, buf, 0, buf.size)
-                    if (n <= 0) "（空）" else String(buf, 0, n).trim().ifEmpty { "（空）" }
-                } finally {
-                    runCatching { android.system.Os.close(fd) }
-                }
-            } catch (e: android.system.ErrnoException) {
-                when (e.errno) {
-                    android.system.OsConstants.ENODEV -> "ENODEV 从机不应答"
-                    android.system.OsConstants.EACCES -> "EACCES 权限不足"
-                    android.system.OsConstants.EPERM -> "EPERM 待机中"
-                    android.system.OsConstants.EIO -> "EIO 总线错误"
-                    else -> "errno=${e.errno}"
-                }
-            } catch (e: Exception) {
-                e.message ?: e.javaClass.simpleName
+        val text = readBounded {
+            val fd = android.system.Os.open(path, android.system.OsConstants.O_RDONLY, 0)
+            try {
+                val buf = ByteArray(128)
+                val n = android.system.Os.read(fd, buf, 0, buf.size)
+                if (n <= 0) "（空）" else String(buf, 0, n).trim().ifEmpty { "（空）" }
+            } finally {
+                runCatching { android.system.Os.close(fd) }
             }
+        } ?: return "读取超时（驱动未返回）"
+        if (text == READ_CHANNEL_BLOCKED) return "读取通道阻塞（前一次读未返回）"
+
+        // 异常在读取线程里抛出，这里统一翻译成现场可读的原因
+        return when {
+            text.startsWith("!ENODEV") -> "ENODEV 从机不应答"
+            text.startsWith("!EACCES") -> "EACCES 权限不足"
+            text.startsWith("!EPERM") -> "EPERM 待机中"
+            text.startsWith("!EIO") -> "EIO 总线错误"
+            text.startsWith("!errno=") -> text.removePrefix("!")
+            else -> text
         }
-        worker.isDaemon = true
-        worker.start()
-        worker.join(NODE_READ_TIMEOUT_MS)
-        return if (worker.isAlive) "读取超时（驱动未返回）" else result
     }
 
     /** 节点用途说明（调试页展示用；与协议文档 §2.1/§2.2 对应） */

@@ -1,5 +1,6 @@
 package com.btf.rk3568_hdmi_mediaplay.ui.debug
 
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -129,11 +130,31 @@ fun I2cDebugScreen(onExit: () -> Unit) {
 
     LaunchedEffect(writing, strategy) {
         if (!writing) return@LaunchedEffect
+        // ## 按**固定节拍**发送，而不是「发完再等 1 秒」
+        //
+        // 从机不应答时 writeOnce 本身要占满 800ms（读超时），
+        // 「发完再 delay(1000)」会让实际周期变成 ~1.8s，
+        // 示波器上量出来的间隔与标注的 1 秒对不上。
+        // 这里以起始时刻为基准补齐剩余时间，保持 1s 节拍稳定。
+        var next = SystemClock.elapsedRealtime()
         while (isActive && writing) {
+            // 熔断后不再发送：每一次都会再留下一个无法回收的 D 态线程
+            if (I2cProbe.isChannelBlocked()) {
+                writing = false
+                lastWrite = "总线已挂死，发送停止"
+                break
+            }
             val outcome = I2cProbe.writeOnce(strategy)
             if (outcome.onBus) writeOk++ else writeFail++
             lastWrite = outcome.text
-            delay(WRITE_INTERVAL_MS)
+            next += WRITE_INTERVAL_MS
+            val wait = next - SystemClock.elapsedRealtime()
+            if (wait > 0) {
+                delay(wait)
+            } else {
+                // 本轮超时了（单次事务比周期还长），重新对齐基准，避免追帧
+                next = SystemClock.elapsedRealtime()
+            }
         }
     }
 
@@ -183,7 +204,14 @@ fun I2cDebugScreen(onExit: () -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            BusSection(busReport)
+            BusSection(
+                report = busReport,
+                channelBlocked = I2cProbe.isChannelBlocked(),
+                onRetry = {
+                    I2cProbe.resetChannel()
+                    scope.launch { runCatching { refresh() } }
+                }
+            )
             NodesSection(nodeReport, readings)
             WriteSection(
                 strategy = strategy,
@@ -208,8 +236,27 @@ fun I2cDebugScreen(onExit: () -> Unit) {
 }
 
 @Composable
-private fun BusSection(report: I2cProbe.BusReport?) {
+private fun BusSection(report: I2cProbe.BusReport?, channelBlocked: Boolean, onRetry: () -> Unit) {
     Card2("① I2C 总线状态") {
+        // 熔断优先展示：此时所有读数都已停止，必须让人一眼看出原因
+        if (channelBlocked) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(13.dp).background(Color(0xFFEF5350), CircleShape))
+                Spacer(Modifier.width(9.dp))
+                Text("总线挂死 · 已停止发送", color = Color(0xFFEF5350), fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(6.dp))
+            Kv("原因", "首次传输无 ACK 后，rk3x-i2c 未完成该请求：调用方永久停在 D 态，" +
+                "适配器锁一直不释放")
+            Kv("后果", "此后任何 I2C 访问都 EBUSY；继续发只会继续泄漏线程")
+            Kv("处置", "硬件排查（VDD / SDA-SCL 上拉 / 接线 / 地址跳线）后重启设备")
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = onRetry, modifier = Modifier.width(120.dp)) {
+                Text("重试一次", fontSize = 13.sp)
+            }
+            return@Card2
+        }
         if (report == null) {
             Text("探测中…", color = Color(0xFF90A4AE), fontSize = 13.sp)
             return@Card2
