@@ -644,6 +644,21 @@ object I2cProbe {
     }
 
     /**
+     * 同 [readAllPresent]，但保留每个值的**读取时刻**。
+     *
+     * 供调试页显示数据年龄 —— 慢总线上不同节点的值可能相差数分钟。
+     */
+    suspend fun readAllPresentStamped(
+        present: List<String>,
+        budgetMs: Long = 6_000L
+    ): Map<String, Reading> {
+        if (channelBlocked) return emptyMap()
+        val out = LinkedHashMap<String, Reading>()
+        readAllPresentInner(present, budgetMs, out)
+        return out
+    }
+
+    /**
      * 逐个读节点，**受总预算约束**。
      *
      * ## 为什么不能并行（2026-10-21 真机实测）
@@ -657,9 +672,20 @@ object I2cProbe {
      * 已读到的照常显示。慢总线场景下宁可少显示几个节点，
      * 也要保证界面持续更新。
      */
+    /**
+     * 带读取时刻的读数。
+     *
+     * 慢总线上一个预算周期只能读 1 个节点（单次约 5.6 秒），
+     * 14 个节点完整轮一遍要 **3.6 分钟**（真机实测 15.4 秒/节点）。
+     * 界面并排显示的 14 个值可能横跨好几分钟 ——
+     * 不带时间戳会让现场误以为它们都是「当前值」。
+     */
+    data class Reading(val value: String, val readAtElapsedMs: Long)
+
     private suspend fun readAllPresentInner(
         present: List<String>,
-        budgetMs: Long
+        budgetMs: Long,
+        stamped: MutableMap<String, Reading>? = null
     ): Map<String, String> = withContext(Dispatchers.IO) {
         val out = LinkedHashMap<String, String>()
         val deadline = android.os.SystemClock.elapsedRealtime() + budgetMs
@@ -676,7 +702,9 @@ object I2cProbe {
             if (channelBlocked) break
             if (android.os.SystemClock.elapsedRealtime() >= deadline) break
             val name = ordered[(start + offset) % ordered.size]
-            out[name] = readNodeValue(name)
+            val value = readNodeValue(name)
+            out[name] = value
+            stamped?.put(name, Reading(value, android.os.SystemClock.elapsedRealtime()))
             read++
         }
         readRotation = (start + read) % ordered.size.coerceAtLeast(1)

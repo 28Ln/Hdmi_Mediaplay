@@ -51,7 +51,11 @@ fun I2cDebugScreen(onExit: () -> Unit) {
 
     var busReport by remember { mutableStateOf<I2cProbe.BusReport?>(null) }
     var nodeReport by remember { mutableStateOf<NodeReport?>(null) }
-    var readings by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    // 带时间戳的读数：慢总线上 14 个节点轮一遍要 3.6 分钟，
+    // 界面必须能说明每个值有多旧。
+    var readings by remember {
+        mutableStateOf<Map<String, I2cProbe.Reading>>(emptyMap())
+    }
     var refreshCount by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf(false) }
 
@@ -94,10 +98,14 @@ fun I2cDebugScreen(onExit: () -> Unit) {
                     // 下优先保证界面持续刷新，读不完的节点本轮留空，下轮再补。
                     val values = withTimeoutOrNull(8_000L) {
                         withContext(Dispatchers.IO) {
-                            I2cProbe.readAllPresent(nodes.present, budgetMs = 6_000L)
+                            I2cProbe.readAllPresentStamped(nodes.present, budgetMs = 6_000L)
                         }
                     }
-                    if (values != null) readings = values else Unit
+                    if (values != null) {
+                        // 合并而不是替换：本轮没读到的节点保留旧值，
+                        // 靠时间戳说明它有多旧。
+                        readings = readings + values
+                    }
                 }
                 busDeferred.await()
             }
@@ -301,7 +309,7 @@ private fun BusSection(report: I2cProbe.BusReport?, channelBlocked: Boolean, onR
 }
 
 @Composable
-private fun NodesSection(report: NodeReport?, readings: Map<String, String>) {
+private fun NodesSection(report: NodeReport?, readings: Map<String, I2cProbe.Reading>) {
     Card2("② 驱动节点（${I2cProbe.basePath()}）") {
         if (report == null) {
             Text("读取中…", color = Color(0xFF90A4AE), fontSize = 13.sp)
@@ -368,7 +376,7 @@ private fun looksLikeValue(text: String): Boolean {
 private fun NodeColumn(
     names: List<String>,
     report: NodeReport,
-    readings: Map<String, String>,
+    readings: Map<String, I2cProbe.Reading>,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier) {
@@ -381,7 +389,11 @@ private fun NodeColumn(
 
         names.forEach { name ->
             val ok = name in report.present
-            val value = readings[name]
+            val reading = readings[name]
+            val value = reading?.value
+            val ageMs = reading?.let {
+                android.os.SystemClock.elapsedRealtime() - it.readAtElapsedMs
+            }
             // 判据是「是否像正常读数」：十进制或 0x 十六进制都算正常，
             // 其余文本（超时、通道阻塞、EACCES…）一律按错误色显示。
             //
@@ -408,6 +420,10 @@ private fun NodeColumn(
                         when {
                             !ok -> "—"
                             value == null -> "未读到"
+                            // 慢总线上节点可能几分钟才轮到一次，
+                            // 超过 30 秒就标注年龄，避免被当成「当前值」
+                            ageMs != null && ageMs > 30_000L ->
+                                "$value  (${ageMs / 1000}s 前)"
                             else -> value
                         },
                         0.dp,
@@ -415,6 +431,8 @@ private fun NodeColumn(
                             !ok -> Color(0xFF666666)
                             value == null -> Color(0xFFFFAB91)
                             isError -> Color(0xFFFF8A80)
+                            // 数据偏旧用暗黄提示，区别于「刚读到」的亮黄
+                            ageMs != null && ageMs > 30_000L -> Color(0xFFBCAAA4)
                             else -> Color(0xFFFFF59D)
                         },
                         mono = true,
