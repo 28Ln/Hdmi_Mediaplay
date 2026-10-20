@@ -394,8 +394,18 @@ object I2cProbe {
     private fun readBounded(block: () -> String): String? {
         if (channelBlocked) return READ_CHANNEL_BLOCKED
 
+        // 记录任务**真正开始执行**的时刻，用于把「排队等待」与「执行耗时」分开。
+        //
+        // ## 为什么要分开（2026-10-21 真机实测）
+        //
+        // 调试页 refresh 与 probeBus 都会提交读任务，而读通道只有 1 个线程。
+        // 单节点执行 ~5.5 秒，队列里排 3 个就是 16.5 秒 —— 超过 15.8 秒的
+        // 挂死判定，于是**每 30 秒熔断一次**（日志可见稳定周期）。
+        // 但总线并没有挂死，只是排队。熔断把正常排队的总线判成了死总线。
+        val startedAt = java.util.concurrent.atomic.AtomicLong(0L)
         val future = try {
             reader.submit(java.util.concurrent.Callable {
+                startedAt.set(android.os.SystemClock.elapsedRealtime())
                 try {
                     block()
                 } catch (e: android.system.ErrnoException) {
@@ -434,7 +444,14 @@ object I2cProbe {
             try {
                 future.get(SLOW_RETURN_GRACE_MS, TimeUnit.MILLISECONDS)
             } catch (slow: Exception) {
-                // 宽限期也没回来 → 判定为真正的挂死，熔断
+                // 宽限期也没回来。但先确认它是**真的卡住**还是**还在排队**：
+                // 若任务尚未开始执行（startedAt==0），说明前面积压了太多任务，
+                // 这不是挂死，不该熔断 —— 只放弃本次等待。
+                if (startedAt.get() == 0L) {
+                    Log.w(TAG, "读任务仍在排队（未开始执行），放弃本次等待，不熔断")
+                    return null
+                }
+                // 已开始执行且超过宽限期 → 真正的挂死，熔断
                 tripChannel()
                 Log.w(
                     TAG,
