@@ -314,6 +314,28 @@ private fun BusSection(report: I2cProbe.BusReport?, channelBlocked: Boolean, onR
         report.detectLine?.let { Kv("0x30", it.trim()) }
         report.detail?.let { Kv("说明", it, Color(0xFFFFCC80)) }
 
+        // ## 区分「从未通」与「先好后坏」（2026-10-21）
+        //
+        // 现场反馈「刚开机是好的，运行一段时间后失效，必须重启」。
+        // 若属实，根因多半是上电时序（MCU 比 SoC 慢几秒启动）。
+        // 只靠「当前不通」无法区分两种处置完全不同的情况：
+        // - 从未成功 → 硬件从开机就坏（查供电/上拉/接线）
+        // - 曾经成功 → 上电时序问题（需驱动侧延迟重试）
+        if (report.everSucceeded) {
+            val at = I2cProbe.firstSuccessAtElapsedMs
+            Kv(
+                "历史",
+                "本进程内曾成功读取（首次在开机后 ${at / 1000}s）→ 属「先好后坏」",
+                Color(0xFFFFAB91)
+            )
+        } else if (report.state != BusState.ONLINE) {
+            Kv(
+                "历史",
+                "本进程内从未成功读取过 → 更像是硬件链路本身不通",
+                Color(0xFF90A4AE)
+            )
+        }
+
         // 超时（驱动挂住）是最容易被误判成「App 卡了」的情况，单独解释。
         if (report.method.contains("超时")) {
             Spacer(Modifier.height(6.dp))

@@ -107,7 +107,23 @@ object I2cProbe {
         val method: String = "",
         /** i2cdetect 的 0x30 原文行（仅 su 路径） */
         val detectLine: String? = null,
-        val detail: String? = null
+        val detail: String? = null,
+        /**
+         * 本次是否**曾经**读过正常值。
+         *
+         * ## 为什么需要这个标志（2026-10-21）
+         *
+         * 现场反馈「刚开机是好的，运行一段时间后失效，必须重启」。
+         * 若属实，根因多半是**上电时序**：拼接板 MCU 比 SoC 慢几秒启动，
+         * 而驱动从第 2.7 秒就开始每秒轮询，可能把未就绪的 MCU 打进异常态。
+         *
+         * 区分这两种情况对处置完全不同：
+         * - **从未成功** → 硬件从开机就是坏的（查供电/上拉/接线）
+         * - **曾经成功过** → 上电时序问题（需要驱动侧延迟重试，或避免早期轮询）
+         *
+         * 仅靠「当前不通」无法区分，必须记住历史。
+         */
+        val everSucceeded: Boolean = false
     )
 
     // ==================== 1. I2C 是否通 ====================
@@ -120,7 +136,8 @@ object I2cProbe {
             return@withContext BusReport(
                 state = BusState.NO_DEVICE,
                 method = "熔断中（上一次传输无 ACK 未返回）",
-                detail = "驱动适配器锁未释放，任何 I2C 访问都会 EBUSY；冷却后自动重试"
+                detail = "驱动适配器锁未释放，任何 I2C 访问都会 EBUSY；冷却后自动重试",
+                everSucceeded = hasEverSucceeded
             )
         }
         // 注意：`exists()` / `isDirectory` 在 sysfs 上同样可能被驱动阻塞。
@@ -147,7 +164,8 @@ object I2cProbe {
                     state = if (value == 2) BusState.ONLINE else BusState.UNREADABLE,
                     version = value,
                     method = "sysfs: version",
-                    detail = if (value == 2) null else "version=$value（协议版本应为 2）"
+                    detail = if (value == 2) null else "version=$value（协议版本应为 2）",
+                    everSucceeded = hasEverSucceeded
                 )
             }
             // 节点在，但读失败：ENODEV 说明从机不应答，这是**硬件**结论
@@ -155,7 +173,13 @@ object I2cProbe {
                 return@withContext BusReport(
                     state = BusState.NO_DEVICE,
                     method = "sysfs: version（存在但读失败）",
-                    detail = "节点存在，读取返回 ENODEV → 从机没有 ACK"
+                    detail = if (hasEverSucceeded) {
+                        "节点存在，读取返回 ENODEV → 从机没有 ACK。" +
+                            "**本进程内曾成功读到过值**，属「先好后坏」，优先怀疑上电时序/接触"
+                    } else {
+                        "节点存在，读取返回 ENODEV → 从机没有 ACK（本进程内从未成功过）"
+                    },
+                    everSucceeded = hasEverSucceeded
                 )
             }
             if (text.contains("EACCES")) {
@@ -303,6 +327,27 @@ object I2cProbe {
     /** 卡死时的时间戳（elapsedRealtime），用于界面提示 */
     @Volatile
     var blockedSince: Long = 0L
+        private set
+
+    /**
+     * 本进程内是否**成功读到过**任意节点的数值。
+     *
+     * 用于区分「硬件从开机就是坏的」与「上电时序问题」：
+     * 后者会在开机最初几秒成功、此后永久失败（见 [BusReport.everSucceeded]）。
+     *
+     * 注意是**进程级**记录：App 重启后清零。若需要跨重启，要落盘到 FieldLog。
+     */
+    @Volatile
+    var hasEverSucceeded: Boolean = false
+        private set
+
+    /**
+     * 首次成功读到的时刻（elapsedRealtime）；未成功过则为 0。
+     *
+     * 配合 [hasEverSucceeded] 可判断「是在开机早期成功的，还是后来才成功的」。
+     */
+    @Volatile
+    var firstSuccessAtElapsedMs: Long = 0L
         private set
 
     /** 读通道是否已被判死（进程内，重启 App 才会重新尝试） */
@@ -765,6 +810,14 @@ object I2cProbe {
             }
         } ?: return "读取超时（驱动未返回）"
         if (text == READ_CHANNEL_BLOCKED) return "读取通道阻塞（前一次读未返回）"
+
+        // 记录「曾经成功」：成功读到数值说明链路至少通过一次。
+        // 这是区分「上电时序问题」与「硬件从未通」的唯一依据。
+        if (text.toIntOrNull() != null && !hasEverSucceeded) {
+            hasEverSucceeded = true
+            firstSuccessAtElapsedMs = android.os.SystemClock.elapsedRealtime()
+            android.util.Log.i(TAG, "I2C 首次成功读取，elapsed=${firstSuccessAtElapsedMs}ms")
+        }
 
         // 异常在读取线程里抛出，这里统一翻译成现场可读的原因
         return when {
