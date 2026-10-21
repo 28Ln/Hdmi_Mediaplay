@@ -63,6 +63,20 @@ fun I2cDebugScreen(onExit: () -> Unit) {
     var strategyLocked by remember { mutableStateOf(false) }
     var writing by remember { mutableStateOf(false) }
     var autoStarted by remember { mutableStateOf(false) }
+
+    /**
+     * 暂停**全部** I2C 流量（刷新 + 写循环都停）。
+     *
+     * ## 为什么需要单独的开关（2026-10-21）
+     *
+     * 现场排查「I2C 先好后坏」时，需要一段**总线上绝对零流量**的观察窗口。
+     * 而原来的「停止」按钮只停写循环，`refresh()` 仍在每 5 秒读一次 ——
+     * 窗口并不干净，无法据此判断「不访问是否就不会坏」。
+     *
+     * 实测依据：App force-stop 后 61 秒内核零 timeout；
+     * 而停在调试页 46 秒产生 30 条 timeout。可见流量确实全部来自本页。
+     */
+    var paused by remember { mutableStateOf(false) }
     var writeOk by remember { mutableIntStateOf(0) }
     var writeFail by remember { mutableIntStateOf(0) }
     var lastWrite by remember { mutableStateOf<String?>(null) }
@@ -142,7 +156,8 @@ fun I2cDebugScreen(onExit: () -> Unit) {
                 strategy = I2cProbe.resolveStrategy(busReport!!)
             }
             // 需求 3：**默认启动 I2C** —— 进入页面就自动开始持续写。
-            if (!autoStarted && strategy != WriteStrategy.UNAVAILABLE) {
+            // 但暂停期间不自动启动（暂停表示「要一段零流量窗口」）。
+            if (!autoStarted && !paused && strategy != WriteStrategy.UNAVAILABLE) {
                 autoStarted = true
                 writing = true
             }
@@ -151,7 +166,8 @@ fun I2cDebugScreen(onExit: () -> Unit) {
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(paused) {
+        if (paused) return@LaunchedEffect
         // 每一轮都单独兜异常：单次失败（超时/IO 错误）不能让整个自动刷新停摆，
         // 否则界面会永久停在"探测中"——这正是本轮在真机上观察到的现象。
         runCatching { refresh() }
@@ -208,15 +224,30 @@ fun I2cDebugScreen(onExit: () -> Unit) {
                 Text("I2C 调试", color = Color(0xFF80DEEA), fontSize = 19.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.width(14.dp))
                 Text(
-                    "每 ${REFRESH_INTERVAL_MS / 1000}s 自动刷新（已 $refreshCount 次）",
-                    color = Color(0xFF78909C),
+                    if (paused) "⏸ 已暂停全部流量（零 I2C 事务）"
+                    else "每 ${REFRESH_INTERVAL_MS / 1000}s 自动刷新（已 $refreshCount 次）",
+                    color = if (paused) Color(0xFFFFB74D) else Color(0xFF78909C),
                     fontSize = 11.sp
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // 暂停全部流量：排查「不访问是否就不会坏」时，需要一段
+                // 总线上绝对零事务的干净窗口。只停写循环是不够的 ——
+                // refresh 仍会每 5 秒读一次。
                 Button(
-                    onClick = { if (!busy) scope.launch { refresh() } },
-                    enabled = !busy,
+                    onClick = {
+                        paused = !paused
+                        if (paused) writing = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (paused) Color(0xFFEF6C00) else Color(0xFF37474F)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) { Text(if (paused) "恢复" else "暂停全部", fontSize = 12.sp) }
+                Spacer(Modifier.width(8.dp))
+                Button(
+                    onClick = { if (!busy && !paused) scope.launch { refresh() } },
+                    enabled = !busy && !paused,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                 ) { Text("刷新", fontSize = 12.sp) }
