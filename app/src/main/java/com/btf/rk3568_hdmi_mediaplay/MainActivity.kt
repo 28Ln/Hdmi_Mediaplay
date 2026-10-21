@@ -274,13 +274,14 @@ class MainActivity : ComponentActivity() {
                     setupFullscreen()
                 }
                 
-                // Debug 包启动即进入 I2C 调试页（临时调试需求）；
-                // Release 仍从主播放界面开始。
-                var currentScreen by remember {
-                    mutableStateOf<Screen>(
-                        if (BuildConfig.IS_DEBUG_BUILD) Screen.I2cDebug else Screen.Main
-                    )
-                }
+                // ## 默认一律进播放界面（2026-10-21 调整）
+                //
+                // 原实现让 Debug 包启动即进 I2C 调试页。但该页会持续产生
+                // I2C 事务（每 5 秒读 + 可选每秒写），「打开 App」就等于
+                // 「立即开始访问拼接板」，不适合作为默认行为。
+                //
+                // 现在调试页改为**按需进入**：主界面顶部工具栏提供入口按钮。
+                var currentScreen by remember { mutableStateOf<Screen>(Screen.Main) }
                 val mainViewModel: MainViewModel = viewModel()
                 val settings by mainViewModel.settings.collectAsState()
                 
@@ -385,6 +386,10 @@ class MainActivity : ComponentActivity() {
                         onNavigateToSettings = { currentScreen = Screen.Settings },
                         onNavigateToImageSplit = { currentScreen = Screen.ImageSplit },
                         onScanUsb = { requestUsbScan() },
+                        // 仅 Debug 包提供调试页入口
+                        onOpenI2cDebug = if (BuildConfig.IS_DEBUG_BUILD) {
+                            { currentScreen = Screen.I2cDebug }
+                        } else null,
                         onSelectFile = { playerIndex ->
                             selectingPlayerIndex = playerIndex
                             try {

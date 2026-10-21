@@ -49,7 +49,9 @@ fun MainScreen(
     onNavigateToSettings: () -> Unit = {},
     onNavigateToImageSplit: () -> Unit = {},
     onSelectFile: ((Int) -> Unit)? = null,
-    onScanUsb: () -> Unit = {}
+    onScanUsb: () -> Unit = {},
+    /** Debug 包才提供；为 null 表示不显示调试页入口 */
+    onOpenI2cDebug: (() -> Unit)? = null
 ) {
     val settings by viewModel.settings.collectAsState()
     val playerConfigs by viewModel.playerConfigs.collectAsState()
@@ -184,6 +186,19 @@ fun MainScreen(
             // U盘状态 - 根据功能开关
             if (featureFlags.showUsbStatus) {
                 UsbStatusIndicator(usbState = usbState)
+            }
+
+            // I2C 调试页入口（仅 Debug 包）。
+            //
+            // 2026-10-21 起调试页不再作为启动首页 —— 它会持续产生 I2C 事务，
+            // 「打开 App」不该等于「开始访问拼接板」。改为按需点开。
+            if (onOpenI2cDebug != null) {
+                TextButton(
+                    onClick = onOpenI2cDebug,
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = Color(0xFF80DEEA)
+                    )
+                ) { Text("I2C 调试", fontSize = 12.sp) }
             }
 
             // HDMI 总线故障指示 —— **不受功能开关控制**。

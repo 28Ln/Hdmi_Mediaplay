@@ -156,11 +156,21 @@ fun I2cDebugScreen(onExit: () -> Unit) {
             if (!strategyLocked) {
                 strategy = I2cProbe.resolveStrategy(busReport!!)
             }
-            // 需求 3：**默认启动 I2C** —— 进入页面就自动开始持续写。
-            // 但暂停期间不自动启动（暂停表示「要一段零流量窗口」）。
+            // ## 默认改为**只读**，写需手动启动（2026-10-21 修正）
+            //
+            // 原实现「进入页面就自动开始每秒写 mode」。但实测发现：
+            // - 总线 ONLINE 时该策略是**真实的写命令**（读 mode → 写回）
+            // - 每秒 1 次 × 数百秒 = 数百次向 MCU 的写
+            // - 现场「只是打开 App」= 立即开始持续写拼接板
+            //
+            // 对示波器测量来说，**读事务同样有完整波形**
+            // （START + 地址 + R + STOP），完全够用，且对面板零副作用。
+            //
+            // 因此默认停留在「只读探测」，需要写时由操作者显式点「启动」。
             if (!autoStarted && !paused && strategy != WriteStrategy.UNAVAILABLE) {
                 autoStarted = true
-                writing = true
+                // 仅当策略是只读探测时才自动开始；写策略必须手动启动
+                writing = (strategy == WriteStrategy.READ_PROBE)
             }
         } finally {
             busy = false
