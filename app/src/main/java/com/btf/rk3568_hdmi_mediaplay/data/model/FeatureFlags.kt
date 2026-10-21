@@ -194,7 +194,12 @@ data class FeatureFlags(
             // 其他控制 - 精简
             allowOrientationAutoSwitch = true,  // 竖屏模式旋转是核心行为，默认开启
             showStorageSettings = false,
-            showHdmiControl = false,
+            // HDMI 拼接板控制：**默认开启**。
+            // 这是拼接墙设备的核⼼能力（分辨率/电源/静音/融合带），
+            // 关闭后客户版设置页只剩「布局模式 + 扫描U盘」，
+            // 设备退化成普通播放器。若个别客户不需要，可用 U 盘
+            // btf_config.json 的 showHdmiControl:false 关闭。
+            showHdmiControl = true,
             showHelpSection = false,
             showScanUsbButton = true  // 扫描U盘保留
         )

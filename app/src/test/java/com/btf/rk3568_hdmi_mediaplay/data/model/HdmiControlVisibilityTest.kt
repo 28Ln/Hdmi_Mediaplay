@@ -62,14 +62,23 @@ class HdmiControlVisibilityTest {
     }
 
     /**
-     * 默认值：Release 关闭、Debug 开启 —— 靠 U 盘配置按需打开。
+     * 默认值：Release 与 Debug **都开启**。
+     *
+     * 2026-10-21 起 Release 由「默认关闭」改为「默认开启」——
+     * 拼接墙控制是核心能力，不该藏在 U 盘配置后面。
+     * 不需要的客户可用 `showHdmiControl:false` 关闭。
      */
     @Test
-    fun `release defaults hide hdmi control and debug defaults show it`() {
+    fun `both release and debug default to showing hdmi control`() {
         val release = FeatureFlags.releaseDefaults()
         val debug = FeatureFlags.debugDefaults()
 
-        assertFalse("Release 默认关闭（需要 U 盘配置显式开启）", release.showHdmiControl)
+        // 2026-10-21 变更：Release 改为默认开启。
+        // 拼接墙设备的核心能力（分辨率/电源/静音/融合带）不该藏在
+        // U 盘配置后面；关闭后客户版只剩「布局模式 + 扫描U盘」，
+        // 设备退化成普通播放器。个别客户不需要时可用
+        // btf_config.json 的 showHdmiControl:false 关闭。
+        assertTrue("Release 默认开启（拼接墙核心能力）", release.showHdmiControl)
         assertTrue("Debug 默认开启（便于开发调试）", debug.showHdmiControl)
     }
 }
