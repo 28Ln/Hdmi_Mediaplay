@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -220,17 +221,39 @@ fun I2cDebugScreen(onExit: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("I2C 调试", color = Color(0xFF80DEEA), fontSize = 19.sp, fontWeight = FontWeight.Bold)
+            // ## 左侧必须可收缩（2026-10-21 真机发现）
+            //
+            // 原来左右两个 Row 都没有约束，标题 + 状态文字占满了宽度，
+            // 右侧三个按钮被**完全挤出屏幕**（1024px 宽下只看到「进入播放」，
+            // 「刷新」和「暂停全部」都看不见）。
+            //
+            // 改为：左侧 weight(1f) 可收缩，状态文字单行省略；
+            // 右侧按钮保持自然宽度，优先可见。
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    "I2C 调试",
+                    color = Color(0xFF80DEEA),
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
                 Spacer(Modifier.width(14.dp))
                 Text(
-                    if (paused) "⏸ 已暂停全部流量（零 I2C 事务）"
-                    else "每 ${REFRESH_INTERVAL_MS / 1000}s 自动刷新（已 $refreshCount 次）",
+                    if (paused) "⏸ 已暂停（零流量）"
+                    else "每 ${REFRESH_INTERVAL_MS / 1000}s 刷新 · 已 $refreshCount 次",
                     color = if (paused) Color(0xFFFFB74D) else Color(0xFF78909C),
-                    fontSize = 11.sp
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 12.dp)
+            ) {
                 // 暂停全部流量：排查「不访问是否就不会坏」时，需要一段
                 // 总线上绝对零事务的干净窗口。只停写循环是不够的 ——
                 // refresh 仍会每 5 秒读一次。
@@ -243,14 +266,7 @@ fun I2cDebugScreen(onExit: () -> Unit) {
                         containerColor = if (paused) Color(0xFFEF6C00) else Color(0xFF37474F)
                     ),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                ) { Text(if (paused) "恢复" else "暂停全部", fontSize = 12.sp) }
-                Spacer(Modifier.width(8.dp))
-                Button(
-                    onClick = { if (!busy && !paused) scope.launch { refresh() } },
-                    enabled = !busy && !paused,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                ) { Text("刷新", fontSize = 12.sp) }
+                ) { Text(if (paused) "恢复" else "暂停", fontSize = 12.sp) }
                 Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = onExit,
