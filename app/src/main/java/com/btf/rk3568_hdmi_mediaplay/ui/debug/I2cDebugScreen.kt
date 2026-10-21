@@ -571,11 +571,30 @@ private fun WriteSection(
             }
         }
 
+        // ## 累计写入量提示（2026-10-21）
+        //
+        // MODE_IDEMPOTENT 的真实行为是「读 mode → 原值写回」，
+        // 每次都会**向 MCU 发一条写命令**（不是纯读）。
+        // 每秒 1 次 × 持续运行 = 可观的写入量，现场需要知道这个数字。
+        //
+        // 实测背景：调试页进入约 5 秒后自动开始每秒写，
+        // 在可用窗口（约 200 秒）内约产生 200 次 mode 写。
+        if (strategy == WriteStrategy.MODE_IDEMPOTENT && (ok + fail) > 0) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "已向 MCU 发送 ${ok + fail} 次 mode 写命令" +
+                    "（每秒 1 次；MODE 写会占用 MCU 的 I2C 带宽）",
+                color = Color(0xFFFFB74D),
+                fontSize = 11.sp
+            )
+        }
+
         val hint: String
         val hintColor: Color
         when (strategy) {
             WriteStrategy.MODE_IDEMPOTENT -> {
-                hint = "写 mode 的当前值（幂等）。文档 §4.4：相同值安全，画面不变，但总线有事务。"
+                hint = "写 mode 的当前值（幂等）。文档 §4.4：相同值安全，画面不变，" +
+                    "但**每次都会向 MCU 发一条写命令**。"
                 hintColor = Color(0xFF78909C)
             }
             WriteStrategy.READ_PROBE -> {
