@@ -151,6 +151,18 @@ App 访问 sysfs 会被 SELinux 直接拒绝，表现为「权限拒绝」而非
 > 客户版底栏按钮明显更大，适合无触摸屏的鼠标/遥控操作场景。
 > HDMI 控制区块在 Release 默认可见（2026-10-21 起）。
 
+### 远程控制在 Release 包同样可用
+
+```
+get_status                  → status_response, payloadSize=770
+set_layout GRID_2X2         → layout_changed, payloadSize=76
+                             → 设置页显示「模式 7 / ✓ 当前」（GRID_2X2 即模式 7）
+```
+
+> 差异：Release 包**不打**「远程控制: 设置布局」这类详细日志
+> （`log()` 走 `FieldLog`，Release 下 logcat 输出被精简）。
+> 命令本身完全正常，不要因为没有该日志就判定失败。
+
 ## 五、测试与构建
 
 | 项 | 结果 |
