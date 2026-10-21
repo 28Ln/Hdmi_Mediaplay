@@ -2,6 +2,7 @@ package com.btf.rk3568_hdmi_mediaplay.data.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import com.btf.rk3568_hdmi_mediaplay.hardware.HdmiMatrixAvailability
@@ -100,6 +101,31 @@ class HdmiControlUnknownStateTest {
         assertTrue(
             "NO_DEVICE 的文案必须含「无应答」而不是「节点缺失」",
             mapping[HdmiMatrixAvailability.NO_DEVICE]!!.contains("无应答")
+        )
+    }
+
+    /**
+     * 探测超时不能被误报成「驱动未绑定且无 root」。
+     *
+     * 真机实测：驱动已绑定、root 可用、14 个节点全在，
+     * 但读 version 要 5.6~25 秒（内核 I2C 超时），
+     * 超出 6 秒预算后旧代码返回 CANNOT_PROBE，
+     * 界面显示「驱动未绑定且无 root」—— 排查方向被完全带偏。
+     */
+    @Test
+    fun `probe timeout has its own state distinct from cannot-probe`() {
+        val labels = mapOf(
+            "CANNOT_PROBE" to "无法探测 · 驱动未绑定且无 root",
+            "PROBE_TIMEOUT" to "探测超时 · 读 version 超过预算"
+        )
+        assertNotEquals(
+            "超时与「没驱动没root」必须是不同文案",
+            labels["CANNOT_PROBE"], labels["PROBE_TIMEOUT"]
+        )
+        assertTrue(labels["PROBE_TIMEOUT"]!!.contains("超时"))
+        assertFalse(
+            "超时文案不应出现「驱动未绑定」",
+            labels["PROBE_TIMEOUT"]!!.contains("驱动未绑定")
         )
     }
 

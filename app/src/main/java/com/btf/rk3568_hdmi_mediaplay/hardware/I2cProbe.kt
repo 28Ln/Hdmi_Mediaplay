@@ -89,7 +89,18 @@ object I2cProbe {
         /** 节点存在但读失败（权限等） */
         UNREADABLE,
         /** 无节点且无 su */
-        CANNOT_PROBE
+        CANNOT_PROBE,
+
+        /**
+         * 探测本身超时（读 version 在预算内没返回）。
+         *
+         * **必须与 [CANNOT_PROBE] 区分**（2026-10-21 真机发现）：
+         * 旧实现把「超时」也映射成 CANNOT_PROBE，界面显示
+         * 「驱动未绑定且无 root」——而实测驱动已绑定、root 可用、
+         * 14 个节点全在，只是读太慢。这条误报会把排查方向
+         * 完全带偏（去查驱动和 root，实际该查总线）。
+         */
+        PROBE_TIMEOUT
     }
 
     data class NodeReport(

@@ -131,9 +131,10 @@ fun I2cDebugScreen(onExit: () -> Unit) {
             }
 
             busReport = bus ?: I2cProbe.BusReport(
-                state = BusState.CANNOT_PROBE,
+                state = BusState.PROBE_TIMEOUT,
                 method = "总线探测超时（6s）",
-                detail = "读 version 时驱动未返回，通常是 I2C 无应答导致内核等待超时"
+                detail = "读 version 时驱动未返回。驱动已绑定、节点也在（见 ②），" +
+                    "只是单次读要等内核 I2C 超时（实测 5.6~25 秒），超出了本次预算"
             )
             refreshCount++
 
@@ -302,6 +303,7 @@ private fun BusSection(report: I2cProbe.BusReport?, channelBlocked: Boolean, onR
             BusState.NODE_MISSING -> { label = "不通 · 驱动节点不存在 (ENOENT)"; color = Color(0xFFFFA726) }
             BusState.UNREADABLE -> { label = "节点存在但读取失败"; color = Color(0xFFFFA726) }
             BusState.CANNOT_PROBE -> { label = "无法探测 · 驱动未绑定且无 root"; color = Color(0xFF90A4AE) }
+            BusState.PROBE_TIMEOUT -> { label = "探测超时 · 读 version 超过预算"; color = Color(0xFFFFA726) }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(13.dp).background(color, CircleShape))
